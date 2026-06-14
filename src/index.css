@@ -1,0 +1,132 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ------------------------------------------------------------------ */
+/* Design tokens                                                       */
+/* ------------------------------------------------------------------ */
+:root {
+  /* Light theme */
+  --background: 240 20% 98%;
+  --surface: 0 0% 100%;
+  --surface-2: 240 20% 96%;
+  --card: 0 0% 100%;
+  --card-foreground: 240 10% 12%;
+  --foreground: 240 10% 12%;
+  --muted: 240 14% 93%;
+  --muted-foreground: 240 5% 42%;
+  --border: 240 12% 88%;
+  --input: 240 12% 90%;
+  --accent: 263 80% 60%;
+  --accent-foreground: 0 0% 100%;
+  --ring: 263 80% 60%;
+  --destructive: 0 72% 51%;
+  --destructive-foreground: 0 0% 100%;
+  --success: 142 71% 42%;
+  --warning: 38 92% 50%;
+  --radius: 14px;
+}
+
+.dark {
+  --background: 240 12% 6%;
+  --surface: 240 9% 9%;
+  --surface-2: 240 8% 12%;
+  --card: 240 8% 10%;
+  --card-foreground: 240 12% 96%;
+  --foreground: 240 12% 96%;
+  --muted: 240 7% 16%;
+  --muted-foreground: 240 6% 64%;
+  --border: 240 7% 17%;
+  --input: 240 7% 16%;
+  --accent: 263 85% 66%;
+  --accent-foreground: 0 0% 100%;
+  --ring: 263 85% 66%;
+  --destructive: 0 72% 55%;
+  --destructive-foreground: 0 0% 100%;
+  --success: 142 69% 48%;
+  --warning: 38 92% 55%;
+}
+
+* {
+  border-color: hsl(var(--border));
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background-color: hsl(var(--background));
+  color: hsl(var(--foreground));
+  font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  overflow: hidden;
+  user-select: none;
+}
+
+#root {
+  /* Subtle accent glow in the corners for depth. */
+  background:
+    radial-gradient(1100px 700px at 100% -10%, hsl(var(--accent) / 0.10), transparent 60%),
+    radial-gradient(900px 600px at -10% 110%, hsl(var(--accent) / 0.07), transparent 55%);
+}
+
+/* ------------------------------------------------------------------ */
+/* Scrollbars                                                          */
+/* ------------------------------------------------------------------ */
+.scroll-area {
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: hsl(var(--muted-foreground) / 0.3) transparent;
+}
+.scroll-area::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+.scroll-area::-webkit-scrollbar-thumb {
+  background-color: hsl(var(--muted-foreground) / 0.25);
+  border-radius: 999px;
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+.scroll-area::-webkit-scrollbar-thumb:hover {
+  background-color: hsl(var(--muted-foreground) / 0.45);
+}
+
+/* ------------------------------------------------------------------ */
+/* Helpers                                                             */
+/* ------------------------------------------------------------------ */
+@layer components {
+  .glass {
+    background-color: hsl(var(--surface) / 0.7);
+    backdrop-filter: blur(16px);
+  }
+
+  .card-surface {
+    background-color: hsl(var(--card));
+    border: 1px solid hsl(var(--border));
+    border-radius: var(--radius);
+  }
+
+  .btn-focus {
+    @apply outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background;
+  }
+
+  .input-base {
+    @apply w-full rounded-lg border bg-input/60 px-3 py-2 text-sm text-foreground
+           placeholder:text-muted-foreground/70 btn-focus transition;
+  }
+}
+
+::selection {
+  background: hsl(var(--accent) / 0.35);
+}
+
+/* Native-feeling focus removal for mouse users (keyboard keeps ring). */
+:focus:not(:focus-visible) {
+  outline: none;
+}

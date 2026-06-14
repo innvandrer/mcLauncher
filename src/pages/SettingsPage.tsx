@@ -1,0 +1,186 @@
+import { useState } from "react";
+import { Cpu, MonitorCog, Palette, Search, Sparkles } from "lucide-react";
+import { Button, Field, Input } from "@/components/ui";
+import { useStore } from "@/store/useStore";
+import { api } from "@/lib/api";
+import { ACCENTS, cn } from "@/lib/utils";
+import type { JavaInstall, Settings } from "@/lib/types";
+
+export function SettingsPage() {
+  const settings = useStore((s) => s.settings);
+  const saveSettings = useStore((s) => s.saveSettings);
+  const [javaList, setJavaList] = useState<JavaInstall[] | null>(null);
+  const [detecting, setDetecting] = useState(false);
+
+  if (!settings) return null;
+
+  const patch = (p: Partial<Settings>) => saveSettings({ ...settings, ...p });
+
+  const detect = async () => {
+    setDetecting(true);
+    try {
+      setJavaList(await api.detectJava());
+    } finally {
+      setDetecting(false);
+    }
+  };
+
+  return (
+    <div className="mx-auto max-w-2xl px-8 py-6">
+      <h1 className="text-2xl font-bold tracking-tight">Settings</h1>
+
+      {/* Appearance */}
+      <Section icon={<Palette className="h-4 w-4" />} title="Appearance">
+        <Field label="Theme">
+          <div className="flex gap-2">
+            {["dark", "light"].map((t) => (
+              <button
+                key={t}
+                onClick={() => patch({ theme: t })}
+                className={cn(
+                  "flex-1 rounded-lg border px-4 py-2 text-sm font-medium capitalize transition btn-focus",
+                  settings.theme === t
+                    ? "border-accent bg-accent/15"
+                    : "border-border bg-muted/40 hover:bg-muted",
+                )}
+              >
+                {t}
+              </button>
+            ))}
+          </div>
+        </Field>
+        <Field label="Accent color">
+          <div className="flex flex-wrap gap-2">
+            {Object.entries(ACCENTS).map(([name, hsl]) => (
+              <button
+                key={name}
+                onClick={() => patch({ accent: name })}
+                style={{ backgroundColor: `hsl(${hsl})` }}
+                className={cn(
+                  "h-8 w-8 rounded-full transition btn-focus",
+                  settings.accent === name
+                    ? "ring-2 ring-offset-2 ring-offset-background"
+                    : "opacity-80 hover:opacity-100",
+                )}
+                title={name}
+              />
+            ))}
+          </div>
+        </Field>
+      </Section>
+
+      {/* Game / Java */}
+      <Section icon={<Cpu className="h-4 w-4" />} title="Java & performance">
+        <Field label={`Memory: ${(settings.memoryMb / 1024).toFixed(1)} GB`}>
+          <input
+            type="range"
+            min={1024}
+            max={16384}
+            step={512}
+            value={settings.memoryMb}
+            onChange={(e) => patch({ memoryMb: Number(e.target.value) })}
+            className="w-full accent-[hsl(var(--accent))]"
+          />
+        </Field>
+
+        <Field label="Java executable" hint="Leave empty to auto-detect or download the right version per instance.">
+          <div className="flex gap-2">
+            <Input
+              defaultValue={settings.javaPath ?? ""}
+              onBlur={(e) => patch({ javaPath: e.target.value.trim() || null })}
+              placeholder="Auto"
+              className="font-mono text-xs"
+            />
+            <Button variant="secondary" onClick={detect} loading={detecting}>
+              <Search className="h-4 w-4" /> Detect
+            </Button>
+          </div>
+        </Field>
+        {javaList && (
+          <div className="space-y-1.5">
+            {javaList.length === 0 && (
+              <p className="text-sm text-muted-foreground">
+                No Java found. One will be downloaded automatically when you launch.
+              </p>
+            )}
+            {javaList.map((j) => (
+              <button
+                key={j.path}
+                onClick={() => patch({ javaPath: j.path })}
+                className="flex w-full items-center justify-between rounded-lg border bg-card/60 px-3 py-2 text-left text-sm transition hover:bg-muted"
+              >
+                <span className="truncate font-mono text-xs">{j.path}</span>
+                <span className="ml-2 shrink-0 rounded-full bg-muted px-2 py-0.5 text-xs">
+                  Java {j.major}
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
+
+        <Field label="Default JVM arguments">
+          <textarea
+            defaultValue={settings.jvmArgs}
+            onBlur={(e) => patch({ jvmArgs: e.target.value })}
+            rows={3}
+            className="input-base resize-none font-mono text-xs"
+          />
+        </Field>
+      </Section>
+
+      {/* Behavior */}
+      <Section icon={<MonitorCog className="h-4 w-4" />} title="Behavior">
+        <Field label={`Concurrent downloads: ${settings.maxConcurrentDownloads}`}>
+          <input
+            type="range"
+            min={1}
+            max={32}
+            step={1}
+            value={settings.maxConcurrentDownloads}
+            onChange={(e) => patch({ maxConcurrentDownloads: Number(e.target.value) })}
+            className="w-full accent-[hsl(var(--accent))]"
+          />
+        </Field>
+        <label className="flex cursor-pointer items-center justify-between rounded-lg border bg-card/60 px-4 py-3">
+          <div>
+            <div className="text-sm font-medium">Hide launcher while playing</div>
+            <div className="text-xs text-muted-foreground">
+              Minimizes Beacon when the game starts, restores it on exit.
+            </div>
+          </div>
+          <input
+            type="checkbox"
+            checked={settings.closeOnLaunch}
+            onChange={(e) => patch({ closeOnLaunch: e.target.checked })}
+            className="h-5 w-5 accent-[hsl(var(--accent))]"
+          />
+        </label>
+      </Section>
+
+      <div className="mt-8 flex items-center gap-2 text-xs text-muted-foreground">
+        <Sparkles className="h-3.5 w-3.5" />
+        Beacon v0.1 — a modern, open-source Minecraft launcher.
+      </div>
+    </div>
+  );
+}
+
+function Section({
+  icon,
+  title,
+  children,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="mt-6">
+      <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+        {icon}
+        {title}
+      </h2>
+      <div className="space-y-4 rounded-xl border bg-card/40 p-5">{children}</div>
+    </section>
+  );
+}
