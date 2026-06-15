@@ -1,7 +1,8 @@
-import { Boxes, LayoutGrid, Settings as SettingsIcon, UserCircle2, Users } from "lucide-react";
+import { Boxes, LayoutGrid, Settings as SettingsIcon, Users } from "lucide-react";
 import { motion } from "framer-motion";
 import { useStore, type View } from "@/store/useStore";
 import { cn } from "@/lib/utils";
+import { PlayerAvatar } from "@/components/PlayerAvatar";
 
 const items: { id: View; label: string; icon: typeof LayoutGrid }[] = [
   { id: "instances", label: "Instances", icon: LayoutGrid },
@@ -50,13 +51,7 @@ export function Sidebar() {
           onClick={() => setView("accounts")}
           className="flex w-full items-center gap-3 rounded-lg border border-border/60 bg-card/60 p-2.5 text-left transition-colors hover:bg-muted/50 btn-focus"
         >
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-accent/15 text-accent">
-            {active ? (
-              <span className="text-sm font-bold uppercase">{active.username.charAt(0)}</span>
-            ) : (
-              <UserCircle2 className="h-5 w-5" />
-            )}
-          </div>
+          <PlayerAvatar account={active} size={36} className="shrink-0" />
           <div className="min-w-0 flex-1">
             <div className="truncate text-sm font-medium">
               {active ? active.username : "No account"}

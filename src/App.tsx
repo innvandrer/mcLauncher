@@ -5,6 +5,7 @@ import { Sidebar } from "./components/Sidebar";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { Toaster } from "./components/Toaster";
 import { AuthPromptModal } from "./components/AuthPromptModal";
+import { UpdateModal } from "./components/UpdateModal";
 import { Spinner } from "./components/ui";
 import { InstancesPage } from "./pages/InstancesPage";
 import { InstanceDetailPage } from "./pages/InstanceDetailPage";
@@ -67,6 +68,7 @@ export default function App() {
       </div>
       <Toaster />
       <AuthPromptModal />
+      <UpdateModal />
     </div>
   );
 }

@@ -3,6 +3,8 @@ import {
   ArrowLeft,
   Camera,
   Check,
+  ChevronLeft,
+  ChevronRight,
   Download,
   ExternalLink,
   FolderOpen,
@@ -297,6 +299,7 @@ function searchProvider(
     loader?: string | null;
     gameVersion?: string | null;
     limit?: number;
+    offset?: number;
   },
 ) {
   if (provider === "curseforge") {
@@ -306,6 +309,7 @@ function searchProvider(
       loader: args.loader,
       gameVersion: args.gameVersion,
       limit: args.limit,
+      offset: args.offset,
     });
   }
   return api.searchModrinth({
@@ -314,6 +318,7 @@ function searchProvider(
     loader: args.loader,
     gameVersion: args.gameVersion,
     limit: args.limit,
+    offset: args.offset,
   });
 }
 
@@ -334,6 +339,70 @@ function installProvider(
   return api.installContent(args);
 }
 
+// Number of search results per page.
+const PAGE_SIZE = 20;
+// Cap pagination so we never request offsets the providers reject.
+const MAX_PAGES = 50;
+
+function pageCountFor(totalHits: number): number {
+  return Math.min(Math.ceil(totalHits / PAGE_SIZE), MAX_PAGES);
+}
+
+// Prev / page X of Y / Next controls. Renders nothing for a single page.
+function Pagination({
+  page,
+  pageCount,
+  onPage,
+}: {
+  page: number;
+  pageCount: number;
+  onPage: (p: number) => void;
+}) {
+  if (pageCount <= 1) return null;
+  return (
+    <div className="mt-4 flex items-center justify-center gap-3">
+      <Button
+        size="sm"
+        variant="secondary"
+        disabled={page <= 0}
+        onClick={() => onPage(page - 1)}
+      >
+        <ChevronLeft className="h-4 w-4" /> Prev
+      </Button>
+      <span className="text-sm text-muted-foreground">
+        Page {page + 1} of {pageCount}
+      </span>
+      <Button
+        size="sm"
+        variant="secondary"
+        disabled={page >= pageCount - 1}
+        onClick={() => onPage(page + 1)}
+      >
+        Next <ChevronRight className="h-4 w-4" />
+      </Button>
+    </div>
+  );
+}
+
+// Small icon tile for an installed item: real project icon when we have one
+// (matched from current search results), otherwise a fallback glyph.
+function InstalledIcon({
+  iconUrl,
+  fallback,
+}: {
+  iconUrl?: string | null;
+  fallback: ReactNode;
+}) {
+  if (iconUrl) {
+    return <img src={iconUrl} alt="" className="h-9 w-9 shrink-0 rounded-md object-cover" />;
+  }
+  return (
+    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-muted">
+      {fallback}
+    </div>
+  );
+}
+
 // --------------------------------------------------------------------------
 // Mods panel (has enable/disable toggle)
 // --------------------------------------------------------------------------
@@ -346,6 +415,8 @@ function ModsPanel({ instance }: { instance: Instance }) {
   const [searching, setSearching] = useState(false);
   const [installing, setInstalling] = useState<string | null>(null);
   const [provider, setProvider] = useState<Provider>("modrinth");
+  const [page, setPage] = useState(0);
+  const [totalHits, setTotalHits] = useState(0);
 
   const refresh = () => api.listMods(instance.id).then(setInstalled).catch(() => {});
   useEffect(() => {
@@ -361,15 +432,25 @@ function ModsPanel({ instance }: { instance: Instance }) {
         contentType: "mod",
         loader: instance.loader,
         gameVersion: instance.mcVersion,
-        limit: 20,
+        limit: PAGE_SIZE,
+        offset: page * PAGE_SIZE,
       })
-        .then((r) => setResults(r.hits))
+        .then((r) => {
+          setResults(r.hits);
+          setTotalHits(r.total_hits);
+        })
         .catch((e) => toast("error", errMessage(e)))
         .finally(() => setSearching(false));
     }, 350);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [query, provider, instance.loader, instance.mcVersion]);
+  }, [query, provider, page, instance.loader, instance.mcVersion]);
+
+  // Map projectId → icon from the current results, so installed mods that also
+  // appear in the search show their real icon.
+  const iconByProjectId = new Map(
+    results.filter((r) => r.icon_url).map((r) => [r.project_id, r.icon_url!]),
+  );
 
   const [versionPickTarget, setVersionPickTarget] = useState<ModHit | null>(null);
 
@@ -515,6 +596,10 @@ function ModsPanel({ instance }: { instance: Instance }) {
                   className="h-4 w-4 accent-[hsl(var(--accent))]"
                   title={m.enabled ? "Disable" : "Enable"}
                 />
+                <InstalledIcon
+                  iconUrl={m.projectId ? iconByProjectId.get(m.projectId) : null}
+                  fallback={<Package className="h-4 w-4 text-muted-foreground" />}
+                />
                 <span
                   className={cn(
                     "flex-1 truncate text-sm",
@@ -544,10 +629,19 @@ function ModsPanel({ instance }: { instance: Instance }) {
         <div className="mb-3 flex items-center gap-2">
           <Input
             value={query}
-            onChange={(e) => setQuery(e.target.value)}
+            onChange={(e) => {
+              setQuery(e.target.value);
+              setPage(0);
+            }}
             placeholder={`Search for ${instance.mcVersion} ${loaderLabel(instance.loader)} mods…`}
           />
-          <ProviderToggle provider={provider} onChange={setProvider} />
+          <ProviderToggle
+            provider={provider}
+            onChange={(p) => {
+              setProvider(p);
+              setPage(0);
+            }}
+          />
         </div>
         <ModrinthResultList
           results={results}
@@ -561,6 +655,7 @@ function ModsPanel({ instance }: { instance: Instance }) {
             new Set(installed.map((m) => m.projectId).filter((x): x is string => !!x))
           }
         />
+        <Pagination page={page} pageCount={pageCountFor(totalHits)} onPage={setPage} />
       </section>
 
       <VersionPickerModal
@@ -607,6 +702,8 @@ function ContentBrowserPanel({
   const [searching, setSearching] = useState(false);
   const [installing, setInstalling] = useState<string | null>(null);
   const [provider, setProvider] = useState<Provider>("modrinth");
+  const [page, setPage] = useState(0);
+  const [totalHits, setTotalHits] = useState(0);
 
   const refresh = () => listItems().then(setInstalled).catch(() => {});
   useEffect(() => {
@@ -622,15 +719,24 @@ function ContentBrowserPanel({
         contentType: modrinthType,
         loader: useLoaderFilter ? instance.loader : undefined,
         gameVersion: instance.mcVersion,
-        limit: 20,
+        limit: PAGE_SIZE,
+        offset: page * PAGE_SIZE,
       })
-        .then((r) => setResults(r.hits))
+        .then((r) => {
+          setResults(r.hits);
+          setTotalHits(r.total_hits);
+        })
         .catch((e) => toast("error", errMessage(e)))
         .finally(() => setSearching(false));
     }, 350);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [query, provider, modrinthType, instance.mcVersion]);
+  }, [query, provider, page, modrinthType, instance.mcVersion]);
+
+  // Map projectId → icon from the current results for installed items.
+  const iconByProjectId = new Map(
+    results.filter((r) => r.icon_url).map((r) => [r.project_id, r.icon_url!]),
+  );
 
   const install = async (hit: ModHit) => {
     setInstalling(hit.project_id);
@@ -681,6 +787,10 @@ function ContentBrowserPanel({
                 key={item.fileName}
                 className="flex items-center gap-2 rounded-lg border bg-card/60 p-2.5"
               >
+                <InstalledIcon
+                  iconUrl={item.projectId ? iconByProjectId.get(item.projectId) : null}
+                  fallback={FallbackIcon}
+                />
                 <span className="flex-1 truncate text-sm" title={item.fileName}>
                   {item.fileName.replace(/\.zip$/, "")}
                 </span>
@@ -704,10 +814,19 @@ function ContentBrowserPanel({
         <div className="mb-3 flex items-center gap-2">
           <Input
             value={query}
-            onChange={(e) => setQuery(e.target.value)}
+            onChange={(e) => {
+              setQuery(e.target.value);
+              setPage(0);
+            }}
             placeholder={placeholder}
           />
-          <ProviderToggle provider={provider} onChange={setProvider} />
+          <ProviderToggle
+            provider={provider}
+            onChange={(p) => {
+              setProvider(p);
+              setPage(0);
+            }}
+          />
         </div>
         <ModrinthResultList
           results={results}
@@ -721,6 +840,7 @@ function ContentBrowserPanel({
             new Set(installed.map((m) => m.projectId).filter((x): x is string => !!x))
           }
         />
+        <Pagination page={page} pageCount={pageCountFor(totalHits)} onPage={setPage} />
       </section>
     </div>
   );

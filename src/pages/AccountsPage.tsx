@@ -3,6 +3,7 @@ import { Check, LogIn, Trash2, UserCircle2, UserPlus } from "lucide-react";
 import { Button, Field, Input } from "@/components/ui";
 import { useStore } from "@/store/useStore";
 import { cn } from "@/lib/utils";
+import { PlayerAvatar } from "@/components/PlayerAvatar";
 
 export function AccountsPage() {
   const accounts = useStore((s) => s.accounts);
@@ -34,9 +35,7 @@ export function AccountsPage() {
               a.active ? "border-accent bg-accent/5" : "bg-card/60",
             )}
           >
-            <div className="flex h-11 w-11 items-center justify-center rounded-full bg-accent/15 text-accent">
-              <span className="text-lg font-bold uppercase">{a.username.charAt(0)}</span>
-            </div>
+            <PlayerAvatar account={a} size={44} className="shrink-0" />
             <div className="min-w-0 flex-1">
               <div className="truncate font-medium">{a.username}</div>
               <div className="text-xs text-muted-foreground">
@@ -71,7 +70,7 @@ export function AccountsPage() {
             Sign in with your real Minecraft account to play multiplayer.
           </p>
           <Button variant="primary" className="w-full" loading={busy} onClick={loginMicrosoft}>
-            Add Microsoft account
+            {busy ? "Complete login in browser…" : "Add Microsoft account"}
           </Button>
         </div>
 

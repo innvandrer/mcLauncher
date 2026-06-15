@@ -83,7 +83,7 @@ pub async fn login_microsoft(
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<Vec<PublicAccount>> {
-    let account = auth::login_device_code(&app, state.inner()).await?;
+    let account = auth::login_redirect(&app, state.inner()).await?;
     let store = instances::upsert_account(state.inner(), account)?;
     Ok(public_accounts(&store))
 }

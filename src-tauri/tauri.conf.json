@@ -32,9 +32,18 @@
       "csp": null
     }
   },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDE4N0E5OEFDNUM4QzZDRTIKUldUaWJJeGNySmg2R0syMlpudWl1RG5sd0dVZUFYSTRZYk1WbHYrYUhBd0pvYm43UFhxaUVzYjkK",
+      "endpoints": [
+        "https://github.com/innvandrer/mcLauncher/releases/latest/download/latest.json"
+      ]
+    }
+  },
   "bundle": {
     "active": true,
     "targets": "all",
+    "createUpdaterArtifacts": true,
     "category": "Game",
     "shortDescription": "A modern, open-source Minecraft launcher",
     "longDescription": "Beacon is a modern, open-source Minecraft launcher: manage isolated instances, install mods and modpacks from Modrinth, sign in with your Microsoft account, and launch the game with the right Java version.",

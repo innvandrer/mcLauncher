@@ -1,24 +1,29 @@
-//! Microsoft account authentication using the OAuth 2.0 device-code flow, then
-//! the Xbox Live -> XSTS -> Minecraft token exchange.
+//! Microsoft account authentication using the Live Connect OAuth flow inside an
+//! embedded login window, then the Xbox Live → XSTS → Minecraft token exchange.
 //!
-//! Requires an Azure "public client" application id with the
-//! `XboxLive.signin offline_access` scope. Provide it via the `BEACON_CLIENT_ID`
-//! environment variable (see README). This keeps the launcher compliant: every
-//! user authenticates with their own valid Microsoft/Minecraft account.
+//! A dedicated Tauri webview window is opened to the Microsoft login page. When
+//! login completes, Microsoft redirects to
+//! `https://login.live.com/oauth20_desktop.srf?code=...`; the window's
+//! navigation handler captures that `code`, and the window is closed.
+//!
+//! This uses the official Minecraft launcher client id, which is already
+//! approved for the Minecraft services API (`login_with_xbox`). Custom Azure
+//! apps are rejected by that API with "Invalid app registration" until
+//! Microsoft manually approves them, so the bundled id is used by default.
 
 use crate::error::{Error, Result};
 use crate::models::Account;
 use crate::state::AppState;
 use serde::Deserialize;
 use serde_json::json;
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder, WindowEvent};
 
-const PLACEHOLDER_CLIENT_ID: &str = "REPLACE_WITH_AZURE_CLIENT_ID";
-const BUNDLED_CLIENT_ID: &str = "d1685745-eb57-46a1-99ca-ae061033b189";
-const DEVICE_CODE_URL: &str =
-    "https://login.microsoftonline.com/consumers/oauth2/v2.0/devicecode";
-const TOKEN_URL: &str = "https://login.microsoftonline.com/consumers/oauth2/v2.0/token";
-const SCOPE: &str = "XboxLive.signin offline_access";
+/// Official Minecraft launcher client id (approved for the Minecraft API).
+const BUNDLED_CLIENT_ID: &str = "00000000402b5328";
+const AUTHORIZE_URL: &str = "https://login.live.com/oauth20_authorize.srf";
+const TOKEN_URL: &str = "https://login.live.com/oauth20_token.srf";
+const REDIRECT_URI: &str = "https://login.live.com/oauth20_desktop.srf";
+const SCOPE: &str = "service::user.auth.xboxlive.com::MBI_SSL";
 
 fn client_id() -> String {
     std::env::var("BEACON_CLIENT_ID")
@@ -27,24 +32,78 @@ fn client_id() -> String {
         .unwrap_or_else(|| BUNDLED_CLIENT_ID.to_string())
 }
 
-#[derive(Deserialize)]
-struct DeviceCodeResp {
-    device_code: String,
-    user_code: String,
-    verification_uri: String,
-    expires_in: i64,
-    interval: u64,
-    message: String,
+// ── URL helpers ──────────────────────────────────────────────────────────────
+
+fn percent_encode(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() * 3);
+    for b in s.bytes() {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(b as char)
+            }
+            other => out.push_str(&format!("%{other:02X}")),
+        }
+    }
+    out
 }
 
-#[derive(serde::Serialize, Clone)]
-#[serde(rename_all = "camelCase")]
-struct AuthPrompt {
-    user_code: String,
-    verification_uri: String,
-    message: String,
-    expires_in: i64,
+/// Decode a percent-encoded query value. `+` is treated as a space (the
+/// standard for `application/x-www-form-urlencoded` query strings).
+fn percent_decode(s: &str) -> String {
+    let bytes = s.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let hex = |b: u8| -> Option<u8> {
+        match b {
+            b'0'..=b'9' => Some(b - b'0'),
+            b'a'..=b'f' => Some(b - b'a' + 10),
+            b'A'..=b'F' => Some(b - b'A' + 10),
+            _ => None,
+        }
+    };
+    let mut i = 0;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'%' if i + 2 < bytes.len() => match (hex(bytes[i + 1]), hex(bytes[i + 2])) {
+                (Some(hi), Some(lo)) => {
+                    out.push((hi << 4) | lo);
+                    i += 3;
+                }
+                _ => {
+                    out.push(b'%');
+                    i += 1;
+                }
+            },
+            b'+' => {
+                out.push(b' ');
+                i += 1;
+            }
+            c => {
+                out.push(c);
+                i += 1;
+            }
+        }
+    }
+    String::from_utf8_lossy(&out).into_owned()
 }
+
+/// Extract `code` (or an `error`) from a redirect URL's query string.
+fn parse_redirect_query(query: &str) -> (Option<String>, Option<String>) {
+    let mut code = None;
+    let mut oauth_error = None;
+    for pair in query.split('&') {
+        let mut kv = pair.splitn(2, '=');
+        let k = kv.next().unwrap_or("");
+        let v = kv.next().unwrap_or("");
+        match k {
+            "code" => code = Some(percent_decode(v)),
+            "error" | "error_description" => oauth_error = Some(percent_decode(v)),
+            _ => {}
+        }
+    }
+    (code, oauth_error)
+}
+
+// ── Token types ───────────────────────────────────────────────────────────────
 
 #[derive(Deserialize, Default)]
 struct TokenResp {
@@ -54,84 +113,135 @@ struct TokenResp {
     refresh_token: String,
     #[serde(default)]
     expires_in: i64,
-    #[serde(default)]
-    error: String,
 }
 
-/// Run the full device-code login. Emits `auth://prompt` with the code for the
-/// user, polls until they finish, then completes the Xbox/Minecraft exchange.
-pub async fn login_device_code(app: &AppHandle, state: &AppState) -> Result<Account> {
+// ── Main login entry point ────────────────────────────────────────────────────
+
+/// Opens an embedded Microsoft login window and waits for the OAuth redirect,
+/// then completes the Xbox/Minecraft token exchange.
+pub async fn login_redirect(app: &AppHandle, state: &AppState) -> Result<Account> {
     let cid = client_id();
-    if cid == PLACEHOLDER_CLIENT_ID {
+
+    let auth_url = format!(
+        "{AUTHORIZE_URL}\
+         ?client_id={cid}\
+         &response_type=code\
+         &redirect_uri={}\
+         &scope={}",
+        percent_encode(REDIRECT_URI),
+        percent_encode(SCOPE),
+    );
+
+    const LABEL: &str = "ms-login";
+
+    // Close any stale login window from a previous attempt.
+    if let Some(w) = app.get_webview_window(LABEL) {
+        let _ = w.close();
+    }
+
+    // The navigation handler reports the captured code (or error) here.
+    let (tx, mut rx) =
+        tokio::sync::mpsc::unbounded_channel::<std::result::Result<String, String>>();
+
+    let parsed = auth_url
+        .parse::<tauri::Url>()
+        .map_err(|e| Error::Auth(format!("Bad auth URL: {e}")))?;
+
+    let tx_nav = tx.clone();
+    let window = WebviewWindowBuilder::new(app, LABEL, WebviewUrl::External(parsed))
+        .title("Sign in with Microsoft")
+        .inner_size(520.0, 720.0)
+        .center()
+        .focused(true)
+        .on_navigation(move |url| {
+            // The final redirect lands on oauth20_desktop.srf?code=...
+            if url.as_str().starts_with(REDIRECT_URI) {
+                let (code, err) = parse_redirect_query(url.query().unwrap_or(""));
+                if let Some(c) = code {
+                    let _ = tx_nav.send(Ok(c));
+                    return false; // no need to load the blank redirect page
+                }
+                if let Some(e) = err {
+                    let _ = tx_nav.send(Err(e));
+                    return false;
+                }
+            }
+            true
+        })
+        .build()
+        .map_err(|e| Error::Auth(format!("Could not open login window: {e}")))?;
+
+    // If the user closes the window before finishing, treat it as a cancel.
+    let tx_close = tx.clone();
+    window.on_window_event(move |ev| {
+        if let WindowEvent::CloseRequested { .. } = ev {
+            let _ = tx_close.send(Err("Login window closed.".into()));
+        }
+    });
+
+    // Let the frontend show its "waiting" state.
+    let _ = app.emit("auth://browser-opened", ());
+
+    // Wait up to 5 minutes for a result.
+    let received = tokio::time::timeout(std::time::Duration::from_secs(300), rx.recv())
+        .await
+        .map_err(|_| Error::Auth("Login timed out after 5 minutes.".into()))?;
+
+    // Close the login window regardless of outcome.
+    if let Some(w) = app.get_webview_window(LABEL) {
+        let _ = w.close();
+    }
+
+    let code = match received {
+        Some(Ok(c)) => c,
+        Some(Err(e)) => return Err(Error::Auth(e)),
+        None => return Err(Error::Auth("Login was cancelled.".into())),
+    };
+
+    // Exchange the authorization code for tokens (Live Connect flow, no PKCE).
+    let resp = state
+        .http
+        .post(TOKEN_URL)
+        .form(&[
+            ("client_id", cid.as_str()),
+            ("grant_type", "authorization_code"),
+            ("code", code.as_str()),
+            ("redirect_uri", REDIRECT_URI),
+            ("scope", SCOPE),
+        ])
+        .send()
+        .await?;
+
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let body = resp.text().await.unwrap_or_default();
+        // Microsoft returns JSON like {"error":"...","error_description":"..."}
+        let detail = serde_json::from_str::<serde_json::Value>(&body)
+            .ok()
+            .and_then(|v| {
+                v.get("error_description")
+                    .or_else(|| v.get("error"))
+                    .and_then(|d| d.as_str())
+                    .map(|s| s.to_string())
+            })
+            .unwrap_or(body);
+        return Err(Error::Auth(format!(
+            "Token exchange failed ({status}): {detail}"
+        )));
+    }
+
+    let tr: TokenResp = resp.json().await?;
+
+    if tr.access_token.is_empty() {
         return Err(Error::Auth(
-            "No Azure client ID configured. Set the BEACON_CLIENT_ID environment variable to \
-             your Azure application (public client) id with the 'XboxLive.signin offline_access' \
-             scope. See the README for a 2-minute setup. (You can use an Offline account to test \
-             the launcher without signing in.)"
-                .into(),
+            "Microsoft did not return an access token.".into(),
         ));
     }
 
-    let dc: DeviceCodeResp = state
-        .http
-        .post(DEVICE_CODE_URL)
-        .form(&[("client_id", cid.as_str()), ("scope", SCOPE)])
-        .send()
-        .await?
-        .error_for_status()?
-        .json()
-        .await?;
-
-    let _ = app.emit(
-        "auth://prompt",
-        AuthPrompt {
-            user_code: dc.user_code.clone(),
-            verification_uri: dc.verification_uri.clone(),
-            message: dc.message.clone(),
-            expires_in: dc.expires_in,
-        },
-    );
-
-    let interval = dc.interval.max(1);
-    let deadline = std::time::Instant::now()
-        + std::time::Duration::from_secs(dc.expires_in.max(60) as u64);
-
-    let ms = loop {
-        tokio::time::sleep(std::time::Duration::from_secs(interval)).await;
-        if std::time::Instant::now() > deadline {
-            return Err(Error::Auth("Login timed out. Please try again.".into()));
-        }
-        let resp = state
-            .http
-            .post(TOKEN_URL)
-            .form(&[
-                ("client_id", cid.as_str()),
-                ("grant_type", "urn:ietf:params:oauth:grant-type:device_code"),
-                ("device_code", dc.device_code.as_str()),
-            ])
-            .send()
-            .await?;
-        let success = resp.status().is_success();
-        let tr: TokenResp = resp.json().await.unwrap_or_default();
-        if success && !tr.access_token.is_empty() {
-            break tr;
-        }
-        match tr.error.as_str() {
-            "authorization_pending" | "" => continue,
-            "slow_down" => {
-                tokio::time::sleep(std::time::Duration::from_secs(interval)).await;
-                continue;
-            }
-            "authorization_declined" => return Err(Error::Auth("Login was declined.".into())),
-            "expired_token" => {
-                return Err(Error::Auth("The login code expired. Please try again.".into()))
-            }
-            other => return Err(Error::Auth(format!("Login error: {other}"))),
-        }
-    };
-
-    complete_xbox_chain(state, &ms.access_token, &ms.refresh_token, ms.expires_in).await
+    complete_xbox_chain(state, &tr.access_token, &tr.refresh_token, tr.expires_in).await
 }
+
+// ── Refresh ───────────────────────────────────────────────────────────────────
 
 /// Refresh an expired Microsoft token and re-run the Minecraft exchange.
 pub async fn refresh(state: &AppState, refresh_token: &str) -> Result<Account> {
@@ -151,10 +261,14 @@ pub async fn refresh(state: &AppState, refresh_token: &str) -> Result<Account> {
         .json()
         .await?;
     if tr.access_token.is_empty() {
-        return Err(Error::Auth("Could not refresh session. Please sign in again.".into()));
+        return Err(Error::Auth(
+            "Could not refresh session. Please sign in again.".into(),
+        ));
     }
     complete_xbox_chain(state, &tr.access_token, &tr.refresh_token, tr.expires_in).await
 }
+
+// ── Xbox/Minecraft chain ──────────────────────────────────────────────────────
 
 #[derive(Deserialize)]
 struct XblResp {
@@ -201,7 +315,9 @@ async fn complete_xbox_chain(
             "Properties": {
                 "AuthMethod": "RPS",
                 "SiteName": "user.auth.xboxlive.com",
-                "RpsTicket": format!("d={ms_access_token}")
+                // Live Connect (MBI_SSL) tokens are used raw — no "d=" prefix
+                // (that prefix is only for Azure AD v2 "XboxLive.signin" tokens).
+                "RpsTicket": ms_access_token
             },
             "RelyingParty": "http://auth.xboxlive.com",
             "TokenType": "JWT"
@@ -233,9 +349,9 @@ async fn complete_xbox_chain(
         let v: serde_json::Value = resp.json().await.unwrap_or_default();
         let xerr = v.get("XErr").and_then(|x| x.as_i64()).unwrap_or(0);
         let msg = match xerr {
-            2148916233 => "This Microsoft account has no Xbox profile. Create one at xbox.com, then try again.",
+            2148916233 => "This Microsoft account has no Xbox profile. Create one at xbox.com first.",
             2148916235 => "Xbox Live is not available in this account's region.",
-            2148916236 | 2148916237 => "This account needs adult verification.",
+            2148916236 | 2148916237 => "This account needs adult verification on xbox.com.",
             2148916238 => "This account is a minor and must be added to a Family by an adult.",
             _ => "Xbox authorization failed.",
         };
@@ -243,7 +359,7 @@ async fn complete_xbox_chain(
     }
     let xsts: XblResp = resp.error_for_status()?.json().await?;
 
-    // 3. Minecraft services login
+    // 3. Minecraft services
     let mc_resp = state
         .http
         .post("https://api.minecraftservices.com/authentication/login_with_xbox")
@@ -280,8 +396,9 @@ async fn complete_xbox_chain(
     })
 }
 
-/// Compute the offline-mode UUID exactly like vanilla
-/// (`UUID.nameUUIDFromBytes("OfflinePlayer:<name>")`, an MD5-based v3 UUID).
+// ── Offline UUID ──────────────────────────────────────────────────────────────
+
+/// Offline-mode UUID matching vanilla's `UUID.nameUUIDFromBytes("OfflinePlayer:<name>")`.
 pub fn offline_uuid(name: &str) -> String {
     use md5::{Digest, Md5};
     let mut h = Md5::new();

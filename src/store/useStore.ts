@@ -1,4 +1,6 @@
 import { create } from "zustand";
+import { check, type Update } from "@tauri-apps/plugin-updater";
+import { relaunch } from "@tauri-apps/plugin-process";
 import { api, errMessage, events } from "@/lib/api";
 import { applyTheme } from "@/lib/utils";
 import type {
@@ -38,6 +40,12 @@ interface State {
   authPrompt: AuthPrompt | null;
   busy: boolean;
 
+  update: { version: string; notes: string } | null;
+  updating: boolean;
+  checkForUpdates: () => Promise<void>;
+  installUpdate: () => Promise<void>;
+  dismissUpdate: () => void;
+
   init: () => Promise<void>;
   setView: (v: View) => void;
   openInstance: (id: string) => void;
@@ -73,6 +81,9 @@ interface State {
 
 let toastSeq = 1;
 let listenersBound = false;
+// The Update handle from the updater plugin isn't serialisable for the UI, so we
+// keep it module-side and expose only display fields ({version, notes}) in state.
+let pendingUpdate: Update | null = null;
 
 export const useStore = create<State>((set, get) => ({
   ready: false,
@@ -90,6 +101,9 @@ export const useStore = create<State>((set, get) => ({
   toasts: [],
   authPrompt: null,
   busy: false,
+
+  update: null,
+  updating: false,
 
   init: async () => {
     try {
@@ -160,7 +174,37 @@ export const useStore = create<State>((set, get) => ({
       });
       events.onAuthPrompt((p) => set({ authPrompt: p }));
     }
+
+    // Check for a newer release in the background; never blocks startup.
+    get().checkForUpdates();
   },
+
+  checkForUpdates: async () => {
+    try {
+      const upd = await check();
+      if (upd) {
+        pendingUpdate = upd;
+        set({ update: { version: upd.version, notes: upd.body ?? "" } });
+      }
+    } catch {
+      // Offline, or running under `tauri dev` without a published release —
+      // self-update simply isn't available, so stay quiet.
+    }
+  },
+
+  installUpdate: async () => {
+    if (!pendingUpdate) return;
+    set({ updating: true });
+    try {
+      await pendingUpdate.downloadAndInstall();
+      await relaunch();
+    } catch (e) {
+      get().toast("error", errMessage(e));
+      set({ updating: false });
+    }
+  },
+
+  dismissUpdate: () => set({ update: null }),
 
   setView: (view) => set({ view, selectedInstanceId: null }),
   openInstance: (id) => set({ selectedInstanceId: id }),
