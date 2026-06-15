@@ -294,6 +294,18 @@ pub async fn install_version(
         .json()
         .await?;
 
+    // Auto-install required dependencies for mods (best-effort).
+    if content_type == "mod" {
+        let mods_dir = state.dirs.game_dir(instance_id).join("mods");
+        for dep in &version.dependencies {
+            if dep.dependency_type == "required" {
+                if let Some(dep_id) = &dep.project_id {
+                    let _ = install_dependency(state, dep_id, None, None, &mods_dir).await;
+                }
+            }
+        }
+    }
+
     let file = version
         .files
         .iter()

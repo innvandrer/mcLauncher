@@ -1,12 +1,11 @@
-//! Fabric and Quilt support. Both expose a "profile JSON" endpoint that returns
-//! a version manifest with `inheritsFrom` pointing at the vanilla version, so we
-//! simply fetch it, cache it, and let [`crate::mojang::resolve_version`] merge.
+//! Fabric, Quilt, Forge and NeoForge loader support.
 
 use crate::error::{Error, Result};
 use crate::models::Loader;
 use crate::mojang;
 use crate::state::AppState;
 use serde::{Deserialize, Serialize};
+use tauri::AppHandle;
 
 const FABRIC_META: &str = "https://meta.fabricmc.net/v2";
 const QUILT_META: &str = "https://meta.quiltmc.org/v3";
@@ -103,6 +102,7 @@ async fn fetch_and_cache_profile(state: &AppState, url: &str) -> Result<String> 
 /// Resolve the concrete version id to launch for an instance, installing the
 /// loader profile if necessary.
 pub async fn launch_version_id(
+    app: &AppHandle,
     state: &AppState,
     mc_version: &str,
     loader: Loader,
@@ -120,10 +120,15 @@ pub async fn launch_version_id(
                 .ok_or_else(|| Error::Other("Quilt loader version missing".into()))?;
             install_quilt(state, mc_version, lv).await
         }
-        Loader::Forge | Loader::Neoforge => Err(Error::Other(
-            "Forge/NeoForge launching is not implemented yet in this MVP. \
-             Vanilla, Fabric and Quilt are fully supported."
-                .into(),
-        )),
+        Loader::Forge => {
+            let lv = loader_version
+                .ok_or_else(|| Error::Other("Forge loader version missing".into()))?;
+            crate::forge::install_forge(app, state, mc_version, lv).await
+        }
+        Loader::Neoforge => {
+            let lv = loader_version
+                .ok_or_else(|| Error::Other("NeoForge loader version missing".into()))?;
+            crate::forge::install_neoforge(app, state, mc_version, lv).await
+        }
     }
 }

@@ -1,10 +1,11 @@
-import { Boxes, LayoutGrid, Settings as SettingsIcon, Users } from "lucide-react";
+import { Boxes, Home, LayoutGrid, Settings as SettingsIcon, Users } from "lucide-react";
 import { motion } from "framer-motion";
 import { useStore, type View } from "@/store/useStore";
 import { cn } from "@/lib/utils";
 import { PlayerAvatar } from "@/components/PlayerAvatar";
 
 const items: { id: View; label: string; icon: typeof LayoutGrid }[] = [
+  { id: "home", label: "Home", icon: Home },
   { id: "instances", label: "Instances", icon: LayoutGrid },
   { id: "modpacks", label: "Modpacks", icon: Boxes },
   { id: "accounts", label: "Accounts", icon: Users },

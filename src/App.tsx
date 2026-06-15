@@ -7,6 +7,7 @@ import { Toaster } from "./components/Toaster";
 import { AuthPromptModal } from "./components/AuthPromptModal";
 import { UpdateModal } from "./components/UpdateModal";
 import { Spinner } from "./components/ui";
+import { HomePage } from "./pages/HomePage";
 import { InstancesPage } from "./pages/InstancesPage";
 import { InstanceDetailPage } from "./pages/InstanceDetailPage";
 import { ModpacksPage } from "./pages/ModpacksPage";
@@ -51,6 +52,8 @@ export default function App() {
                 <ErrorBoundary>
                   {selectedInstanceId ? (
                     <InstanceDetailPage id={selectedInstanceId} />
+                  ) : view === "home" ? (
+                    <HomePage />
                   ) : view === "instances" ? (
                     <InstancesPage />
                   ) : view === "modpacks" ? (

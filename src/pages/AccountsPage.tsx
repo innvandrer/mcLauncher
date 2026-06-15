@@ -1,12 +1,14 @@
 import { useState } from "react";
-import { Check, LogIn, Trash2, UserCircle2, UserPlus } from "lucide-react";
+import { Check, LogIn, Shirt, Trash2, UserCircle2, UserPlus } from "lucide-react";
 import { Button, Field, Input } from "@/components/ui";
 import { useStore } from "@/store/useStore";
 import { cn } from "@/lib/utils";
 import { PlayerAvatar } from "@/components/PlayerAvatar";
+import { SkinModal } from "@/components/SkinModal";
 
 export function AccountsPage() {
   const accounts = useStore((s) => s.accounts);
+  const [skinAccountId, setSkinAccountId] = useState<string | null>(null);
   const loginMicrosoft = useStore((s) => s.loginMicrosoft);
   const addOffline = useStore((s) => s.addOffline);
   const setActive = useStore((s) => s.setActiveAccount);
@@ -15,6 +17,7 @@ export function AccountsPage() {
   const [offlineName, setOfflineName] = useState("");
 
   return (
+    <>
     <div className="mx-auto max-w-2xl px-8 py-6">
       <h1 className="text-2xl font-bold tracking-tight">Accounts</h1>
       <p className="mt-1 text-sm text-muted-foreground">
@@ -50,6 +53,15 @@ export function AccountsPage() {
               <Button size="sm" variant="secondary" onClick={() => setActive(a.id)}>
                 Use
               </Button>
+            )}
+            {a.kind === "microsoft" && (
+              <button
+                onClick={() => setSkinAccountId(a.id)}
+                title="Change skin"
+                className="rounded-md p-2 text-muted-foreground transition hover:bg-muted hover:text-accent btn-focus"
+              >
+                <Shirt className="h-4 w-4" />
+              </button>
             )}
             <button
               onClick={() => remove(a.id)}
@@ -101,5 +113,11 @@ export function AccountsPage() {
         </div>
       </div>
     </div>
+    <SkinModal
+      open={skinAccountId !== null}
+      onClose={() => setSkinAccountId(null)}
+      accountId={skinAccountId ?? ""}
+    />
+    </>
   );
 }

@@ -13,7 +13,7 @@ import type {
   VersionList,
 } from "@/lib/types";
 
-export type View = "instances" | "modpacks" | "accounts" | "settings";
+export type View = "home" | "instances" | "modpacks" | "accounts" | "settings";
 
 export interface Toast {
   id: number;
@@ -87,7 +87,7 @@ let pendingUpdate: Update | null = null;
 
 export const useStore = create<State>((set, get) => ({
   ready: false,
-  view: "instances",
+  view: "home",
   selectedInstanceId: null,
 
   instances: [],

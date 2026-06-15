@@ -7,7 +7,7 @@ import { cn, LOADERS } from "@/lib/utils";
 import type { Loader, LoaderVersion } from "@/lib/types";
 
 const ICONS = ["🟩", "🔥", "⚙️", "🧪", "🏰", "🌲", "💎", "🚀", "🐉", "⛏️", "🧱", "✨"];
-const SUPPORTED: Loader[] = ["vanilla", "fabric", "quilt"];
+const ALL_LOADERS: Loader[] = ["vanilla", "fabric", "quilt", "forge", "neoforge"];
 
 export function CreateInstanceModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   const versions = useStore((s) => s.versions);
@@ -49,12 +49,19 @@ export function CreateInstanceModal({ open, onClose }: { open: boolean; onClose:
   // Load loader versions when needed.
   useEffect(() => {
     let cancelled = false;
-    if (!open || loader === "vanilla" || !mcVersion || !SUPPORTED.includes(loader)) {
+    if (!open || loader === "vanilla" || !mcVersion) {
       setLoaderVersions([]);
       return;
     }
     setLoadingLoaders(true);
-    const fetcher = loader === "fabric" ? api.listFabric : api.listQuilt;
+    const fetchers: Record<string, (v: string) => Promise<LoaderVersion[]>> = {
+      fabric: api.listFabric,
+      quilt: api.listQuilt,
+      forge: api.listForge,
+      neoforge: api.listNeoforge,
+    };
+    const fetcher = fetchers[loader];
+    if (!fetcher) { setLoadingLoaders(false); return; }
     fetcher(mcVersion)
       .then((list) => {
         if (cancelled) return;
@@ -64,15 +71,12 @@ export function CreateInstanceModal({ open, onClose }: { open: boolean; onClose:
       })
       .catch((e) => !cancelled && toast("error", errMessage(e)))
       .finally(() => !cancelled && setLoadingLoaders(false));
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, [open, loader, mcVersion, toast]);
 
   const canSubmit =
     name.trim() &&
     mcVersion &&
-    SUPPORTED.includes(loader) &&
     (loader === "vanilla" || loaderVersion);
 
   const submit = async () => {
@@ -148,27 +152,19 @@ export function CreateInstanceModal({ open, onClose }: { open: boolean; onClose:
           <span className="mb-1.5 block text-sm font-medium">Mod loader</span>
           <div className="grid grid-cols-5 gap-1.5">
             {LOADERS.map((l) => {
-              const supported = SUPPORTED.includes(l.id);
               const active = loader === l.id;
               return (
                 <button
                   key={l.id}
-                  disabled={!supported}
                   onClick={() => setLoader(l.id)}
                   className={cn(
-                    "relative rounded-lg border px-2 py-2 text-sm font-medium transition btn-focus",
+                    "rounded-lg border px-2 py-2 text-sm font-medium transition btn-focus",
                     active
                       ? "border-accent bg-accent/15 text-foreground"
                       : "border-border bg-muted/40 text-muted-foreground hover:bg-muted",
-                    !supported && "cursor-not-allowed opacity-50",
                   )}
                 >
                   {l.label}
-                  {!supported && (
-                    <span className="absolute -right-1 -top-2 rounded-full bg-muted px-1.5 py-0.5 text-[9px] font-semibold text-muted-foreground">
-                      Soon
-                    </span>
-                  )}
                 </button>
               );
             })}

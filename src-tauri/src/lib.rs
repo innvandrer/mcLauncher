@@ -1,6 +1,9 @@
 mod auth;
 mod commands;
+mod discord;
 mod curseforge;
+mod forge;
+mod skin;
 mod error;
 mod instances;
 mod java;
@@ -33,12 +36,22 @@ pub fn run() {
             let data_dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&data_dir).ok();
             app.manage(AppState::new(data_dir));
+
+            // System tray
+            #[cfg(desktop)]
+            setup_tray(app)?;
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             commands::list_minecraft_versions,
             commands::list_fabric_versions,
             commands::list_quilt_versions,
+            commands::list_forge_versions,
+            commands::list_neoforge_versions,
+            commands::get_skin,
+            commands::set_skin_url,
+            commands::set_skin_file,
             commands::get_settings,
             commands::save_settings,
             commands::list_accounts,
@@ -89,6 +102,62 @@ pub fn run() {
             commands::install_curseforge_file,
             commands::open_url,
         ])
+        .on_window_event(|win, event| {
+            // Minimize to tray instead of closing when X is clicked on the main window.
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                if win.label() == "main" {
+                    api.prevent_close();
+                    let _ = win.hide();
+                }
+            }
+        })
         .run(tauri::generate_context!())
         .expect("error while running Beacon");
+}
+
+#[cfg(desktop)]
+fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
+    use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
+    use tauri::menu::{Menu, MenuItem};
+
+    let show = MenuItem::with_id(app, "show", "Open Beacon", true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
+    let menu = Menu::with_items(app, &[&show, &quit])?;
+
+    TrayIconBuilder::new()
+        .icon(app.default_window_icon().unwrap().clone())
+        .menu(&menu)
+        .tooltip("Beacon Launcher")
+        .on_menu_event(|app, event| match event.id.as_ref() {
+            "show" => {
+                if let Some(win) = app.get_webview_window("main") {
+                    let _ = win.show();
+                    let _ = win.set_focus();
+                }
+            }
+            "quit" => app.exit(0),
+            _ => {}
+        })
+        .on_tray_icon_event(|tray, event| {
+            // Left-click on tray icon: toggle window visibility.
+            if let TrayIconEvent::Click {
+                button: MouseButton::Left,
+                button_state: MouseButtonState::Up,
+                ..
+            } = event
+            {
+                let app = tray.app_handle();
+                if let Some(win) = app.get_webview_window("main") {
+                    if win.is_visible().unwrap_or(false) {
+                        let _ = win.hide();
+                    } else {
+                        let _ = win.show();
+                        let _ = win.set_focus();
+                    }
+                }
+            }
+        })
+        .build(app)?;
+
+    Ok(())
 }

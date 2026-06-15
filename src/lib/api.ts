@@ -29,6 +29,17 @@ export const api = {
     invoke<LoaderVersion[]>("list_fabric_versions", { mcVersion }),
   listQuilt: (mcVersion: string) =>
     invoke<LoaderVersion[]>("list_quilt_versions", { mcVersion }),
+  listForge: (mcVersion: string) =>
+    invoke<LoaderVersion[]>("list_forge_versions", { mcVersion }),
+  listNeoforge: (mcVersion: string) =>
+    invoke<LoaderVersion[]>("list_neoforge_versions", { mcVersion }),
+
+  // Skin
+  getSkin: () => invoke<{ url: string; variant: string }>("get_skin"),
+  setSkinUrl: (url: string, variant: string) =>
+    invoke<void>("set_skin_url", { url, variant }),
+  setSkinFile: (filePath: string, variant: string) =>
+    invoke<void>("set_skin_file", { filePath, variant }),
 
   // Settings
   getSettings: () => invoke<Settings>("get_settings"),

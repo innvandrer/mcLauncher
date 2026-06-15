@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
+use crate::discord::DiscordPresence;
 
 /// Resolves the on-disk layout for all launcher data. Instances each get their
 /// own folder, while assets, libraries and version metadata are shared across
@@ -84,6 +85,7 @@ pub struct AppState {
     /// Maps an instance id to the OS pid of its running game process. Wrapped in
     /// an `Arc<Mutex<_>>` so the process-watcher threads can update it on exit.
     pub running: Arc<Mutex<HashMap<String, u32>>>,
+    pub discord: DiscordPresence,
 }
 
 impl AppState {
@@ -106,6 +108,7 @@ impl AppState {
             http,
             dirs,
             running: Arc::new(Mutex::new(HashMap::new())),
+            discord: DiscordPresence::new(),
         }
     }
 }

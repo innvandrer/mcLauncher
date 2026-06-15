@@ -4,7 +4,7 @@ use crate::error::{Error, Result};
 use crate::instances::{ResourcePackEntry, ScreenshotEntry, ShaderEntry, WorldEntry};
 use crate::models::*;
 use crate::state::AppState;
-use crate::{auth, curseforge, instances, java, launch, modloader, modrinth, mojang};
+use crate::{auth, curseforge, forge, instances, java, launch, modloader, modrinth, mojang, skin};
 use serde::Serialize;
 use std::path::Path;
 use tauri::{AppHandle, State};
@@ -45,6 +45,49 @@ pub async fn list_quilt_versions(
     mc_version: String,
 ) -> Result<Vec<modloader::LoaderVersion>> {
     modloader::list_quilt(state.inner(), &mc_version).await
+}
+
+#[tauri::command]
+pub async fn list_forge_versions(
+    state: State<'_, AppState>,
+    mc_version: String,
+) -> Result<Vec<forge::ForgeVersion>> {
+    forge::list_forge(state.inner(), &mc_version).await
+}
+
+#[tauri::command]
+pub async fn list_neoforge_versions(
+    state: State<'_, AppState>,
+    mc_version: String,
+) -> Result<Vec<forge::ForgeVersion>> {
+    forge::list_neoforge(state.inner(), &mc_version).await
+}
+
+// ---------------------------------------------------------------------------
+// Skin
+// ---------------------------------------------------------------------------
+
+#[tauri::command]
+pub async fn get_skin(state: State<'_, AppState>) -> Result<skin::SkinInfo> {
+    skin::get_skin(state.inner()).await
+}
+
+#[tauri::command]
+pub async fn set_skin_url(
+    state: State<'_, AppState>,
+    url: String,
+    variant: String,
+) -> Result<()> {
+    skin::set_skin_url(state.inner(), &url, &variant).await
+}
+
+#[tauri::command]
+pub async fn set_skin_file(
+    state: State<'_, AppState>,
+    file_path: String,
+    variant: String,
+) -> Result<()> {
+    skin::set_skin_file(state.inner(), &file_path, &variant).await
 }
 
 // ---------------------------------------------------------------------------

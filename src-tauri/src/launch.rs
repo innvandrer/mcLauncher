@@ -94,6 +94,7 @@ pub async fn launch(app: &AppHandle, state: &AppState, instance_id: &str) -> Res
 
     // --- Resolve + install game files ---------------------------------------
     let version_id = modloader::launch_version_id(
+        app,
         state,
         &instance.mc_version,
         instance.loader,
@@ -258,6 +259,11 @@ pub async fn launch(app: &AppHandle, state: &AppState, instance_id: &str) -> Res
             is_err: false,
         },
     );
+    state.discord.set_playing(
+        &instance.name,
+        &instance.mc_version,
+        instance.loader.as_str(),
+    );
 
     if settings.close_on_launch {
         if let Some(win) = app.get_webview_window("main") {
@@ -269,6 +275,7 @@ pub async fn launch(app: &AppHandle, state: &AppState, instance_id: &str) -> Res
     let app2 = app.clone();
     let running_map = state.running.clone();
     let dirs = state.dirs.clone();
+    let discord = state.discord.clone();
     let inst_id = instance.id.clone();
     let close_on_launch = settings.close_on_launch;
     let start = std::time::Instant::now();
@@ -276,6 +283,7 @@ pub async fn launch(app: &AppHandle, state: &AppState, instance_id: &str) -> Res
         let status = child.wait();
         let secs = start.elapsed().as_secs();
         instances::record_play_dirs(&dirs, &inst_id, secs);
+        discord.clear();
         if let Ok(mut m) = running_map.lock() {
             m.remove(&inst_id);
         }
