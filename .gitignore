@@ -1,27 +1,16 @@
-# Dependencies
-node_modules
-.pnp
-.pnp.js
+﻿# Dependencies
+node_modules/
+target/
+*.class
+*.jar
+build/
+dist/
 
-# Build output
-dist
-dist-ssr
-*.local
-
-# Rust / Tauri
-src-tauri/target
-src-tauri/gen/schemas
-
-# Editor / OS
+# OS
 .DS_Store
-.vscode/*
-!.vscode/extensions.json
-*.suo
-*.ntvs*
-*.njsproj
-*.sln
 Thumbs.db
 
-# Logs
-*.log
-npm-debug.log*
+# IDE
+.vscode/
+.idea/
+*.iml
