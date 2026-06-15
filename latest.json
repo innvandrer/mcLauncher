@@ -1,11 +1,11 @@
 {
-  "version": "v0.1.3",
-  "notes": "Nytt ikon",
-  "pub_date": "2026-06-15T18:52:00Z",
+  "version": "v0.1.4",
+  "notes": "Forge- og NeoForge-støtte, skin-bytte for Microsoft-kontoer, Discord Rich Presence, system tray (minimer til systemstatusfeltet) og nytt stats-dashbord.",
+  "pub_date": "2026-06-15T20:10:00Z",
   "platforms": {
     "windows-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUaWJJeGNySmg2R1BMckw5Q25BRzZ2OGl1RXdqUUQzcGpPcVNHYS92K1hnVStFUkJOcDEzZWVpbHNIYzljUDlpTC9qdkRzN2k4UFloZmZmZmtLNDlIeG1PR2dmMWNzckFrPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzgxNTQyMzY1CWZpbGU6QmVhY29uXzAuMS4zX3g2NC1zZXR1cC5leGUKTENtaGM3VTNma1RSNStOT0tIamNNajRGQllKQTg3YmgrSUJFTWtOUkt3NlNUN0dwaXlKMkZXM3BDSzEwZGpwZ0RXQW9TOWJMaXdnRlRPeWZjZlh0QXc9PQo=",
-      "url": "https://github.com/innvandrer/mcLauncher/releases/download/v0.1.3/Beacon_0.1.3_x64-setup.exe"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUaWJJeGNySmg2R0VBR2tNR1N3bUNQMlhMdlNEZDI4bkp1ajhvNy9uZHcvVXBmekFqWUY5dHJFZ2tnZm9XOVhoU05hVWZ0U0Y5dW1mK3ByOWJtYmtMeFJVOTVmOGVoNWdnPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzgxNTQ2OTE1CWZpbGU6QmVhY29uXzAuMS40X3g2NC1zZXR1cC5leGUKZE5WTDdwRlBSdzgyR21yRDVWSHNsOGdDZjhVdnArdWNEajJUNkMxUjlNWklEaStkcGZsNE9sNFNqTmszcUJHa3pVdGZLZVd5MXJLdkVLSGlCZWtGQmc9PQo=",
+      "url": "https://github.com/innvandrer/mcLauncher/releases/download/v0.1.4/Beacon_0.1.4_x64-setup.exe"
     }
   }
 }
