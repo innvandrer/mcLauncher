@@ -2,11 +2,13 @@ import { useEffect } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { TitleBar } from "./components/TitleBar";
 import { Sidebar } from "./components/Sidebar";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 import { Toaster } from "./components/Toaster";
 import { AuthPromptModal } from "./components/AuthPromptModal";
 import { Spinner } from "./components/ui";
 import { InstancesPage } from "./pages/InstancesPage";
 import { InstanceDetailPage } from "./pages/InstanceDetailPage";
+import { ModpacksPage } from "./pages/ModpacksPage";
 import { AccountsPage } from "./pages/AccountsPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { useStore } from "./store/useStore";
@@ -45,15 +47,19 @@ export default function App() {
                 transition={{ duration: 0.18, ease: "easeOut" }}
                 className="h-full"
               >
-                {selectedInstanceId ? (
-                  <InstanceDetailPage id={selectedInstanceId} />
-                ) : view === "instances" ? (
-                  <InstancesPage />
-                ) : view === "accounts" ? (
-                  <AccountsPage />
-                ) : (
-                  <SettingsPage />
-                )}
+                <ErrorBoundary>
+                  {selectedInstanceId ? (
+                    <InstanceDetailPage id={selectedInstanceId} />
+                  ) : view === "instances" ? (
+                    <InstancesPage />
+                  ) : view === "modpacks" ? (
+                    <ModpacksPage />
+                  ) : view === "accounts" ? (
+                    <AccountsPage />
+                  ) : (
+                    <SettingsPage />
+                  )}
+                </ErrorBoundary>
               </motion.div>
             </AnimatePresence>
           )}

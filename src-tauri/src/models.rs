@@ -62,6 +62,9 @@ pub struct Instance {
     pub java_path: Option<String>,
     #[serde(default)]
     pub jvm_args: Option<String>,
+    /// Number of .jar files in the mods/ folder. Computed at list time, never read from disk.
+    #[serde(default, skip_deserializing)]
+    pub mod_count: u32,
 }
 
 /// Global launcher settings.
@@ -82,6 +85,10 @@ pub struct Settings {
     pub max_concurrent_downloads: usize,
     #[serde(default)]
     pub close_on_launch: bool,
+    /// Optional CurseForge Core API key. Falls back to the `BEACON_CF_API_KEY`
+    /// env var when empty. Required for CurseForge search/installs.
+    #[serde(default)]
+    pub curseforge_api_key: Option<String>,
 }
 
 impl Default for Settings {
@@ -94,6 +101,7 @@ impl Default for Settings {
             accent: default_accent(),
             max_concurrent_downloads: default_concurrency(),
             close_on_launch: false,
+            curseforge_api_key: None,
         }
     }
 }

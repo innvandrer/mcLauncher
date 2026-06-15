@@ -16,6 +16,7 @@ export interface Instance {
   memoryMb?: number | null;
   javaPath?: string | null;
   jvmArgs?: string | null;
+  modCount?: number;
 }
 
 export interface Settings {
@@ -26,6 +27,7 @@ export interface Settings {
   accent: string;
   maxConcurrentDownloads: number;
   closeOnLaunch: boolean;
+  curseforgeApiKey?: string | null;
 }
 
 export interface PublicAccount {
@@ -87,6 +89,7 @@ export interface ModEntry {
   fileName: string;
   enabled: boolean;
   size: number;
+  projectId?: string | null;
 }
 
 export interface JavaInstall {
@@ -113,4 +116,44 @@ export interface ModHit {
 export interface SearchResponse {
   hits: ModHit[];
   total_hits: number;
+}
+
+export interface ResourcePackEntry {
+  fileName: string;
+  size: number;
+  projectId?: string | null;
+}
+
+export interface ShaderEntry {
+  fileName: string;
+  size: number;
+  projectId?: string | null;
+}
+
+export interface WorldEntry {
+  name: string;
+  modified?: number | null;
+}
+
+export interface ScreenshotEntry {
+  fileName: string;
+  size: number;
+  takenAt: number;
+}
+
+export interface ContentVersion {
+  id: string;
+  name: string;
+  versionNumber: string;
+  gameVersions: string[];
+  date: string;
+}
+
+export interface ModUpdate {
+  oldFileName: string;
+  newFileName: string;
+  versionNumber: string;
+  url: string;
+  sha1?: string | null;
+  enabled: boolean;
 }

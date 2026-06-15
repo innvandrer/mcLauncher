@@ -100,6 +100,9 @@ export function InstanceCard({ instance, onOpen }: { instance: Instance; onOpen:
         {instance.lastPlayed
           ? `Played ${timeAgo(instance.lastPlayed)}`
           : formatPlaytime(instance.totalPlaySeconds)}
+        {isModded && instance.modCount != null && instance.modCount > 0 && (
+          <span className="ml-1 opacity-70">· {instance.modCount} mod{instance.modCount !== 1 ? "s" : ""}</span>
+        )}
       </p>
 
       {/* Play / Stop */}

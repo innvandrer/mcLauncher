@@ -4,7 +4,8 @@ use crate::error::{Error, Result};
 use crate::models::*;
 use crate::state::AppState;
 use serde::de::DeserializeOwned;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::path::Path;
 
 // ---------------------------------------------------------------------------
@@ -95,7 +96,18 @@ pub fn list_instances(state: &AppState) -> Vec<Instance> {
         for e in rd.flatten() {
             let manifest = e.path().join("instance.json");
             if let Ok(bytes) = std::fs::read(&manifest) {
-                if let Ok(inst) = serde_json::from_slice::<Instance>(&bytes) {
+                if let Ok(mut inst) = serde_json::from_slice::<Instance>(&bytes) {
+                    let mods_dir = state.dirs.game_dir(&inst.id).join("mods");
+                    inst.mod_count = std::fs::read_dir(&mods_dir)
+                        .map(|rd| {
+                            rd.flatten()
+                                .filter(|e| {
+                                    let n = e.file_name().to_string_lossy().to_string();
+                                    n.ends_with(".jar") || n.ends_with(".jar.disabled")
+                                })
+                                .count() as u32
+                        })
+                        .unwrap_or(0);
                     out.push(inst);
                 }
             }
@@ -145,6 +157,7 @@ pub fn create_instance(
         memory_mb: None,
         java_path: None,
         jvm_args: None,
+        mod_count: 0,
     };
 
     // Pre-create the game directory + mods folder.
@@ -218,6 +231,140 @@ pub fn record_play_dirs(dirs: &crate::state::AppDirs, id: &str, seconds: u64) {
 }
 
 // ---------------------------------------------------------------------------
+// Export / import (zip the instance directory)
+// ---------------------------------------------------------------------------
+
+fn zip_dir_into(
+    zw: &mut zip::ZipWriter<std::fs::File>,
+    base: &Path,
+    dir: &Path,
+    opts: zip::write::SimpleFileOptions,
+) -> Result<()> {
+    use std::io::Write;
+    for entry in std::fs::read_dir(dir)?.flatten() {
+        let path = entry.path();
+        let rel = path.strip_prefix(base).unwrap_or(&path);
+        let rel_str = rel.to_string_lossy().replace('\\', "/");
+        if path.is_dir() {
+            zw.add_directory(format!("{rel_str}/"), opts)?;
+            zip_dir_into(zw, base, &path, opts)?;
+        } else {
+            zw.start_file(rel_str, opts)?;
+            let bytes = std::fs::read(&path)?;
+            zw.write_all(&bytes)?;
+        }
+    }
+    Ok(())
+}
+
+/// Zip an instance's whole directory (manifest + game files) to `dest`.
+pub fn export_instance(state: &AppState, id: &str, dest: &Path) -> Result<()> {
+    let dir = state.dirs.instance_dir(id);
+    if !dir.exists() {
+        return Err(Error::NotFound(format!("instance {id}")));
+    }
+    let file = std::fs::File::create(dest)?;
+    let mut zw = zip::ZipWriter::new(file);
+    let opts =
+        zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+    zip_dir_into(&mut zw, &dir, &dir, opts)?;
+    zw.finish()?;
+    Ok(())
+}
+
+/// Import an instance from a zip produced by [`export_instance`], assigning it a
+/// fresh id so it never clobbers an existing instance.
+pub fn import_instance(state: &AppState, src: &Path) -> Result<Instance> {
+    let file = std::fs::File::open(src)?;
+    let mut archive = zip::ZipArchive::new(file)?;
+
+    // Read the manifest first to derive a name.
+    let mut manifest: Instance = {
+        let mut mf = archive
+            .by_name("instance.json")
+            .map_err(|_| Error::Other("not a Beacon instance export (no instance.json)".into()))?;
+        let mut buf = Vec::new();
+        std::io::Read::read_to_end(&mut mf, &mut buf)?;
+        serde_json::from_slice(&buf)?
+    };
+
+    let short = uuid::Uuid::new_v4().to_string();
+    let new_id = format!("{}-{}", slugify(&manifest.name), &short[0..8]);
+    let dest_dir = state.dirs.instance_dir(&new_id);
+
+    for i in 0..archive.len() {
+        let mut zf = archive.by_index(i)?;
+        let Some(rel) = zf.enclosed_name() else {
+            continue;
+        };
+        let out = dest_dir.join(&rel);
+        if zf.is_dir() {
+            std::fs::create_dir_all(&out)?;
+        } else {
+            if let Some(p) = out.parent() {
+                std::fs::create_dir_all(p)?;
+            }
+            let mut w = std::fs::File::create(&out)?;
+            std::io::copy(&mut zf, &mut w)?;
+        }
+    }
+
+    // Rewrite the manifest with the new id (and reset runtime stats).
+    manifest.id = new_id.clone();
+    manifest.last_played = None;
+    save_instance(state, &manifest)?;
+    Ok(manifest)
+}
+
+// ---------------------------------------------------------------------------
+// Content index: maps an installed file name to the project it came from, so
+// the UI can tell which search results are already installed.
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+struct ContentIndex {
+    /// display file name (without `.disabled`) -> project id
+    #[serde(default)]
+    items: HashMap<String, IndexItem>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct IndexItem {
+    project_id: String,
+    #[serde(default)]
+    provider: String,
+}
+
+fn index_path(state: &AppState, id: &str) -> std::path::PathBuf {
+    state.dirs.instance_dir(id).join("beacon_index.json")
+}
+
+fn load_index(state: &AppState, id: &str) -> ContentIndex {
+    read_json_or_default(&index_path(state, id))
+}
+
+/// Record that `file_name` in this instance came from `project_id` on `provider`.
+pub fn record_install(state: &AppState, id: &str, file_name: &str, project_id: &str, provider: &str) {
+    let mut idx = load_index(state, id);
+    idx.items.insert(
+        file_name.to_string(),
+        IndexItem {
+            project_id: project_id.to_string(),
+            provider: provider.to_string(),
+        },
+    );
+    let _ = write_json(&index_path(state, id), &idx);
+}
+
+/// Drop a file from the content index (called on delete).
+fn forget_install(state: &AppState, id: &str, file_name: &str) {
+    let mut idx = load_index(state, id);
+    if idx.items.remove(file_name).is_some() {
+        let _ = write_json(&index_path(state, id), &idx);
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Mods within an instance
 // ---------------------------------------------------------------------------
 
@@ -227,12 +374,14 @@ pub struct ModEntry {
     pub file_name: String,
     pub enabled: bool,
     pub size: u64,
+    pub project_id: Option<String>,
 }
 
 const DISABLED_SUFFIX: &str = ".disabled";
 
 pub fn list_mods(state: &AppState, instance_id: &str) -> Vec<ModEntry> {
     let dir = state.dirs.game_dir(instance_id).join("mods");
+    let idx = load_index(state, instance_id);
     let mut out = Vec::new();
     if let Ok(rd) = std::fs::read_dir(&dir) {
         for e in rd.flatten() {
@@ -245,10 +394,12 @@ pub fn list_mods(state: &AppState, instance_id: &str) -> Vec<ModEntry> {
                 continue;
             };
             let size = e.metadata().map(|m| m.len()).unwrap_or(0);
+            let project_id = idx.items.get(&file_name).map(|i| i.project_id.clone());
             out.push(ModEntry {
                 file_name,
                 enabled,
                 size,
+                project_id,
             });
         }
     }
@@ -280,5 +431,167 @@ pub fn delete_mod(state: &AppState, instance_id: &str, file_name: &str) -> Resul
             std::fs::remove_file(&candidate)?;
         }
     }
+    forget_install(state, instance_id, file_name);
     Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Resource packs
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResourcePackEntry {
+    pub file_name: String,
+    pub size: u64,
+    pub project_id: Option<String>,
+}
+
+pub fn list_resource_packs(state: &AppState, instance_id: &str) -> Vec<ResourcePackEntry> {
+    let dir = state.dirs.game_dir(instance_id).join("resourcepacks");
+    let idx = load_index(state, instance_id);
+    let mut out = Vec::new();
+    if let Ok(rd) = std::fs::read_dir(&dir) {
+        for e in rd.flatten() {
+            let path = e.path();
+            let name = e.file_name().to_string_lossy().to_string();
+            if name.ends_with(".zip") || path.is_dir() {
+                let size = e.metadata().map(|m| m.len()).unwrap_or(0);
+                let project_id = idx.items.get(&name).map(|i| i.project_id.clone());
+                out.push(ResourcePackEntry { file_name: name, size, project_id });
+            }
+        }
+    }
+    out.sort_by(|a, b| a.file_name.to_lowercase().cmp(&b.file_name.to_lowercase()));
+    out
+}
+
+pub fn delete_resource_pack(state: &AppState, instance_id: &str, file_name: &str) -> Result<()> {
+    let path = state.dirs.game_dir(instance_id).join("resourcepacks").join(file_name);
+    if path.is_dir() {
+        std::fs::remove_dir_all(&path)?;
+    } else if path.exists() {
+        std::fs::remove_file(&path)?;
+    }
+    forget_install(state, instance_id, file_name);
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Shaders
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ShaderEntry {
+    pub file_name: String,
+    pub size: u64,
+    pub project_id: Option<String>,
+}
+
+pub fn list_shaders(state: &AppState, instance_id: &str) -> Vec<ShaderEntry> {
+    let dir = state.dirs.game_dir(instance_id).join("shaderpacks");
+    let idx = load_index(state, instance_id);
+    let mut out = Vec::new();
+    if let Ok(rd) = std::fs::read_dir(&dir) {
+        for e in rd.flatten() {
+            let path = e.path();
+            let name = e.file_name().to_string_lossy().to_string();
+            if name.ends_with(".zip") || path.is_dir() {
+                let size = e.metadata().map(|m| m.len()).unwrap_or(0);
+                let project_id = idx.items.get(&name).map(|i| i.project_id.clone());
+                out.push(ShaderEntry { file_name: name, size, project_id });
+            }
+        }
+    }
+    out.sort_by(|a, b| a.file_name.to_lowercase().cmp(&b.file_name.to_lowercase()));
+    out
+}
+
+pub fn delete_shader(state: &AppState, instance_id: &str, file_name: &str) -> Result<()> {
+    let path = state.dirs.game_dir(instance_id).join("shaderpacks").join(file_name);
+    if path.is_dir() {
+        std::fs::remove_dir_all(&path)?;
+    } else if path.exists() {
+        std::fs::remove_file(&path)?;
+    }
+    forget_install(state, instance_id, file_name);
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Worlds (saves/)
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorldEntry {
+    pub name: String,
+    pub modified: Option<i64>,
+}
+
+pub fn list_worlds(state: &AppState, instance_id: &str) -> Vec<WorldEntry> {
+    let dir = state.dirs.game_dir(instance_id).join("saves");
+    let mut out = Vec::new();
+    if let Ok(rd) = std::fs::read_dir(&dir) {
+        for e in rd.flatten() {
+            if e.path().is_dir() {
+                let name = e.file_name().to_string_lossy().to_string();
+                let modified = e.metadata().ok().and_then(|m| m.modified().ok()).map(|t| {
+                    t.duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_secs() as i64
+                });
+                out.push(WorldEntry { name, modified });
+            }
+        }
+    }
+    out.sort_by(|a, b| b.modified.cmp(&a.modified));
+    out
+}
+
+pub fn delete_world(state: &AppState, instance_id: &str, name: &str) -> Result<()> {
+    let path = state.dirs.game_dir(instance_id).join("saves").join(name);
+    if path.is_dir() {
+        std::fs::remove_dir_all(&path)?;
+    }
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Screenshots
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ScreenshotEntry {
+    pub file_name: String,
+    pub size: u64,
+    pub taken_at: i64,
+}
+
+pub fn list_screenshots(state: &AppState, instance_id: &str) -> Vec<ScreenshotEntry> {
+    let dir = state.dirs.game_dir(instance_id).join("screenshots");
+    let mut out = Vec::new();
+    if let Ok(rd) = std::fs::read_dir(&dir) {
+        for e in rd.flatten() {
+            let name = e.file_name().to_string_lossy().to_string();
+            if name.ends_with(".png") || name.ends_with(".jpg") {
+                let size = e.metadata().map(|m| m.len()).unwrap_or(0);
+                let taken_at = e
+                    .metadata()
+                    .ok()
+                    .and_then(|m| m.modified().ok())
+                    .map(|t| {
+                        t.duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_secs() as i64
+                    })
+                    .unwrap_or(0);
+                out.push(ScreenshotEntry { file_name: name, size, taken_at });
+            }
+        }
+    }
+    out.sort_by(|a, b| b.taken_at.cmp(&a.taken_at));
+    out
 }

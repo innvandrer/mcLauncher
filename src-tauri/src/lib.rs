@@ -1,5 +1,6 @@
 mod auth;
 mod commands;
+mod curseforge;
 mod error;
 mod instances;
 mod java;
@@ -47,11 +48,37 @@ pub fn run() {
             commands::stop_instance,
             commands::running_instances,
             commands::search_modrinth,
+            commands::search_curseforge,
             commands::install_mod,
+            commands::install_content,
+            commands::install_curseforge_content,
+            commands::install_mrpack,
+            commands::install_modrinth_modpack,
+            commands::install_curseforge_modpack,
+            commands::list_modrinth_versions,
+            commands::list_curseforge_files,
+            commands::check_mod_updates,
+            commands::apply_mod_update,
+            commands::export_instance,
+            commands::import_instance,
             commands::list_mods,
             commands::set_mod_enabled,
             commands::delete_mod,
+            commands::list_resource_packs,
+            commands::delete_resource_pack,
+            commands::list_shaders,
+            commands::delete_shader,
+            commands::list_worlds,
+            commands::delete_world,
+            commands::open_world_folder,
+            commands::list_screenshots,
+            commands::open_screenshot,
             commands::detect_java,
+            commands::get_modrinth_project_body,
+            commands::get_curseforge_description,
+            commands::install_content_version,
+            commands::install_curseforge_file,
+            commands::open_url,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Beacon");

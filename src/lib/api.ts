@@ -7,13 +7,19 @@ import type {
   JavaInstall,
   Loader,
   LoaderVersion,
+  ContentVersion,
   LogLine,
   ModEntry,
+  ModUpdate,
   PublicAccount,
+  ResourcePackEntry,
+  ScreenshotEntry,
   SearchResponse,
   Settings,
+  ShaderEntry,
   TaskProgress,
   VersionList,
+  WorldEntry,
 } from "./types";
 
 export const api = {
@@ -77,8 +83,124 @@ export const api = {
   deleteMod: (instanceId: string, fileName: string) =>
     invoke<void>("delete_mod", { instanceId, fileName }),
 
+  // Unified content installer (mods, resource packs, shaders)
+  installContent: (args: {
+    instanceId: string;
+    projectId: string;
+    contentType: string;
+    loader?: string | null;
+    gameVersion?: string | null;
+  }) => invoke<string>("install_content", args),
+
+  // CurseForge (same SearchResponse/ModHit shape as Modrinth)
+  searchCurseforge: (args: {
+    query: string;
+    contentType: string;
+    loader?: string | null;
+    gameVersion?: string | null;
+    limit?: number;
+    offset?: number;
+  }) => invoke<SearchResponse>("search_curseforge", args),
+  installCurseforgeContent: (args: {
+    instanceId: string;
+    projectId: string;
+    contentType: string;
+    loader?: string | null;
+    gameVersion?: string | null;
+  }) => invoke<string>("install_curseforge_content", args),
+
+  // Modrinth modpacks
+  installMrpack: (args: {
+    instanceId: string;
+    projectId: string;
+    versionId?: string | null;
+  }) => invoke<string>("install_mrpack", args),
+
+  // Version lists (for the version picker)
+  listModrinthVersions: (projectId: string) =>
+    invoke<ContentVersion[]>("list_modrinth_versions", { projectId }),
+  listCurseforgeFiles: (projectId: string) =>
+    invoke<ContentVersion[]>("list_curseforge_files", { projectId }),
+
+  // Modpacks → create a new instance from a pack
+  installModrinthModpack: (args: {
+    projectId: string;
+    versionId?: string | null;
+    name?: string | null;
+    icon?: string | null;
+  }) => invoke<Instance>("install_modrinth_modpack", args),
+  installCurseforgeModpack: (args: {
+    projectId: string;
+    fileId?: string | null;
+    name?: string | null;
+    icon?: string | null;
+  }) => invoke<Instance>("install_curseforge_modpack", args),
+
+  // Mod updates
+  checkModUpdates: (args: {
+    instanceId: string;
+    loader?: string | null;
+    gameVersion?: string | null;
+  }) => invoke<ModUpdate[]>("check_mod_updates", args),
+  applyModUpdate: (instanceId: string, update: ModUpdate) =>
+    invoke<void>("apply_mod_update", { instanceId, update }),
+
+  // Export / import
+  exportInstance: (id: string, dest: string) =>
+    invoke<void>("export_instance", { id, dest }),
+  importInstance: (src: string) => invoke<Instance>("import_instance", { src }),
+
+  // Resource packs
+  listResourcePacks: (instanceId: string) =>
+    invoke<ResourcePackEntry[]>("list_resource_packs", { instanceId }),
+  deleteResourcePack: (instanceId: string, fileName: string) =>
+    invoke<void>("delete_resource_pack", { instanceId, fileName }),
+
+  // Shaders
+  listShaders: (instanceId: string) =>
+    invoke<ShaderEntry[]>("list_shaders", { instanceId }),
+  deleteShader: (instanceId: string, fileName: string) =>
+    invoke<void>("delete_shader", { instanceId, fileName }),
+
+  // Worlds
+  listWorlds: (instanceId: string) =>
+    invoke<WorldEntry[]>("list_worlds", { instanceId }),
+  deleteWorld: (instanceId: string, name: string) =>
+    invoke<void>("delete_world", { instanceId, name }),
+  openWorldFolder: (instanceId: string, name: string) =>
+    invoke<void>("open_world_folder", { instanceId, name }),
+
+  // Screenshots
+  listScreenshots: (instanceId: string) =>
+    invoke<ScreenshotEntry[]>("list_screenshots", { instanceId }),
+  openScreenshot: (instanceId: string, fileName: string) =>
+    invoke<void>("open_screenshot", { instanceId, fileName }),
+
   // Java
   detectJava: () => invoke<JavaInstall[]>("detect_java"),
+
+  // Project body / descriptions (for detail pages)
+  getModrinthProjectBody: (projectId: string) =>
+    invoke<string>("get_modrinth_project_body", { projectId }),
+  getCurseforgeDescription: (projectId: string) =>
+    invoke<string>("get_curseforge_description", { projectId }),
+
+  // Version-specific installs (for the version picker)
+  installContentVersion: (args: {
+    instanceId: string;
+    projectId: string;
+    versionId: string;
+    contentType: string;
+  }) => invoke<string>("install_content_version", args),
+  installCurseforgeFile: (args: {
+    instanceId: string;
+    projectId: string;
+    fileId: string;
+    contentType: string;
+  }) => invoke<string>("install_curseforge_file", args),
+
+  // Open a URL in the system browser
+  openUrl: (url: string) => invoke<void>("open_url", { url }),
 };
 
 export const events = {

@@ -11,7 +11,7 @@ import type {
   VersionList,
 } from "@/lib/types";
 
-export type View = "instances" | "accounts" | "settings";
+export type View = "instances" | "modpacks" | "accounts" | "settings";
 
 export interface Toast {
   id: number;

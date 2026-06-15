@@ -4,6 +4,8 @@ use crate::error::{Error, Result};
 use crate::net::{self, DownloadItem};
 use crate::state::AppState;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use tauri::AppHandle;
 
 const API: &str = "https://api.modrinth.com/v2";
 
@@ -129,6 +131,33 @@ pub async fn search(
     Ok(resp)
 }
 
+/// A version of a project, in a provider-neutral shape for the version picker.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ContentVersion {
+    /// Modrinth version id or CurseForge file id (as a string).
+    pub id: String,
+    pub name: String,
+    pub version_number: String,
+    pub game_versions: Vec<String>,
+    pub date: String,
+}
+
+/// List all versions of a project for the version picker (newest first).
+pub async fn list_versions(state: &AppState, project_id: &str) -> Result<Vec<ContentVersion>> {
+    let versions = project_versions(state, project_id, None, None).await?;
+    Ok(versions
+        .into_iter()
+        .map(|v| ContentVersion {
+            id: v.id,
+            name: if v.name.is_empty() { v.version_number.clone() } else { v.name },
+            version_number: v.version_number,
+            game_versions: v.game_versions,
+            date: v.date_published,
+        })
+        .collect())
+}
+
 /// Fetch the versions of a project compatible with the given loader + version,
 /// newest first.
 pub async fn project_versions(
@@ -162,11 +191,37 @@ pub async fn install_mod(
     loader: Option<&str>,
     game_version: Option<&str>,
 ) -> Result<String> {
+    install_content(state, instance_id, project_id, "mod", loader, game_version).await
+}
+
+/// Install a Modrinth project (mod / resourcepack / shader) into the correct
+/// sub-directory of the instance and return the installed filename.
+/// For mods, required dependencies are auto-installed (best-effort).
+pub async fn install_content(
+    state: &AppState,
+    instance_id: &str,
+    project_id: &str,
+    content_type: &str,
+    loader: Option<&str>,
+    game_version: Option<&str>,
+) -> Result<String> {
     let versions = project_versions(state, project_id, loader, game_version).await?;
     let version = versions
         .into_iter()
         .next()
         .ok_or_else(|| Error::NotFound(format!("compatible version for {project_id}")))?;
+
+    // Auto-install required dependencies for mods (best-effort).
+    if content_type == "mod" {
+        let mods_dir = state.dirs.game_dir(instance_id).join("mods");
+        for dep in &version.dependencies {
+            if dep.dependency_type == "required" {
+                if let Some(dep_id) = &dep.project_id {
+                    let _ = install_dependency(state, dep_id, loader, game_version, &mods_dir).await;
+                }
+            }
+        }
+    }
 
     let file = version
         .files
@@ -176,8 +231,14 @@ pub async fn install_mod(
         .cloned()
         .ok_or_else(|| Error::NotFound("download file".into()))?;
 
-    let mods_dir = state.dirs.game_dir(instance_id).join("mods");
-    let target = mods_dir.join(&file.filename);
+    let folder = match content_type {
+        "resourcepack" => "resourcepacks",
+        "shader" => "shaderpacks",
+        _ => "mods",
+    };
+
+    let dest_dir = state.dirs.game_dir(instance_id).join(folder);
+    let target = dest_dir.join(&file.filename);
     net::download_one(
         &state.http,
         &DownloadItem::new(file.url.clone(), target, file.hashes.sha1.clone()),
@@ -185,4 +246,464 @@ pub async fn install_mod(
     .await?;
 
     Ok(file.filename)
+}
+
+/// Install a single required dependency into the mods folder (skips if already present).
+async fn install_dependency(
+    state: &AppState,
+    project_id: &str,
+    loader: Option<&str>,
+    game_version: Option<&str>,
+    mods_dir: &std::path::Path,
+) -> Result<()> {
+    let Ok(versions) = project_versions(state, project_id, loader, game_version).await else {
+        return Ok(());
+    };
+    let Some(version) = versions.into_iter().next() else {
+        return Ok(());
+    };
+    let Some(file) = version.files.iter().find(|f| f.primary).or_else(|| version.files.first()) else {
+        return Ok(());
+    };
+    let target = mods_dir.join(&file.filename);
+    let target_dis = mods_dir.join(format!("{}.disabled", file.filename));
+    if target.exists() || target_dis.exists() {
+        return Ok(());
+    }
+    net::download_one(
+        &state.http,
+        &DownloadItem::new(file.url.clone(), target, file.hashes.sha1.clone()),
+    )
+    .await?;
+    Ok(())
+}
+
+/// Install a specific Modrinth version by its version ID directly.
+pub async fn install_version(
+    state: &AppState,
+    instance_id: &str,
+    version_id: &str,
+    content_type: &str,
+) -> Result<String> {
+    let version: ProjectVersion = state
+        .http
+        .get(format!("{API}/version/{version_id}"))
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+
+    let file = version
+        .files
+        .iter()
+        .find(|f| f.primary)
+        .or_else(|| version.files.first())
+        .cloned()
+        .ok_or_else(|| Error::NotFound("download file".into()))?;
+
+    let folder = match content_type {
+        "resourcepack" => "resourcepacks",
+        "shader" => "shaderpacks",
+        _ => "mods",
+    };
+    let dest_dir = state.dirs.game_dir(instance_id).join(folder);
+    net::download_one(
+        &state.http,
+        &DownloadItem::new(file.url.clone(), dest_dir.join(&file.filename), file.hashes.sha1.clone()),
+    )
+    .await?;
+
+    Ok(file.filename)
+}
+
+/// Fetch the full project body (GitHub-flavored markdown string) from Modrinth.
+pub async fn get_project_body(state: &AppState, project_id: &str) -> Result<String> {
+    #[derive(Deserialize)]
+    struct Proj {
+        #[serde(default)]
+        body: String,
+    }
+    let p: Proj = state
+        .http
+        .get(format!("{API}/project/{project_id}"))
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    Ok(p.body)
+}
+
+// ---------------------------------------------------------------------------
+// Modrinth modpack (.mrpack) support
+// ---------------------------------------------------------------------------
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct MrpackIndex {
+    #[serde(default)]
+    name: String,
+    #[serde(default)]
+    files: Vec<MrpackEntry>,
+    #[serde(default)]
+    dependencies: MrpackDeps,
+}
+
+#[derive(Deserialize, Default)]
+struct MrpackDeps {
+    #[serde(default)]
+    minecraft: Option<String>,
+    #[serde(default, rename = "fabric-loader")]
+    fabric_loader: Option<String>,
+    #[serde(default, rename = "quilt-loader")]
+    quilt_loader: Option<String>,
+    #[serde(default)]
+    forge: Option<String>,
+    #[serde(default)]
+    neoforge: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct MrpackEntry {
+    path: String,
+    downloads: Vec<String>,
+    #[serde(default)]
+    hashes: MrpackHashes,
+    #[serde(default)]
+    env: Option<MrpackEnv>,
+}
+
+#[derive(Deserialize, Default)]
+struct MrpackHashes {
+    #[serde(default)]
+    sha1: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct MrpackEnv {
+    client: String,
+}
+
+impl MrpackDeps {
+    /// Resolve the dependency block into a (loader, loader_version) pair.
+    fn loader(&self) -> (crate::models::Loader, Option<String>) {
+        use crate::models::Loader;
+        if let Some(v) = &self.fabric_loader {
+            (Loader::Fabric, Some(v.clone()))
+        } else if let Some(v) = &self.quilt_loader {
+            (Loader::Quilt, Some(v.clone()))
+        } else if let Some(v) = &self.neoforge {
+            (Loader::Neoforge, Some(v.clone()))
+        } else if let Some(v) = &self.forge {
+            (Loader::Forge, Some(v.clone()))
+        } else {
+            (Loader::Vanilla, None)
+        }
+    }
+}
+
+/// Resolve the chosen (or latest) modpack version and download its `.mrpack`
+/// archive to a temp file, returning (temp_path, fallback_pack_name).
+async fn fetch_mrpack_archive(
+    state: &AppState,
+    project_id: &str,
+    version_id: Option<&str>,
+) -> Result<(std::path::PathBuf, String)> {
+    let versions = project_versions(state, project_id, None, None).await?;
+    let version = if let Some(vid) = version_id {
+        versions
+            .into_iter()
+            .find(|v| v.id == vid)
+            .ok_or_else(|| Error::NotFound(format!("modpack version {vid}")))?
+    } else {
+        versions
+            .into_iter()
+            .next()
+            .ok_or_else(|| Error::NotFound(format!("any version for {project_id}")))?
+    };
+
+    let mrpack_file = version
+        .files
+        .iter()
+        .find(|f| f.filename.ends_with(".mrpack"))
+        .or_else(|| version.files.first())
+        .cloned()
+        .ok_or_else(|| Error::NotFound("mrpack file".into()))?;
+
+    let tmp_path = std::env::temp_dir()
+        .join(format!("beacon_{}.mrpack", &version.id[..version.id.len().min(8)]));
+    net::download_one(
+        &state.http,
+        &DownloadItem::new(mrpack_file.url.clone(), tmp_path.clone(), mrpack_file.hashes.sha1.clone()),
+    )
+    .await?;
+
+    Ok((tmp_path, version.name))
+}
+
+/// Parse a `.mrpack` archive: extract `overrides/` (and `client-overrides/`)
+/// into `game_dir` and return (parsed index, download items for `files`).
+fn unpack_mrpack(
+    archive_path: &std::path::Path,
+    game_dir: &std::path::Path,
+) -> Result<(MrpackIndex, Vec<DownloadItem>)> {
+    let file = std::fs::File::open(archive_path)?;
+    let mut archive = zip::ZipArchive::new(file)?;
+
+    let index: MrpackIndex = {
+        let mut idx = archive.by_name("modrinth.index.json")?;
+        let mut buf = Vec::new();
+        std::io::Read::read_to_end(&mut idx, &mut buf)?;
+        serde_json::from_slice(&buf)?
+    };
+
+    for i in 0..archive.len() {
+        let mut zf = archive.by_index(i)?;
+        let zname = zf.name().to_string();
+        let rest = zname
+            .strip_prefix("overrides/")
+            .or_else(|| zname.strip_prefix("client-overrides/"));
+        if let Some(rest) = rest {
+            if rest.is_empty() {
+                continue;
+            }
+            let dest = game_dir.join(rest);
+            if zname.ends_with('/') {
+                std::fs::create_dir_all(&dest)?;
+            } else {
+                if let Some(p) = dest.parent() {
+                    std::fs::create_dir_all(p)?;
+                }
+                let mut out = std::fs::File::create(&dest)?;
+                std::io::copy(&mut zf, &mut out)?;
+            }
+        }
+    }
+
+    let items = index
+        .files
+        .iter()
+        .filter(|e| {
+            e.env
+                .as_ref()
+                .map(|env| env.client != "unsupported")
+                .unwrap_or(true)
+        })
+        .filter_map(|e| {
+            e.downloads
+                .first()
+                .map(|url| DownloadItem::new(url.clone(), game_dir.join(&e.path), e.hashes.sha1.clone()))
+        })
+        .collect::<Vec<_>>();
+
+    Ok((index, items))
+}
+
+/// Download and install a Modrinth modpack (.mrpack) into an existing instance.
+/// Returns the pack name/version string.
+pub async fn install_mrpack(
+    app: &AppHandle,
+    state: &AppState,
+    instance_id: &str,
+    project_id: &str,
+    version_id: Option<&str>,
+) -> Result<String> {
+    let settings = crate::instances::load_settings(state);
+    let (tmp_path, fallback_name) = fetch_mrpack_archive(state, project_id, version_id).await?;
+    let game_dir = state.dirs.game_dir(instance_id);
+
+    let (index, items) = unpack_mrpack(&tmp_path, &game_dir)?;
+    std::fs::remove_file(&tmp_path).ok();
+
+    let pack_name = if index.name.is_empty() { fallback_name } else { index.name };
+    net::download_many(
+        app,
+        &state.http,
+        &format!("mrpack:{instance_id}"),
+        &format!("Installing {pack_name}"),
+        items,
+        settings.max_concurrent_downloads,
+    )
+    .await?;
+
+    Ok(pack_name)
+}
+
+// ---------------------------------------------------------------------------
+// Mod updates (via Modrinth's version_files/update endpoint)
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModUpdate {
+    pub old_file_name: String,
+    pub new_file_name: String,
+    pub version_number: String,
+    pub url: String,
+    pub sha1: Option<String>,
+    pub enabled: bool,
+}
+
+/// Check installed mods against Modrinth and return those with a newer version
+/// available for the instance's loader + game version.
+pub async fn check_updates(
+    state: &AppState,
+    instance_id: &str,
+    loader: Option<&str>,
+    game_version: Option<&str>,
+) -> Result<Vec<ModUpdate>> {
+    let mods_dir = state.dirs.game_dir(instance_id).join("mods");
+
+    // Map sha1 -> (display jar name, enabled).
+    let mut by_hash: HashMap<String, (String, bool)> = HashMap::new();
+    if let Ok(rd) = std::fs::read_dir(&mods_dir) {
+        for e in rd.flatten() {
+            let name = e.file_name().to_string_lossy().to_string();
+            let (enabled, jar) = if let Some(s) = name.strip_suffix(".disabled") {
+                (false, s.to_string())
+            } else if name.ends_with(".jar") {
+                (true, name.clone())
+            } else {
+                continue;
+            };
+            if let Ok(h) = net::file_sha1(&e.path()).await {
+                by_hash.insert(h, (jar, enabled));
+            }
+        }
+    }
+    if by_hash.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let hashes: Vec<String> = by_hash.keys().cloned().collect();
+    let mut body = serde_json::json!({ "hashes": hashes, "algorithm": "sha1" });
+    if let Some(l) = loader {
+        if !l.is_empty() && l != "vanilla" {
+            body["loaders"] = serde_json::json!([l]);
+        }
+    }
+    if let Some(v) = game_version {
+        if !v.is_empty() {
+            body["game_versions"] = serde_json::json!([v]);
+        }
+    }
+
+    let resp: HashMap<String, ProjectVersion> = state
+        .http
+        .post(format!("{API}/version_files/update"))
+        .json(&body)
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+
+    let mut updates = Vec::new();
+    for (old_hash, version) in resp {
+        let Some((old_name, enabled)) = by_hash.get(&old_hash) else {
+            continue;
+        };
+        let Some(file) = version.files.iter().find(|f| f.primary).or_else(|| version.files.first())
+        else {
+            continue;
+        };
+        // Already up to date if the returned file is the same one we have.
+        if file.hashes.sha1.as_deref() == Some(old_hash.as_str()) || &file.filename == old_name {
+            continue;
+        }
+        updates.push(ModUpdate {
+            old_file_name: old_name.clone(),
+            new_file_name: file.filename.clone(),
+            version_number: version.version_number.clone(),
+            url: file.url.clone(),
+            sha1: file.hashes.sha1.clone(),
+            enabled: *enabled,
+        });
+    }
+    Ok(updates)
+}
+
+/// Apply a single mod update: download the new jar (preserving enabled state)
+/// and remove the old one.
+pub async fn apply_update(state: &AppState, instance_id: &str, update: ModUpdate) -> Result<()> {
+    let mods_dir = state.dirs.game_dir(instance_id).join("mods");
+    let target_name = if update.enabled {
+        update.new_file_name.clone()
+    } else {
+        format!("{}.disabled", update.new_file_name)
+    };
+    net::download_one(
+        &state.http,
+        &DownloadItem::new(update.url.clone(), mods_dir.join(&target_name), update.sha1.clone()),
+    )
+    .await?;
+
+    // Remove the old jar (unless it shares the new name).
+    if update.old_file_name != update.new_file_name {
+        for cand in [
+            mods_dir.join(&update.old_file_name),
+            mods_dir.join(format!("{}.disabled", update.old_file_name)),
+        ] {
+            if cand.exists() {
+                std::fs::remove_file(&cand)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Install a Modrinth modpack as a *new* instance: parse the pack's
+/// dependencies to pick the right Minecraft version + loader, create the
+/// instance, then extract overrides and download its files.
+pub async fn install_modpack(
+    app: &AppHandle,
+    state: &AppState,
+    project_id: &str,
+    version_id: Option<&str>,
+    name_override: Option<&str>,
+    icon: Option<String>,
+) -> Result<crate::models::Instance> {
+    let settings = crate::instances::load_settings(state);
+    let (tmp_path, fallback_name) = fetch_mrpack_archive(state, project_id, version_id).await?;
+
+    // Parse the index once up front (without a game dir) to read dependencies.
+    let meta: MrpackIndex = {
+        let file = std::fs::File::open(&tmp_path)?;
+        let mut archive = zip::ZipArchive::new(file)?;
+        let mut idx = archive.by_name("modrinth.index.json")?;
+        let mut buf = Vec::new();
+        std::io::Read::read_to_end(&mut idx, &mut buf)?;
+        serde_json::from_slice(&buf)?
+    };
+
+    let mc_version = meta
+        .dependencies
+        .minecraft
+        .clone()
+        .ok_or_else(|| Error::Other("modpack is missing a Minecraft version".into()))?;
+    let (loader, loader_version) = meta.dependencies.loader();
+    let pack_name = name_override
+        .map(|s| s.to_string())
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| if meta.name.is_empty() { fallback_name } else { meta.name.clone() });
+
+    let instance =
+        crate::instances::create_instance(state, &pack_name, &mc_version, loader, loader_version, icon)?;
+
+    let game_dir = state.dirs.game_dir(&instance.id);
+    let (_index, items) = unpack_mrpack(&tmp_path, &game_dir)?;
+    std::fs::remove_file(&tmp_path).ok();
+
+    net::download_many(
+        app,
+        &state.http,
+        &format!("modpack:{}", instance.id),
+        &format!("Installing {pack_name}"),
+        items,
+        settings.max_concurrent_downloads,
+    )
+    .await?;
+
+    Ok(instance)
 }

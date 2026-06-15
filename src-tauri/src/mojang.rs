@@ -419,10 +419,17 @@ pub fn split_libraries(
         }
 
         // New-format native (classifier baked into the maven name).
+        // Modern LWJGL (3.3+/MC 1.19+) extracts native DLLs from the natives JAR
+        // on the *classpath* itself (to org.lwjgl.system.SharedLibraryExtractPath),
+        // so the JAR must be on the classpath — not merely extracted to
+        // java.library.path. We add it to both: classpath for LWJGL's own
+        // extraction, and natives_dl so the flat DLLs are available via
+        // java.library.path as a fallback for non-LWJGL natives.
         if is_native_coord(&lib.name) {
             if let Some(art) = lib.downloads.as_ref().and_then(|d| d.artifact.as_ref()) {
                 let rel = art.path.clone().unwrap_or_else(|| maven_to_path(&lib.name));
                 let path = lib_root.join(&rel);
+                classpath_paths.push(path.clone());
                 natives_dl.push(DownloadItem::new(art.url.clone(), path, art.sha1.clone()));
             }
             continue;
@@ -608,8 +615,16 @@ pub async fn install(
     .await?;
 
     // Extract natives for this launch.
+    // Modern versions (1.13+) set java.library.path=${natives_directory}/java,
+    // so DLLs must go in the java/ subdirectory. Legacy versions (<1.13) have
+    // no jvm_args template and set the path to ${natives_directory} directly.
+    let native_extract_dir = if resolved.jvm_args.is_empty() {
+        natives_dir.to_path_buf()
+    } else {
+        natives_dir.join("java")
+    };
     let native_jars: Vec<std::path::PathBuf> = natives_dl.into_iter().map(|d| d.path).collect();
-    extract_natives(&native_jars, natives_dir)?;
+    extract_natives(&native_jars, &native_extract_dir)?;
 
     Ok(resolved)
 }

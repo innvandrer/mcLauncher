@@ -1,22 +1,55 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import {
   ArrowLeft,
+  Camera,
+  Check,
   Download,
+  ExternalLink,
   FolderOpen,
+  Globe,
+  Image,
   Package,
   Play,
+  RefreshCw,
   ScrollText,
   Settings2,
+  Sparkles,
   Square,
   Trash2,
+  Upload,
 } from "lucide-react";
-import { Button, EmptyState, Field, Input, Spinner } from "@/components/ui";
+import { Button, EmptyState, Field, Input, Modal, Select, Spinner } from "@/components/ui";
 import { useStore } from "@/store/useStore";
 import { api, errMessage } from "@/lib/api";
-import { cn, formatNumber, loaderLabel } from "@/lib/utils";
-import type { Instance, ModEntry, ModHit } from "@/lib/types";
+import { cn, formatBytes, formatNumber, loaderLabel } from "@/lib/utils";
+import { save } from "@tauri-apps/plugin-dialog";
+import type {
+  ContentVersion,
+  Instance,
+  ModEntry,
+  ModHit,
+  ModUpdate,
+  ResourcePackEntry,
+  ScreenshotEntry,
+  ShaderEntry,
+  WorldEntry,
+} from "@/lib/types";
 
 type Tab = "content" | "logs" | "settings";
+
+function contentUrl(hit: ModHit, provider: Provider): string {
+  const typeSlug: Record<string, string> = {
+    mod: provider === "curseforge" ? "mc-mods" : "mod",
+    resourcepack: provider === "curseforge" ? "texture-packs" : "resourcepack",
+    shader: provider === "curseforge" ? "customization" : "shader",
+    modpack: provider === "curseforge" ? "modpacks" : "modpack",
+  };
+  const section = typeSlug[hit.project_type] ?? (provider === "curseforge" ? "mc-mods" : "mod");
+  if (provider === "curseforge") {
+    return `https://www.curseforge.com/minecraft/${section}/${hit.slug}`;
+  }
+  return `https://modrinth.com/${section}/${hit.slug}`;
+}
 
 export function InstanceDetailPage({ id }: { id: string }) {
   const instance = useStore((s) => s.instances.find((i) => i.id === id));
@@ -24,7 +57,9 @@ export function InstanceDetailPage({ id }: { id: string }) {
   const launch = useStore((s) => s.launch);
   const stop = useStore((s) => s.stop);
   const close = useStore((s) => s.closeInstance);
+  const toast = useStore((s) => s.toast);
   const [tab, setTab] = useState<Tab>("content");
+  const [exporting, setExporting] = useState(false);
 
   if (!instance) {
     return (
@@ -35,6 +70,24 @@ export function InstanceDetailPage({ id }: { id: string }) {
       </div>
     );
   }
+
+  const exportInstance = async () => {
+    try {
+      const path = await save({
+        defaultPath: `${instance.name}.zip`,
+        filters: [{ name: "Zip archive", extensions: ["zip"] }],
+      });
+      if (!path) return;
+      setExporting(true);
+      toast("info", "Exporting instance…");
+      await api.exportInstance(id, path);
+      toast("success", "Instance exported");
+    } catch (e) {
+      toast("error", errMessage(e));
+    } finally {
+      setExporting(false);
+    }
+  };
 
   const tabs: { id: Tab; label: string; icon: typeof Package }[] = [
     { id: "content", label: "Content", icon: Package },
@@ -71,6 +124,9 @@ export function InstanceDetailPage({ id }: { id: string }) {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            <Button variant="secondary" onClick={exportInstance} loading={exporting} title="Export as .zip">
+              <Upload className="h-4 w-4" /> Export
+            </Button>
             <Button variant="secondary" onClick={() => api.openInstanceFolder(id)}>
               <FolderOpen className="h-4 w-4" /> Folder
             </Button>
@@ -121,57 +177,222 @@ export function InstanceDetailPage({ id }: { id: string }) {
 }
 
 // --------------------------------------------------------------------------
-// Content / mods
+// Content tab — sub-tabs for Mods, Resource Packs, Shaders, Worlds, Screenshots
 // --------------------------------------------------------------------------
 
+type ContentSection = "mods" | "resourcepacks" | "shaders" | "worlds" | "screenshots";
+
 function ContentTab({ instance }: { instance: Instance }) {
+  const isModded = instance.loader !== "vanilla";
+  const [section, setSection] = useState<ContentSection>(isModded ? "mods" : "resourcepacks");
+
+  const subtabs: { id: ContentSection; label: string; icon: typeof Package }[] = [
+    ...(isModded
+      ? [{ id: "mods" as ContentSection, label: "Mods", icon: Package }]
+      : []),
+    { id: "resourcepacks", label: "Resource Packs", icon: Image },
+    { id: "shaders", label: "Shaders", icon: Sparkles },
+    { id: "worlds", label: "Worlds", icon: Globe },
+    { id: "screenshots", label: "Screenshots", icon: Camera },
+  ];
+
+  return (
+    <div>
+      {/* Sub-tab bar */}
+      <div className="mb-5 flex flex-wrap gap-1">
+        {subtabs.map((t) => {
+          const Icon = t.icon;
+          return (
+            <button
+              key={t.id}
+              onClick={() => setSection(t.id)}
+              className={cn(
+                "flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition btn-focus",
+                section === t.id
+                  ? "bg-accent/15 text-accent"
+                  : "text-muted-foreground hover:bg-muted hover:text-foreground",
+              )}
+            >
+              <Icon className="h-3.5 w-3.5" />
+              {t.label}
+            </button>
+          );
+        })}
+      </div>
+
+      {section === "mods" && <ModsPanel instance={instance} />}
+      {section === "resourcepacks" && (
+        <ContentBrowserPanel
+          instance={instance}
+          contentType="resourcepack"
+          modrinthType="resourcepack"
+          useLoaderFilter={false}
+          listItems={() => api.listResourcePacks(instance.id)}
+          deleteItem={(fileName) => api.deleteResourcePack(instance.id, fileName)}
+          emptyLabel="resource packs"
+          placeholder={`Search Modrinth for ${instance.mcVersion} resource packs…`}
+        />
+      )}
+      {section === "shaders" && (
+        <ContentBrowserPanel
+          instance={instance}
+          contentType="shader"
+          modrinthType="shader"
+          useLoaderFilter={false}
+          listItems={() => api.listShaders(instance.id)}
+          deleteItem={(fileName) => api.deleteShader(instance.id, fileName)}
+          emptyLabel="shaders"
+          placeholder={`Search Modrinth for ${instance.mcVersion} shaders…`}
+        />
+      )}
+      {section === "worlds" && <WorldsPanel instance={instance} />}
+      {section === "screenshots" && <ScreenshotsPanel instance={instance} />}
+    </div>
+  );
+}
+
+// --------------------------------------------------------------------------
+// Content source provider (Modrinth / CurseForge)
+// --------------------------------------------------------------------------
+
+type Provider = "modrinth" | "curseforge";
+
+function ProviderToggle({
+  provider,
+  onChange,
+}: {
+  provider: Provider;
+  onChange: (p: Provider) => void;
+}) {
+  const opts: { id: Provider; label: string }[] = [
+    { id: "modrinth", label: "Modrinth" },
+    { id: "curseforge", label: "CurseForge" },
+  ];
+  return (
+    <div className="inline-flex shrink-0 rounded-lg border bg-card/60 p-0.5">
+      {opts.map((o) => (
+        <button
+          key={o.id}
+          onClick={() => onChange(o.id)}
+          className={cn(
+            "rounded-md px-2.5 py-1 text-xs font-medium transition btn-focus",
+            provider === o.id
+              ? "bg-accent/20 text-accent"
+              : "text-muted-foreground hover:text-foreground",
+          )}
+        >
+          {o.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+// Run a provider-aware search; returns the hits.
+function searchProvider(
+  provider: Provider,
+  args: {
+    query: string;
+    contentType: string;
+    loader?: string | null;
+    gameVersion?: string | null;
+    limit?: number;
+  },
+) {
+  if (provider === "curseforge") {
+    return api.searchCurseforge({
+      query: args.query,
+      contentType: args.contentType,
+      loader: args.loader,
+      gameVersion: args.gameVersion,
+      limit: args.limit,
+    });
+  }
+  return api.searchModrinth({
+    query: args.query,
+    projectType: args.contentType,
+    loader: args.loader,
+    gameVersion: args.gameVersion,
+    limit: args.limit,
+  });
+}
+
+// Run a provider-aware install; returns the installed filename.
+function installProvider(
+  provider: Provider,
+  args: {
+    instanceId: string;
+    projectId: string;
+    contentType: string;
+    loader?: string | null;
+    gameVersion?: string | null;
+  },
+) {
+  if (provider === "curseforge") {
+    return api.installCurseforgeContent(args);
+  }
+  return api.installContent(args);
+}
+
+// --------------------------------------------------------------------------
+// Mods panel (has enable/disable toggle)
+// --------------------------------------------------------------------------
+
+function ModsPanel({ instance }: { instance: Instance }) {
   const toast = useStore((s) => s.toast);
   const [installed, setInstalled] = useState<ModEntry[]>([]);
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<ModHit[]>([]);
   const [searching, setSearching] = useState(false);
   const [installing, setInstalling] = useState<string | null>(null);
+  const [provider, setProvider] = useState<Provider>("modrinth");
 
-  const isModded = instance.loader === "fabric" || instance.loader === "quilt";
-
-  const refreshInstalled = () => api.listMods(instance.id).then(setInstalled).catch(() => {});
+  const refresh = () => api.listMods(instance.id).then(setInstalled).catch(() => {});
   useEffect(() => {
-    refreshInstalled();
+    refresh();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [instance.id]);
 
-  // Debounced Modrinth search.
   useEffect(() => {
-    if (!isModded) return;
     setSearching(true);
     const t = setTimeout(() => {
-      api
-        .searchModrinth({
-          query,
-          projectType: "mod",
-          loader: instance.loader,
-          gameVersion: instance.mcVersion,
-          limit: 20,
-        })
+      searchProvider(provider, {
+        query,
+        contentType: "mod",
+        loader: instance.loader,
+        gameVersion: instance.mcVersion,
+        limit: 20,
+      })
         .then((r) => setResults(r.hits))
         .catch((e) => toast("error", errMessage(e)))
         .finally(() => setSearching(false));
     }, 350);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [query, isModded, instance.loader, instance.mcVersion]);
+  }, [query, provider, instance.loader, instance.mcVersion]);
 
-  const install = async (hit: ModHit) => {
+  const [versionPickTarget, setVersionPickTarget] = useState<ModHit | null>(null);
+
+  const installWithVersion = async (hit: ModHit, versionId: string) => {
     setInstalling(hit.project_id);
+    setVersionPickTarget(null);
     try {
-      const file = await api.installMod({
-        instanceId: instance.id,
-        projectId: hit.project_id,
-        loader: instance.loader,
-        gameVersion: instance.mcVersion,
-      });
+      const file =
+        provider === "curseforge"
+          ? await api.installCurseforgeFile({
+              instanceId: instance.id,
+              projectId: hit.project_id,
+              fileId: versionId,
+              contentType: "mod",
+            })
+          : await api.installContentVersion({
+              instanceId: instance.id,
+              projectId: hit.project_id,
+              versionId,
+              contentType: "mod",
+            });
       toast("success", `Installed ${file}`);
-      refreshInstalled();
+      refresh();
     } catch (e) {
       toast("error", errMessage(e));
     } finally {
@@ -180,34 +401,105 @@ function ContentTab({ instance }: { instance: Instance }) {
   };
 
   const toggle = async (m: ModEntry) => {
-    await api.setModEnabled(instance.id, m.fileName, !m.enabled).catch((e) => toast("error", errMessage(e)));
-    refreshInstalled();
+    await api.setModEnabled(instance.id, m.fileName, !m.enabled).catch((e) =>
+      toast("error", errMessage(e)),
+    );
+    refresh();
   };
   const remove = async (m: ModEntry) => {
-    await api.deleteMod(instance.id, m.fileName).catch((e) => toast("error", errMessage(e)));
-    refreshInstalled();
+    await api.deleteMod(instance.id, m.fileName).catch((e) =>
+      toast("error", errMessage(e)),
+    );
+    refresh();
   };
 
-  if (!isModded) {
-    return (
-      <EmptyState
-        icon={<Package className="h-7 w-7" />}
-        title="No mod loader"
-        description="This is a Vanilla instance. Create a Fabric or Quilt instance to browse and install mods from Modrinth."
-      />
-    );
-  }
+  const [updates, setUpdates] = useState<ModUpdate[]>([]);
+  const [checking, setChecking] = useState(false);
+  const [updatingAll, setUpdatingAll] = useState(false);
+
+  const checkUpdates = async () => {
+    setChecking(true);
+    try {
+      const u = await api.checkModUpdates({
+        instanceId: instance.id,
+        loader: instance.loader,
+        gameVersion: instance.mcVersion,
+      });
+      setUpdates(u);
+      toast(
+        u.length ? "info" : "success",
+        u.length ? `${u.length} update${u.length > 1 ? "s" : ""} available` : "All mods up to date",
+      );
+    } catch (e) {
+      toast("error", errMessage(e));
+    } finally {
+      setChecking(false);
+    }
+  };
+
+  const applyAllUpdates = async () => {
+    setUpdatingAll(true);
+    try {
+      for (const u of updates) {
+        await api.applyModUpdate(instance.id, u);
+      }
+      toast("success", `Updated ${updates.length} mod${updates.length > 1 ? "s" : ""}`);
+      setUpdates([]);
+      refresh();
+    } catch (e) {
+      toast("error", errMessage(e));
+    } finally {
+      setUpdatingAll(false);
+    }
+  };
 
   return (
-    <div className="grid grid-cols-1 gap-6 lg:grid-cols-[320px_1fr]">
+    <div className="grid grid-cols-1 gap-6 lg:grid-cols-[300px_minmax(0,1fr)]">
       {/* Installed */}
       <section>
-        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-          Installed ({installed.length})
-        </h2>
+        <div className="mb-3 flex items-center justify-between">
+          <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Installed ({installed.length})
+          </h2>
+          {installed.length > 0 && (
+            <button
+              onClick={checkUpdates}
+              disabled={checking}
+              className="inline-flex items-center gap-1 text-xs text-muted-foreground transition hover:text-foreground btn-focus disabled:opacity-50"
+            >
+              <RefreshCw className={cn("h-3 w-3", checking && "animate-spin")} />
+              {checking ? "Checking…" : "Updates"}
+            </button>
+          )}
+        </div>
+
+        {updates.length > 0 && (
+          <div className="mb-3 rounded-lg border border-accent/40 bg-accent/10 p-3">
+            <p className="text-sm font-medium">
+              {updates.length} update{updates.length > 1 ? "s" : ""} available
+            </p>
+            <ul className="mt-1.5 space-y-0.5 text-xs text-muted-foreground">
+              {updates.slice(0, 4).map((u) => (
+                <li key={u.oldFileName} className="truncate">
+                  {u.newFileName.replace(/\.jar$/, "")}
+                </li>
+              ))}
+              {updates.length > 4 && <li>+{updates.length - 4} more…</li>}
+            </ul>
+            <Button
+              size="sm"
+              variant="primary"
+              className="mt-2 w-full"
+              loading={updatingAll}
+              onClick={applyAllUpdates}
+            >
+              Update all
+            </Button>
+          </div>
+        )}
         {installed.length === 0 ? (
           <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
-            No mods installed yet. Search and install from the right.
+            No mods yet. Search on the right to add some.
           </p>
         ) : (
           <div className="space-y-1.5">
@@ -232,6 +524,9 @@ function ContentTab({ instance }: { instance: Instance }) {
                 >
                   {m.fileName.replace(/\.jar$/, "")}
                 </span>
+                <span className="shrink-0 text-xs text-muted-foreground">
+                  {formatBytes(m.size)}
+                </span>
                 <button
                   onClick={() => remove(m)}
                   className="text-muted-foreground transition hover:text-destructive"
@@ -246,64 +541,508 @@ function ContentTab({ instance }: { instance: Instance }) {
 
       {/* Browse */}
       <section>
-        <div className="mb-3">
+        <div className="mb-3 flex items-center gap-2">
           <Input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder={`Search Modrinth for ${instance.mcVersion} ${loaderLabel(instance.loader)} mods…`}
+            placeholder={`Search for ${instance.mcVersion} ${loaderLabel(instance.loader)} mods…`}
           />
+          <ProviderToggle provider={provider} onChange={setProvider} />
         </div>
-        {searching && results.length === 0 ? (
-          <div className="flex justify-center py-10">
-            <Spinner />
-          </div>
+        <ModrinthResultList
+          results={results}
+          searching={searching}
+          installing={installing}
+          onInstall={(hit) => setVersionPickTarget(hit)}
+          provider={provider}
+          emptyLabel="mods"
+          fallbackIcon={<Package className="h-5 w-5 text-muted-foreground" />}
+          installedIds={
+            new Set(installed.map((m) => m.projectId).filter((x): x is string => !!x))
+          }
+        />
+      </section>
+
+      <VersionPickerModal
+        hit={versionPickTarget}
+        provider={provider}
+        onClose={() => setVersionPickTarget(null)}
+        onInstall={installWithVersion}
+      />
+    </div>
+  );
+}
+
+// --------------------------------------------------------------------------
+// Generic content browser panel (resource packs, shaders)
+// --------------------------------------------------------------------------
+
+interface ContentBrowserPanelProps {
+  instance: Instance;
+  contentType: string;
+  modrinthType: string;
+  useLoaderFilter: boolean;
+  listItems: () => Promise<{ fileName: string; size: number; projectId?: string | null }[]>;
+  deleteItem: (fileName: string) => Promise<void>;
+  emptyLabel: string;
+  placeholder: string;
+}
+
+function ContentBrowserPanel({
+  instance,
+  contentType,
+  modrinthType,
+  useLoaderFilter,
+  listItems,
+  deleteItem,
+  emptyLabel,
+  placeholder,
+}: ContentBrowserPanelProps) {
+  const toast = useStore((s) => s.toast);
+  const [installed, setInstalled] = useState<
+    { fileName: string; size: number; projectId?: string | null }[]
+  >([]);
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState<ModHit[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [installing, setInstalling] = useState<string | null>(null);
+  const [provider, setProvider] = useState<Provider>("modrinth");
+
+  const refresh = () => listItems().then(setInstalled).catch(() => {});
+  useEffect(() => {
+    refresh();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [instance.id, contentType]);
+
+  useEffect(() => {
+    setSearching(true);
+    const t = setTimeout(() => {
+      searchProvider(provider, {
+        query,
+        contentType: modrinthType,
+        loader: useLoaderFilter ? instance.loader : undefined,
+        gameVersion: instance.mcVersion,
+        limit: 20,
+      })
+        .then((r) => setResults(r.hits))
+        .catch((e) => toast("error", errMessage(e)))
+        .finally(() => setSearching(false));
+    }, 350);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [query, provider, modrinthType, instance.mcVersion]);
+
+  const install = async (hit: ModHit) => {
+    setInstalling(hit.project_id);
+    try {
+      const file = await installProvider(provider, {
+        instanceId: instance.id,
+        projectId: hit.project_id,
+        contentType,
+        loader: useLoaderFilter ? instance.loader : undefined,
+        gameVersion: instance.mcVersion,
+      });
+      toast("success", `Installed ${file}`);
+      refresh();
+    } catch (e) {
+      toast("error", errMessage(e));
+    } finally {
+      setInstalling(null);
+    }
+  };
+
+  const remove = async (fileName: string) => {
+    await deleteItem(fileName).catch((e) => toast("error", errMessage(e)));
+    refresh();
+  };
+
+  const FallbackIcon =
+    contentType === "shader" ? (
+      <Sparkles className="h-5 w-5 text-muted-foreground" />
+    ) : (
+      <Image className="h-5 w-5 text-muted-foreground" />
+    );
+
+  return (
+    <div className="grid grid-cols-1 gap-6 lg:grid-cols-[300px_minmax(0,1fr)]">
+      {/* Installed */}
+      <section>
+        <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          Installed ({installed.length})
+        </h2>
+        {installed.length === 0 ? (
+          <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+            No {emptyLabel} yet. Search on the right to add some.
+          </p>
         ) : (
-          <div className="space-y-2">
-            {results.map((hit) => {
-              const isInstalling = installing === hit.project_id;
-              return (
-                <div
-                  key={hit.project_id}
-                  className="flex items-center gap-3 rounded-xl border bg-card/60 p-3 transition hover:bg-card"
+          <div className="space-y-1.5">
+            {installed.map((item) => (
+              <div
+                key={item.fileName}
+                className="flex items-center gap-2 rounded-lg border bg-card/60 p-2.5"
+              >
+                <span className="flex-1 truncate text-sm" title={item.fileName}>
+                  {item.fileName.replace(/\.zip$/, "")}
+                </span>
+                <span className="shrink-0 text-xs text-muted-foreground">
+                  {formatBytes(item.size)}
+                </span>
+                <button
+                  onClick={() => remove(item.fileName)}
+                  className="text-muted-foreground transition hover:text-destructive"
                 >
-                  {hit.icon_url ? (
-                    <img
-                      src={hit.icon_url}
-                      alt=""
-                      className="h-11 w-11 shrink-0 rounded-lg object-cover"
-                    />
-                  ) : (
-                    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-muted">
-                      <Package className="h-5 w-5 text-muted-foreground" />
-                    </div>
-                  )}
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
-                      <span className="truncate font-medium">{hit.title}</span>
-                      <span className="shrink-0 text-xs text-muted-foreground">
-                        {formatNumber(hit.downloads)} ↓
-                      </span>
-                    </div>
-                    <p className="truncate text-sm text-muted-foreground">{hit.description}</p>
-                  </div>
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    loading={isInstalling}
-                    onClick={() => install(hit)}
-                  >
-                    {!isInstalling && <Download className="h-3.5 w-3.5" />}
-                    Add
-                  </Button>
-                </div>
-              );
-            })}
-            {!searching && results.length === 0 && (
-              <p className="py-10 text-center text-sm text-muted-foreground">No mods found.</p>
-            )}
+                  <Trash2 className="h-4 w-4" />
+                </button>
+              </div>
+            ))}
           </div>
         )}
       </section>
+
+      {/* Browse */}
+      <section>
+        <div className="mb-3 flex items-center gap-2">
+          <Input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder={placeholder}
+          />
+          <ProviderToggle provider={provider} onChange={setProvider} />
+        </div>
+        <ModrinthResultList
+          results={results}
+          searching={searching}
+          installing={installing}
+          onInstall={install}
+          provider={provider}
+          emptyLabel={emptyLabel}
+          fallbackIcon={FallbackIcon}
+          installedIds={
+            new Set(installed.map((m) => m.projectId).filter((x): x is string => !!x))
+          }
+        />
+      </section>
+    </div>
+  );
+}
+
+// --------------------------------------------------------------------------
+// Shared Modrinth result list
+// --------------------------------------------------------------------------
+
+interface ModrinthResultListProps {
+  results: ModHit[];
+  searching: boolean;
+  installing: string | null;
+  onInstall: (hit: ModHit) => void;
+  emptyLabel: string;
+  fallbackIcon: ReactNode;
+  installedIds?: Set<string>;
+  provider?: Provider;
+}
+
+function ModrinthResultList({
+  results,
+  searching,
+  installing,
+  onInstall,
+  emptyLabel,
+  fallbackIcon,
+  installedIds,
+  provider,
+}: ModrinthResultListProps) {
+  if (searching && results.length === 0) {
+    return (
+      <div className="flex justify-center py-10">
+        <Spinner />
+      </div>
+    );
+  }
+  return (
+    <div className="space-y-2">
+      {results.map((hit) => {
+        const isInstalling = installing === hit.project_id;
+        const isInstalled = installedIds?.has(hit.project_id) ?? false;
+        return (
+          <div
+            key={hit.project_id}
+            className="flex items-start gap-3 rounded-xl border bg-card/60 p-3 transition hover:bg-card"
+          >
+            {hit.icon_url ? (
+              <img
+                src={hit.icon_url}
+                alt=""
+                className="h-11 w-11 shrink-0 rounded-lg object-cover"
+              />
+            ) : (
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-muted">
+                {fallbackIcon}
+              </div>
+            )}
+            <div className="min-w-0 flex-1">
+              <div className="flex items-baseline gap-2">
+                <span className="truncate font-medium">{hit.title}</span>
+                <span className="shrink-0 text-xs text-muted-foreground">
+                  {formatNumber(hit.downloads)} ↓
+                </span>
+              </div>
+              <p className="mt-0.5 line-clamp-2 text-sm text-muted-foreground">{hit.description}</p>
+            </div>
+            <div className="flex shrink-0 items-center gap-1.5">
+              {provider && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    api.openUrl(contentUrl(hit, provider));
+                  }}
+                  className="text-muted-foreground transition hover:text-foreground"
+                  title={`Open on ${provider === "curseforge" ? "CurseForge" : "Modrinth"}`}
+                >
+                  <ExternalLink className="h-3.5 w-3.5" />
+                </button>
+              )}
+              {isInstalled ? (
+                <span className="inline-flex items-center gap-1 rounded-md bg-emerald-500/15 px-2.5 py-1 text-xs font-medium text-emerald-400">
+                  <Check className="h-3.5 w-3.5" />
+                  Installed
+                </span>
+              ) : (
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  loading={isInstalling}
+                  onClick={() => onInstall(hit)}
+                >
+                  {!isInstalling && <Download className="h-3.5 w-3.5" />}
+                  Add
+                </Button>
+              )}
+            </div>
+          </div>
+        );
+      })}
+      {!searching && results.length === 0 && (
+        <p className="py-10 text-center text-sm text-muted-foreground">
+          No {emptyLabel} found.
+        </p>
+      )}
+    </div>
+  );
+}
+
+// --------------------------------------------------------------------------
+// Version picker modal — shown when "Add" is clicked on a mod result
+// --------------------------------------------------------------------------
+
+function VersionPickerModal({
+  hit,
+  provider,
+  onClose,
+  onInstall,
+}: {
+  hit: ModHit | null;
+  provider: Provider;
+  onClose: () => void;
+  onInstall: (hit: ModHit, versionId: string) => void;
+}) {
+  const toast = useStore((s) => s.toast);
+  const [versions, setVersions] = useState<ContentVersion[]>([]);
+  const [versionId, setVersionId] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!hit) return;
+    setVersions([]);
+    setVersionId("");
+    setLoading(true);
+    const fetcher =
+      provider === "curseforge"
+        ? api.listCurseforgeFiles(hit.project_id)
+        : api.listModrinthVersions(hit.project_id);
+    fetcher
+      .then((v) => {
+        setVersions(v);
+        setVersionId(v[0]?.id ?? "");
+      })
+      .catch((e) => toast("error", errMessage(e)))
+      .finally(() => setLoading(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hit?.project_id, provider]);
+
+  return (
+    <Modal
+      open={!!hit}
+      onClose={onClose}
+      title="Choose version"
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            variant="primary"
+            disabled={loading || !versionId}
+            onClick={() => hit && versionId && onInstall(hit, versionId)}
+          >
+            <Download className="h-4 w-4" />
+            Install
+          </Button>
+        </>
+      }
+    >
+      {hit && (
+        <div className="space-y-4">
+          <div className="flex items-center gap-3">
+            {hit.icon_url ? (
+              <img src={hit.icon_url} alt="" className="h-12 w-12 rounded-lg object-cover" />
+            ) : (
+              <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-muted">
+                <Package className="h-5 w-5 text-muted-foreground" />
+              </div>
+            )}
+            <div className="min-w-0">
+              <p className="truncate font-medium">{hit.title}</p>
+              {hit.author && <p className="text-xs text-muted-foreground">{hit.author}</p>}
+            </div>
+          </div>
+
+          <div>
+            <span className="mb-1.5 block text-sm font-medium">Version</span>
+            {loading ? (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Spinner className="h-4 w-4" />
+                Loading versions…
+              </div>
+            ) : versions.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No compatible versions found.</p>
+            ) : (
+              <Select value={versionId} onChange={(e) => setVersionId(e.target.value)}>
+                {versions.map((v) => (
+                  <option key={v.id} value={v.id}>
+                    {v.name || v.versionNumber}
+                    {v.gameVersions.length > 0 && ` — MC ${v.gameVersions[0]}`}
+                    {` (${new Date(v.date).toLocaleDateString()})`}
+                  </option>
+                ))}
+              </Select>
+            )}
+          </div>
+        </div>
+      )}
+    </Modal>
+  );
+}
+
+// --------------------------------------------------------------------------
+// Worlds panel
+// --------------------------------------------------------------------------
+
+function WorldsPanel({ instance }: { instance: Instance }) {
+  const toast = useStore((s) => s.toast);
+  const [worlds, setWorlds] = useState<WorldEntry[]>([]);
+
+  const refresh = () =>
+    api.listWorlds(instance.id).then(setWorlds).catch(() => {});
+  useEffect(() => {
+    refresh();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [instance.id]);
+
+  const remove = async (name: string) => {
+    if (!confirm(`Delete world "${name}"? This cannot be undone.`)) return;
+    await api.deleteWorld(instance.id, name).catch((e) => toast("error", errMessage(e)));
+    refresh();
+  };
+
+  if (worlds.length === 0) {
+    return (
+      <EmptyState
+        icon={<Globe className="h-7 w-7" />}
+        title="No worlds"
+        description="Worlds will appear here once you play and create or load one."
+      />
+    );
+  }
+
+  return (
+    <div className="max-w-xl space-y-1.5">
+      {worlds.map((w) => (
+        <div
+          key={w.name}
+          className="flex items-center gap-3 rounded-lg border bg-card/60 p-3"
+        >
+          <Globe className="h-5 w-5 shrink-0 text-muted-foreground" />
+          <div className="min-w-0 flex-1">
+            <p className="truncate font-medium text-sm">{w.name}</p>
+            {w.modified && (
+              <p className="text-xs text-muted-foreground">
+                {new Date(w.modified * 1000).toLocaleDateString()}
+              </p>
+            )}
+          </div>
+          <button
+            onClick={() => api.openWorldFolder(instance.id, w.name)}
+            className="text-muted-foreground transition hover:text-foreground"
+            title="Open folder"
+          >
+            <ExternalLink className="h-4 w-4" />
+          </button>
+          <button
+            onClick={() => remove(w.name)}
+            className="text-muted-foreground transition hover:text-destructive"
+            title="Delete world"
+          >
+            <Trash2 className="h-4 w-4" />
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// --------------------------------------------------------------------------
+// Screenshots panel
+// --------------------------------------------------------------------------
+
+function ScreenshotsPanel({ instance }: { instance: Instance }) {
+  const [screenshots, setScreenshots] = useState<ScreenshotEntry[]>([]);
+
+  useEffect(() => {
+    api.listScreenshots(instance.id).then(setScreenshots).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [instance.id]);
+
+  if (screenshots.length === 0) {
+    return (
+      <EmptyState
+        icon={<Camera className="h-7 w-7" />}
+        title="No screenshots"
+        description="Screenshots taken in-game (F2) will appear here."
+      />
+    );
+  }
+
+  return (
+    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4">
+      {screenshots.map((s) => (
+        <button
+          key={s.fileName}
+          onClick={() => api.openScreenshot(instance.id, s.fileName)}
+          className="group relative flex flex-col rounded-lg border bg-card/60 p-2.5 text-left transition hover:bg-card btn-focus"
+          title="Open in viewer"
+        >
+          <div className="mb-2 flex h-24 items-center justify-center rounded-md bg-muted">
+            <Camera className="h-6 w-6 text-muted-foreground" />
+          </div>
+          <p className="truncate text-xs font-medium" title={s.fileName}>
+            {s.fileName}
+          </p>
+          <p className="text-xs text-muted-foreground">
+            {new Date(s.takenAt * 1000).toLocaleDateString()}
+          </p>
+          <ExternalLink className="absolute right-2 top-2 h-3.5 w-3.5 text-muted-foreground opacity-0 transition group-hover:opacity-100" />
+        </button>
+      ))}
     </div>
   );
 }
@@ -361,6 +1100,7 @@ function SettingsTab({ instance }: { instance: Instance }) {
   const toast = useStore((s) => s.toast);
 
   const [name, setName] = useState(instance.name);
+  const [group, setGroup] = useState(instance.group ?? "");
   const [memory, setMemory] = useState(instance.memoryMb ?? 0);
   const [javaPath, setJavaPath] = useState(instance.javaPath ?? "");
   const [jvmArgs, setJvmArgs] = useState(instance.jvmArgs ?? "");
@@ -372,6 +1112,7 @@ function SettingsTab({ instance }: { instance: Instance }) {
       await update({
         ...instance,
         name: name.trim() || instance.name,
+        group: group.trim() || null,
         memoryMb: memory > 0 ? memory : null,
         javaPath: javaPath.trim() || null,
         jvmArgs: jvmArgs.trim() || null,
@@ -386,6 +1127,13 @@ function SettingsTab({ instance }: { instance: Instance }) {
     <div className="max-w-xl space-y-5">
       <Field label="Name">
         <Input value={name} onChange={(e) => setName(e.target.value)} />
+      </Field>
+      <Field label="Group" hint="Optional. Instances with the same group are shown together.">
+        <Input
+          value={group}
+          onChange={(e) => setGroup(e.target.value)}
+          placeholder="e.g. Modded, Vanilla, Servers…"
+        />
       </Field>
       <Field
         label="Memory override (MB)"

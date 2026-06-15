@@ -1,9 +1,10 @@
 //! Tauri command surface — the bridge between the React UI and the backend.
 
 use crate::error::{Error, Result};
+use crate::instances::{ResourcePackEntry, ScreenshotEntry, ShaderEntry, WorldEntry};
 use crate::models::*;
 use crate::state::AppState;
-use crate::{auth, instances, java, launch, modloader, modrinth, mojang};
+use crate::{auth, curseforge, instances, java, launch, modloader, modrinth, mojang};
 use serde::Serialize;
 use std::path::Path;
 use tauri::{AppHandle, State};
@@ -293,6 +294,381 @@ pub async fn delete_mod(
     file_name: String,
 ) -> Result<()> {
     instances::delete_mod(state.inner(), &instance_id, &file_name)
+}
+
+// ---------------------------------------------------------------------------
+// CurseForge
+// ---------------------------------------------------------------------------
+
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+pub async fn search_curseforge(
+    state: State<'_, AppState>,
+    query: String,
+    content_type: String,
+    loader: Option<String>,
+    game_version: Option<String>,
+    limit: Option<u32>,
+    offset: Option<u32>,
+) -> Result<modrinth::SearchResponse> {
+    curseforge::search(
+        state.inner(),
+        &query,
+        &content_type,
+        loader.as_deref(),
+        game_version.as_deref(),
+        limit.unwrap_or(30),
+        offset.unwrap_or(0),
+    )
+    .await
+}
+
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+pub async fn install_curseforge_content(
+    state: State<'_, AppState>,
+    instance_id: String,
+    project_id: String,
+    content_type: String,
+    loader: Option<String>,
+    game_version: Option<String>,
+) -> Result<String> {
+    let file = curseforge::install_content(
+        state.inner(),
+        &instance_id,
+        &project_id,
+        &content_type,
+        loader.as_deref(),
+        game_version.as_deref(),
+    )
+    .await?;
+    instances::record_install(state.inner(), &instance_id, &file, &project_id, "curseforge");
+    Ok(file)
+}
+
+/// Install a CurseForge modpack as a new instance.
+#[tauri::command]
+pub async fn install_curseforge_modpack(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    project_id: String,
+    file_id: Option<String>,
+    name: Option<String>,
+    icon: Option<String>,
+) -> Result<Instance> {
+    curseforge::install_modpack(
+        &app,
+        state.inner(),
+        &project_id,
+        file_id.as_deref(),
+        name.as_deref(),
+        icon,
+    )
+    .await
+}
+
+// ---------------------------------------------------------------------------
+// Modrinth — unified content installer + mrpack
+// ---------------------------------------------------------------------------
+
+/// Install any Modrinth project type (mod / resourcepack / shader) into the
+/// correct sub-directory of the instance.
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+pub async fn install_content(
+    state: State<'_, AppState>,
+    instance_id: String,
+    project_id: String,
+    content_type: String,
+    loader: Option<String>,
+    game_version: Option<String>,
+) -> Result<String> {
+    let file = modrinth::install_content(
+        state.inner(),
+        &instance_id,
+        &project_id,
+        &content_type,
+        loader.as_deref(),
+        game_version.as_deref(),
+    )
+    .await?;
+    instances::record_install(state.inner(), &instance_id, &file, &project_id, "modrinth");
+    Ok(file)
+}
+
+/// Download and install a Modrinth modpack (.mrpack) into an existing instance.
+#[tauri::command]
+pub async fn install_mrpack(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    instance_id: String,
+    project_id: String,
+    version_id: Option<String>,
+) -> Result<String> {
+    modrinth::install_mrpack(
+        &app,
+        state.inner(),
+        &instance_id,
+        &project_id,
+        version_id.as_deref(),
+    )
+    .await
+}
+
+/// List all versions of a Modrinth project (for the version picker).
+#[tauri::command]
+pub async fn list_modrinth_versions(
+    state: State<'_, AppState>,
+    project_id: String,
+) -> Result<Vec<modrinth::ContentVersion>> {
+    modrinth::list_versions(state.inner(), &project_id).await
+}
+
+/// List all files of a CurseForge project (for the version picker).
+#[tauri::command]
+pub async fn list_curseforge_files(
+    state: State<'_, AppState>,
+    project_id: String,
+) -> Result<Vec<modrinth::ContentVersion>> {
+    curseforge::list_files(state.inner(), &project_id).await
+}
+
+/// Install a Modrinth modpack as a new instance (derives loader + version).
+#[tauri::command]
+pub async fn install_modrinth_modpack(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    project_id: String,
+    version_id: Option<String>,
+    name: Option<String>,
+    icon: Option<String>,
+) -> Result<Instance> {
+    modrinth::install_modpack(
+        &app,
+        state.inner(),
+        &project_id,
+        version_id.as_deref(),
+        name.as_deref(),
+        icon,
+    )
+    .await
+}
+
+// ---------------------------------------------------------------------------
+// Resource packs
+// ---------------------------------------------------------------------------
+
+#[tauri::command]
+pub async fn list_resource_packs(
+    state: State<'_, AppState>,
+    instance_id: String,
+) -> Result<Vec<ResourcePackEntry>> {
+    Ok(instances::list_resource_packs(state.inner(), &instance_id))
+}
+
+#[tauri::command]
+pub async fn delete_resource_pack(
+    state: State<'_, AppState>,
+    instance_id: String,
+    file_name: String,
+) -> Result<()> {
+    instances::delete_resource_pack(state.inner(), &instance_id, &file_name)
+}
+
+// ---------------------------------------------------------------------------
+// Shaders
+// ---------------------------------------------------------------------------
+
+#[tauri::command]
+pub async fn list_shaders(
+    state: State<'_, AppState>,
+    instance_id: String,
+) -> Result<Vec<ShaderEntry>> {
+    Ok(instances::list_shaders(state.inner(), &instance_id))
+}
+
+#[tauri::command]
+pub async fn delete_shader(
+    state: State<'_, AppState>,
+    instance_id: String,
+    file_name: String,
+) -> Result<()> {
+    instances::delete_shader(state.inner(), &instance_id, &file_name)
+}
+
+// ---------------------------------------------------------------------------
+// Worlds
+// ---------------------------------------------------------------------------
+
+#[tauri::command]
+pub async fn list_worlds(
+    state: State<'_, AppState>,
+    instance_id: String,
+) -> Result<Vec<WorldEntry>> {
+    Ok(instances::list_worlds(state.inner(), &instance_id))
+}
+
+#[tauri::command]
+pub async fn delete_world(
+    state: State<'_, AppState>,
+    instance_id: String,
+    name: String,
+) -> Result<()> {
+    instances::delete_world(state.inner(), &instance_id, &name)
+}
+
+#[tauri::command]
+pub async fn open_world_folder(state: State<'_, AppState>, instance_id: String, name: String) -> Result<()> {
+    let path = state.inner().dirs.game_dir(&instance_id).join("saves").join(&name);
+    std::fs::create_dir_all(&path)?;
+    open_path(&path);
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Screenshots
+// ---------------------------------------------------------------------------
+
+#[tauri::command]
+pub async fn list_screenshots(
+    state: State<'_, AppState>,
+    instance_id: String,
+) -> Result<Vec<ScreenshotEntry>> {
+    Ok(instances::list_screenshots(state.inner(), &instance_id))
+}
+
+#[tauri::command]
+pub async fn open_screenshot(state: State<'_, AppState>, instance_id: String, file_name: String) -> Result<()> {
+    let path = state.inner().dirs.game_dir(&instance_id).join("screenshots").join(&file_name);
+    open_path(&path);
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Mod updates
+// ---------------------------------------------------------------------------
+
+#[tauri::command]
+pub async fn check_mod_updates(
+    state: State<'_, AppState>,
+    instance_id: String,
+    loader: Option<String>,
+    game_version: Option<String>,
+) -> Result<Vec<modrinth::ModUpdate>> {
+    modrinth::check_updates(
+        state.inner(),
+        &instance_id,
+        loader.as_deref(),
+        game_version.as_deref(),
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn apply_mod_update(
+    state: State<'_, AppState>,
+    instance_id: String,
+    update: modrinth::ModUpdate,
+) -> Result<()> {
+    modrinth::apply_update(state.inner(), &instance_id, update).await
+}
+
+// ---------------------------------------------------------------------------
+// Export / import
+// ---------------------------------------------------------------------------
+
+#[tauri::command]
+pub async fn export_instance(
+    state: State<'_, AppState>,
+    id: String,
+    dest: String,
+) -> Result<()> {
+    instances::export_instance(state.inner(), &id, Path::new(&dest))
+}
+
+#[tauri::command]
+pub async fn import_instance(state: State<'_, AppState>, src: String) -> Result<Instance> {
+    instances::import_instance(state.inner(), Path::new(&src))
+}
+
+// ---------------------------------------------------------------------------
+// Project info (for description pages)
+// ---------------------------------------------------------------------------
+
+#[tauri::command]
+pub async fn get_modrinth_project_body(
+    state: State<'_, AppState>,
+    project_id: String,
+) -> Result<String> {
+    modrinth::get_project_body(state.inner(), &project_id).await
+}
+
+#[tauri::command]
+pub async fn get_curseforge_description(
+    state: State<'_, AppState>,
+    project_id: String,
+) -> Result<String> {
+    curseforge::get_description(state.inner(), &project_id).await
+}
+
+// ---------------------------------------------------------------------------
+// Version-specific installs (for the version picker)
+// ---------------------------------------------------------------------------
+
+/// Install a specific Modrinth version (from the version picker).
+#[tauri::command]
+pub async fn install_content_version(
+    state: State<'_, AppState>,
+    instance_id: String,
+    project_id: String,
+    version_id: String,
+    content_type: String,
+) -> Result<String> {
+    let file = modrinth::install_version(
+        state.inner(),
+        &instance_id,
+        &version_id,
+        &content_type,
+    )
+    .await?;
+    instances::record_install(state.inner(), &instance_id, &file, &project_id, "modrinth");
+    Ok(file)
+}
+
+/// Install a specific CurseForge file (from the version picker).
+#[tauri::command]
+pub async fn install_curseforge_file(
+    state: State<'_, AppState>,
+    instance_id: String,
+    project_id: String,
+    file_id: String,
+    content_type: String,
+) -> Result<String> {
+    let file = curseforge::install_file(
+        state.inner(),
+        &instance_id,
+        &project_id,
+        &file_id,
+        &content_type,
+    )
+    .await?;
+    instances::record_install(state.inner(), &instance_id, &file, &project_id, "curseforge");
+    Ok(file)
+}
+
+// ---------------------------------------------------------------------------
+// Open URL in system browser
+// ---------------------------------------------------------------------------
+
+#[tauri::command]
+pub async fn open_url(url: String) -> Result<()> {
+    #[cfg(windows)]
+    { let _ = std::process::Command::new("cmd").args(["/C", "start", "", &url]).spawn(); }
+    #[cfg(target_os = "macos")]
+    { let _ = std::process::Command::new("open").arg(&url).spawn(); }
+    #[cfg(all(unix, not(target_os = "macos")))]
+    { let _ = std::process::Command::new("xdg-open").arg(&url).spawn(); }
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------

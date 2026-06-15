@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Cpu, MonitorCog, Palette, Search, Sparkles } from "lucide-react";
+import { Cpu, MonitorCog, Package, Palette, Search, Sparkles } from "lucide-react";
 import { Button, Field, Input } from "@/components/ui";
 import { useStore } from "@/store/useStore";
 import { api } from "@/lib/api";
@@ -26,8 +26,9 @@ export function SettingsPage() {
   };
 
   return (
-    <div className="mx-auto max-w-2xl px-8 py-6">
-      <h1 className="text-2xl font-bold tracking-tight">Settings</h1>
+    <div className="scroll-area h-full">
+      <div className="mx-auto max-w-2xl px-8 py-6 pb-12">
+        <h1 className="text-2xl font-bold tracking-tight">Settings</h1>
 
       {/* Appearance */}
       <Section icon={<Palette className="h-4 w-4" />} title="Appearance">
@@ -157,9 +158,26 @@ export function SettingsPage() {
         </label>
       </Section>
 
+      {/* Content providers */}
+      <Section icon={<Package className="h-4 w-4" />} title="Content providers">
+        <Field
+          label="CurseForge API key"
+          hint="Required to browse/install from CurseForge. Get a free key at console.curseforge.com → API Keys. Can also be set via the BEACON_CF_API_KEY env var."
+        >
+          <Input
+            type="password"
+            defaultValue={settings.curseforgeApiKey ?? ""}
+            onBlur={(e) => patch({ curseforgeApiKey: e.target.value.trim() || null })}
+            placeholder="$2a$10$…"
+            className="font-mono text-xs"
+          />
+        </Field>
+      </Section>
+
       <div className="mt-8 flex items-center gap-2 text-xs text-muted-foreground">
         <Sparkles className="h-3.5 w-3.5" />
         Beacon v0.1 — a modern, open-source Minecraft launcher.
+      </div>
       </div>
     </div>
   );

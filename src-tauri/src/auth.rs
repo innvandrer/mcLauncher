@@ -14,13 +14,17 @@ use serde_json::json;
 use tauri::{AppHandle, Emitter};
 
 const PLACEHOLDER_CLIENT_ID: &str = "REPLACE_WITH_AZURE_CLIENT_ID";
+const BUNDLED_CLIENT_ID: &str = "d1685745-eb57-46a1-99ca-ae061033b189";
 const DEVICE_CODE_URL: &str =
     "https://login.microsoftonline.com/consumers/oauth2/v2.0/devicecode";
 const TOKEN_URL: &str = "https://login.microsoftonline.com/consumers/oauth2/v2.0/token";
 const SCOPE: &str = "XboxLive.signin offline_access";
 
 fn client_id() -> String {
-    std::env::var("BEACON_CLIENT_ID").unwrap_or_else(|_| PLACEHOLDER_CLIENT_ID.to_string())
+    std::env::var("BEACON_CLIENT_ID")
+        .ok()
+        .filter(|k| !k.trim().is_empty())
+        .unwrap_or_else(|| BUNDLED_CLIENT_ID.to_string())
 }
 
 #[derive(Deserialize)]
@@ -240,15 +244,18 @@ async fn complete_xbox_chain(
     let xsts: XblResp = resp.error_for_status()?.json().await?;
 
     // 3. Minecraft services login
-    let mc: McResp = state
+    let mc_resp = state
         .http
         .post("https://api.minecraftservices.com/authentication/login_with_xbox")
         .json(&json!({ "identityToken": format!("XBL3.0 x={uhs};{}", xsts.token) }))
         .send()
-        .await?
-        .error_for_status()?
-        .json()
         .await?;
+    if !mc_resp.status().is_success() {
+        let status = mc_resp.status();
+        let body = mc_resp.text().await.unwrap_or_default();
+        return Err(Error::Auth(format!("Minecraft login failed ({status}): {body}")));
+    }
+    let mc: McResp = mc_resp.json().await?;
 
     // 4. Minecraft profile
     let profile: Profile = state
