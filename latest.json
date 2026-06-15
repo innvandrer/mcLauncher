@@ -1,0 +1,11 @@
+{
+  "version": "v0.1.2",
+  "notes": "New icon and bug fixes",
+  "pub_date": "2026-06-15T15:20:00Z",
+  "platforms": {
+    "win64": {
+      "signature": "",
+      "url": "https://github.com/innvandrer/mcLauncher/releases/download/v0.1.2/beacon-launcher.exe"
+    }
+  }
+}
