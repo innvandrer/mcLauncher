@@ -46,13 +46,9 @@
     "createUpdaterArtifacts": true,
     "category": "Game",
     "shortDescription": "A modern, open-source Minecraft launcher",
-    "longDescription": "Beacon is a modern, open-source Minecraft launcher: manage isolated instances, install mods and modpacks from Modrinth, sign in with your Microsoft account, and launch the game with the right Java version.",
+    "longDescription": "Beacon is a modern, open-source Minecraft launcher: manage isolated instances, install mods and modpacks from Modrinth, sign in with your Microsoft account, and launch the [...]",
     "icon": [
-      "icons/32x32.png",
-      "icons/128x128.png",
-      "icons/128x128@2x.png",
-      "icons/icon.icns",
-      "icons/icon.ico"
+      "icons/IconVariant7.png"
     ]
   }
 }
