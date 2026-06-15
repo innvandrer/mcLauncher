@@ -2,8 +2,9 @@
 
 A modern, open-source Minecraft launcher inspired by Prism Launcher — but with a
 cleaner, faster UI. Manage isolated instances, install mods and modpacks from
-Modrinth, sign in with your Microsoft account, and launch the game with the
-right Java version automatically.
+**Modrinth** and **CurseForge**, sign in with your Microsoft account, and launch
+the game with the right Java version automatically. Beacon **updates itself** in
+the background, so you always run the latest version.
 
 > Built with **Tauri 2** (Rust backend) + **React + TypeScript + Tailwind CSS**.
 
@@ -11,24 +12,36 @@ right Java version automatically.
 
 ## Features
 
-- **Instances** — create, duplicate and delete isolated Minecraft installations.
-  Each instance has its own mods, config, saves and options.
-- **Mod loaders** — Vanilla, **Fabric** and **Quilt** are fully supported
-  (Forge / NeoForge are planned — see _Roadmap_).
-- **Mods** — search and install from **Modrinth** straight into an instance,
-  with enable/disable and removal.
-- **Accounts** — real **Microsoft / Minecraft** sign-in via the OAuth
-  device-code flow, plus **offline** accounts for testing.
+- **Instances** — create, duplicate, import, export and delete isolated Minecraft
+  installations. Each instance has its own mods, config, saves and options, and
+  can be organised into groups.
+- **Mod loaders** — Vanilla, **Fabric** and **Quilt** are fully supported.
+  Forge / NeoForge modpacks install but don't launch yet (see _Roadmap_).
+- **Content from two providers** — search and install **mods, modpacks, resource
+  packs and shaders** from **Modrinth** _and_ **CurseForge**, straight into an
+  instance. Browse with pagination, see which items are already installed, and
+  pick a specific version.
+- **Modpacks** — one-click install from Modrinth (`.mrpack`) or CurseForge; each
+  pack creates a new, ready-to-play instance.
+- **Mod updates** — check installed mods against the provider and apply updates
+  in place.
+- **Content management** — enable/disable/remove mods, manage resource packs,
+  shaders, worlds and screenshots per instance.
+- **Accounts** — real **Microsoft / Minecraft** sign-in directly in the app
+  (no setup required), plus **offline** accounts for testing. Your player skin
+  shows up in the sidebar and accounts list.
 - **Java** — detects installed JDK/JREs and **auto-downloads** the correct
   Temurin runtime per Minecraft version when needed.
 - **Smart downloads** — parallel, resumable, SHA-1 verified; shared asset and
   library cache across instances (just like Prism/MultiMC).
+- **Self-update** — checks for new releases on launch and updates itself with a
+  one-click prompt (signed updates verified against an embedded public key).
 - **Modern UI** — custom frameless window, light/dark themes, accent colors,
   smooth animations, live download progress and a streaming game log console.
 
 ---
 
-## Prerequisites
+## Prerequisites (for building from source)
 
 - **Windows 10/11** (this MVP targets Windows; the code is largely
   cross-platform).
@@ -37,6 +50,10 @@ right Java version automatically.
 - **Visual Studio C++ Build Tools** (MSVC + Windows SDK) — required to link the
   Rust backend on Windows.
 - **WebView2 Runtime** — preinstalled on Windows 11.
+
+> Just want to use Beacon? Grab the latest installer from the
+> [**Releases**](https://github.com/innvandrer/mcLauncher/releases) page and run
+> it — the app keeps itself up to date after that.
 
 ---
 
@@ -49,7 +66,7 @@ npm install
 # 2. Run in development (opens the app with hot-reload)
 npm run tauri dev
 
-# 3. Build a distributable (installer + portable exe)
+# 3. Build a distributable installer
 npm run tauri build
 ```
 
@@ -58,33 +75,55 @@ take several minutes. Subsequent builds are incremental and fast.
 
 ---
 
-## Microsoft login setup (one-time, ~2 minutes)
+## Signing in
 
-To sign in with a real Minecraft account, Beacon needs an **Azure application
-(public client) ID**. Each user supplies their own — this keeps the launcher
-compliant with Microsoft's terms (everyone authenticates with their own valid
-account).
+Click **Add Microsoft account** on the Accounts page and complete the login in
+the window that opens — no configuration needed. Beacon requires a valid
+Minecraft account to play online.
 
-1. Go to the [Azure Portal → App registrations](https://portal.azure.com/#blade/Microsoft_AAD_RegisteredApps/ApplicationsListBlade)
-   and click **New registration**.
-2. Name it anything (e.g. "Beacon"). Under **Supported account types** choose
-   **Personal Microsoft accounts**.
-3. Leave the redirect URI empty and register.
-4. Open **Authentication → Advanced settings** and set **Allow public client
-   flows** to **Yes**.
-5. Copy the **Application (client) ID** from the Overview page.
-6. Set it as an environment variable before launching Beacon:
+Prefer not to sign in? **Offline accounts** let you create instances, install
+mods and explore the launcher (singleplayer / testing only).
+
+---
+
+## CurseForge setup (optional)
+
+Modrinth works out of the box. To also search and install from **CurseForge**,
+you need a free CurseForge **Core API key**:
+
+- Set it in **Settings → Content providers**, or
+- Provide it via the `BEACON_CF_API_KEY` environment variable before launching.
+
+Without a key, Modrinth remains fully available.
+
+---
+
+## Releasing & self-update
+
+Beacon ships signed updater artifacts and checks
+`https://github.com/innvandrer/mcLauncher/releases/latest/download/latest.json`
+on launch. To cut a new release:
+
+1. Bump `version` in `package.json` **and** `src-tauri/tauri.conf.json`.
+2. Build with the signing key available:
 
    ```powershell
-   $env:BEACON_CLIENT_ID = "<your-application-client-id>"
-   npm run tauri dev
+   $env:TAURI_SIGNING_PRIVATE_KEY = Get-Content <path-to>\beacon.key -Raw
+   $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = "<key password>"
+   npm run tauri build
    ```
 
-   (For a production build, bake it into your environment or a `.env`/launch
-   script.)
+3. Generate `latest.json` (signature = contents of the `*-setup.exe.sig`, url =
+   the versioned release asset URL) and publish a GitHub release with the
+   installer + `latest.json` attached:
 
-Without a client ID you can still use **Offline accounts** to create instances,
-install mods and explore the launcher — you just can't play online.
+   ```bash
+   gh release create vX.Y.Z <…>-setup.exe latest.json --repo innvandrer/mcLauncher
+   ```
+
+Installed copies on an older version will then prompt to update on next launch.
+Keep the private key **and** its password safe — without them you can't sign
+updates that existing installs will accept.
 
 ---
 
@@ -96,6 +135,7 @@ Everything is stored under the OS app-data directory:
 %APPDATA%\com.beacon.launcher\
 ├── instances\<id>\
 │   ├── instance.json        # instance metadata
+│   ├── beacon_index.json    # installed-content index (file → project/provider)
 │   └── minecraft\           # the game directory (mods, saves, config, ...)
 ├── libraries\               # shared maven libraries
 ├── assets\                  # shared asset objects + indexes
@@ -114,18 +154,19 @@ Everything is stored under the OS app-data directory:
 beacon-launcher/
 ├── src/                     # React + TypeScript frontend
 │   ├── components/          # UI primitives, title bar, sidebar, modals, cards
-│   ├── pages/               # Instances, instance detail, accounts, settings
+│   ├── pages/               # Instances, instance detail, modpacks, accounts, settings
 │   ├── store/               # Zustand state + event wiring
 │   └── lib/                 # api bridge, types, utilities
 └── src-tauri/               # Rust backend
     └── src/
         ├── mojang.rs        # version manifest, libraries, assets, inheritance
         ├── modloader.rs     # Fabric / Quilt profiles
-        ├── modrinth.rs      # mod search + install
-        ├── auth.rs          # Microsoft device-code + Xbox/XSTS exchange
-        ├── java.rs          # Java detection + Adoptium download
+        ├── modrinth.rs      # Modrinth search + install + .mrpack modpacks
+        ├── curseforge.rs    # CurseForge search + install + modpacks
+        ├── auth.rs          # Microsoft login + Xbox/XSTS/Minecraft token chain
+        ├── java.rs          # Java detection + Temurin download
         ├── launch.rs        # classpath/arg assembly + process management
-        ├── instances.rs     # instance/settings/account persistence
+        ├── instances.rs     # instance/settings/account persistence + import/export
         ├── net.rs           # parallel downloads + SHA verification
         └── commands.rs      # Tauri command surface
 ```
@@ -135,16 +176,14 @@ beacon-launcher/
 ## Roadmap
 
 - Forge / NeoForge launching (installer + processor support)
-- Modpack installation from Modrinth (`.mrpack`)
-- Resource packs, shader packs and world management
-- Instance import/export
-- Self-update
+- Cross-platform builds (macOS / Linux)
+- Per-instance JVM args & memory tuning in the UI
 
 ---
 
 ## Legal
 
-Beacon uses only official, public APIs (Microsoft OAuth, Mojang/`piston-meta`,
-Modrinth, Adoptium) and requires a valid Minecraft account to play online.
-"Minecraft" is a trademark of Mojang Synergies AB; Beacon is not affiliated with
-or endorsed by Mojang or Microsoft.
+Beacon uses official, public APIs (Microsoft sign-in, Mojang/`piston-meta`,
+Modrinth, CurseForge, Adoptium) and requires a valid Minecraft account to play
+online. "Minecraft" is a trademark of Mojang Synergies AB; Beacon is not
+affiliated with or endorsed by Mojang or Microsoft.
