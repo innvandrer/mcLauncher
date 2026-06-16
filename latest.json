@@ -1,11 +1,11 @@
 {
-  "version": "v0.1.5",
-  "notes": "Detaljert nedlastingsvisning (hastighet, ETA, filnavn), instanser dukker opp i lista mens de lastes ned, avbryt installasjoner, modpack-oppdatering med endringsliste, krasj-analyse, mod-konflikt-varsling, verden-backup, diskbruk, hurtigstart rett inn i en verden, Ctrl+K kommandopalett, dra-og-slipp import og loader-logoer som standard-ikon.",
-  "pub_date": "2026-06-16T18:00:00Z",
+  "version": "v0.1.6",
+  "notes": "Microsoft-innlogging viser nå konto-velgeren (bruk en annen konto enn Windows-kontoen), og når du legger til en mod foreslås og forhåndsvelges versjonen som passer instansens Minecraft-versjon og loader.",
+  "pub_date": "2026-06-16T19:00:00Z",
   "platforms": {
     "windows-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUaWJJeGNySmg2R01QeDZFb0NNRUI0YUNSV21OQlBoMWpwUW5rcEtaRzFZcHVIa041VW1NU1dDU3Z1RFdLMFlmMXd0Q0Rrbm5YRlBLcGhrZVFFdm9oMG93TjJmZnB5Rmc0PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzgxNjA2MTk0CWZpbGU6QmVhY29uXzAuMS41X3g2NC1zZXR1cC5leGUKd2ZTQmdyOUNLSjRyM3dNNHBEQVpwNzkvNUZPZnpoRXdqOHhpL1FHZTBhYXlHcUhIR0R1U2JFTWxTT2ZWdGpkamZTWDVvWE82UkpMREJPakwvdEtFQ2c9PQo=",
-      "url": "https://github.com/innvandrer/mcLauncher/releases/download/v0.1.5/Beacon_0.1.5_x64-setup.exe"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUaWJJeGNySmg2R05TTDVObmFpQUtvWTVuNHpyUnZCTkx0SmMrWHJQcEdxdEtxdUFXOGNmVXVrOW9ocW1uQVZEMnZBQndiOFE2V1NaOWNaMUwwYzNzSDY4V0x0b1lVd0FBPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzgxNjA3OTU3CWZpbGU6QmVhY29uXzAuMS42X3g2NC1zZXR1cC5leGUKQ011TUJ2MzJ0NzR2TnZPSnkvWkk1cU5lQVRCUDdzSXhzWjBna3NWVHlHbVFRMGNJdHpLSUl1eVNNWXI5WE9HWWo2RkY3QU5tdmwrN2ova0FEMGsvQnc9PQo=",
+      "url": "https://github.com/innvandrer/mcLauncher/releases/download/v0.1.6/Beacon_0.1.6_x64-setup.exe"
     }
   }
 }
