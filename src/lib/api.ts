@@ -9,15 +9,21 @@ import type {
   LoaderVersion,
   ContentVersion,
   DiskUsage,
+  InstallOutcome,
   LogLine,
   ModConflict,
   ModEntry,
   ModpackUpdate,
   ModUpdate,
+  PlayerSkin,
   PublicAccount,
   ResourcePackEntry,
+  SavedServer,
+  SavedSkin,
   ScreenshotEntry,
   SearchResponse,
+  ServerStatus,
+  Session,
   Settings,
   ShaderEntry,
   Snapshot,
@@ -213,6 +219,8 @@ export const api = {
   // Mod conflict scan
   scanModConflicts: (instanceId: string) =>
     invoke<ModConflict[]>("scan_mod_conflicts", { instanceId }),
+  resolveModConflicts: (instanceId: string) =>
+    invoke<string[]>("resolve_mod_conflicts", { instanceId }),
 
   // Java
   detectJava: () => invoke<JavaInstall[]>("detect_java"),
@@ -232,7 +240,7 @@ export const api = {
     projectId: string;
     versionId: string;
     contentType: string;
-  }) => invoke<string>("install_content_version", args),
+  }) => invoke<InstallOutcome>("install_content_version", args),
   installCurseforgeFile: (args: {
     instanceId: string;
     projectId: string;
@@ -251,6 +259,24 @@ export const api = {
 
   // Open a URL in the system browser
   openUrl: (url: string) => invoke<void>("open_url", { url }),
+
+  // Servers — saved multiplayer list + live ping
+  listServers: (instanceId: string) =>
+    invoke<SavedServer[]>("list_servers", { instanceId }),
+  pingServer: (address: string) => invoke<ServerStatus>("ping_server", { address }),
+
+  // Play sessions (activity stats)
+  listSessions: () => invoke<Session[]>("list_sessions"),
+
+  // Skin wardrobe
+  listSavedSkins: () => invoke<SavedSkin[]>("list_saved_skins"),
+  saveSkin: (name: string, url: string, variant: string) =>
+    invoke<SavedSkin[]>("save_skin", { name, url, variant }),
+  saveSkinFile: (name: string, filePath: string, variant: string) =>
+    invoke<SavedSkin[]>("save_skin_file", { name, filePath, variant }),
+  deleteSavedSkin: (id: string) => invoke<SavedSkin[]>("delete_saved_skin", { id }),
+  fetchPlayerSkin: (query: string) =>
+    invoke<PlayerSkin>("fetch_player_skin", { query }),
 };
 
 export const events = {

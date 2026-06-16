@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
-import { Boxes, Clock, Package, Play, Trophy, Users } from "lucide-react";
+import { Activity, Boxes, Clock, Package, Play, Trophy, Users } from "lucide-react";
 import { useStore } from "@/store/useStore";
+import { api } from "@/lib/api";
 import { cn, formatDuration, isImageIcon, loaderLabel, timeAgo } from "@/lib/utils";
-import type { Instance, Loader } from "@/lib/types";
+import type { Instance, Loader, Session } from "@/lib/types";
 
 const SPLASHES = [
   "Now with 100% more blocks!",
@@ -24,13 +25,75 @@ const SPLASHES = [
   "Beacon-shaped.",
 ];
 
-const LOADER_THEMES: Record<string, string> = {
-  vanilla: "from-emerald-600/20 to-emerald-900/5 border-emerald-500/20",
-  fabric: "from-blue-600/20 to-yellow-500/5 border-blue-500/20",
-  forge: "from-orange-600/20 to-red-600/5 border-orange-500/20",
-  neoforge: "from-cyan-600/20 to-blue-600/5 border-cyan-500/20",
-  quilt: "from-purple-600/20 to-pink-600/5 border-purple-500/20",
-};
+function HeroBanner({
+  active,
+  instance,
+  running,
+  totalSeconds,
+  instanceCount,
+  onPlay,
+  onOpen,
+}: {
+  active?: { id: string; username: string } | null;
+  instance: Instance | null;
+  running: boolean;
+  totalSeconds: number;
+  instanceCount: number;
+  onPlay: () => void;
+  onOpen: () => void;
+}) {
+  const splash = useMemo(() => SPLASHES[Math.floor(Math.random() * SPLASHES.length)], []);
+  return (
+    <div className="relative overflow-hidden rounded-2xl border border-white/5 bg-surface/30">
+      <div
+        className="absolute inset-0"
+        style={{
+          background:
+            "radial-gradient(80% 140% at 0% 0%, hsl(var(--accent) / 0.30), transparent 60%), radial-gradient(70% 130% at 100% 0%, hsl(var(--accent) / 0.16), transparent 55%)",
+        }}
+      />
+      <div className="relative flex items-center gap-6 p-7">
+        <div className="min-w-0 flex-1">
+          <p className="text-xs font-semibold uppercase tracking-wider text-accent">Welcome back</p>
+          <h1 className="mt-1 truncate text-3xl font-bold tracking-tight">
+            {active ? active.username : "to Beacon"}
+          </h1>
+          <p className="mt-1.5 text-sm text-muted-foreground">
+            {formatDuration(totalSeconds)} played · {instanceCount}{" "}
+            {instanceCount === 1 ? "instance" : "instances"}
+            <span className="ml-2 select-none italic text-amber-400/90">{splash}</span>
+          </p>
+          {instance && (
+            <div className="mt-5 flex flex-wrap items-center gap-3">
+              <button
+                onClick={onPlay}
+                disabled={running}
+                className="inline-flex h-11 items-center gap-2 rounded-xl bg-accent px-5 text-sm font-semibold text-accent-foreground shadow-lg shadow-accent/30 transition hover:brightness-110 active:scale-[0.98] disabled:opacity-60 btn-focus"
+              >
+                <Play className="h-4 w-4 fill-current" />
+                {running ? `${instance.name} running` : `Continue — ${instance.name}`}
+              </button>
+              <button
+                onClick={onOpen}
+                className="text-sm text-muted-foreground transition hover:text-foreground btn-focus"
+              >
+                {instance.mcVersion}
+                {instance.loader !== "vanilla" ? ` · ${loaderLabel(instance.loader)}` : ""} →
+              </button>
+            </div>
+          )}
+        </div>
+        {active && (
+          <img
+            src={`https://mc-heads.net/body/${encodeURIComponent(active.id)}/140`}
+            alt=""
+            className="hidden h-44 shrink-0 self-end [image-rendering:pixelated] sm:block"
+          />
+        )}
+      </div>
+    </div>
+  );
+}
 
 export function HomePage() {
   const instances = useStore((s) => s.instances);
@@ -39,6 +102,40 @@ export function HomePage() {
   const openInstance = useStore((s) => s.openInstance);
   const setView = useStore((s) => s.setView);
   const launch = useStore((s) => s.launch);
+  const active = accounts.find((a) => a.active);
+
+  const [sessions, setSessions] = useState<Session[]>([]);
+  useEffect(() => {
+    api.listSessions().then(setSessions).catch(() => {});
+  }, []);
+
+  // Bucket play sessions into the last 14 local days for the activity chart.
+  const activity = useMemo(() => {
+    const DAYS = 14;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const key = (d: Date) => `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+    const buckets = Array.from({ length: DAYS }, (_, i) => {
+      const d = new Date(today);
+      d.setDate(today.getDate() - (DAYS - 1 - i));
+      return {
+        key: key(d),
+        tick: `${d.getDate()}`,
+        full: d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" }),
+        seconds: 0,
+      };
+    });
+    const idx = new Map(buckets.map((b, i) => [b.key, i]));
+    for (const s of sessions) {
+      const d = new Date(s.started * 1000);
+      d.setHours(0, 0, 0, 0);
+      const i = idx.get(key(d));
+      if (i != null) buckets[i].seconds += s.seconds;
+    }
+    const max = Math.max(1, ...buckets.map((b) => b.seconds));
+    const total = buckets.reduce((a, b) => a + b.seconds, 0);
+    return { buckets, max, total };
+  }, [sessions]);
 
   const stats = useMemo(() => {
     const totalSeconds = instances.reduce((a, i) => a + (i.totalPlaySeconds || 0), 0);
@@ -94,11 +191,18 @@ export function HomePage() {
 
   return (
     <div className="flex h-full flex-col">
-      <Header />
-
-      <div className="scroll-area flex-1 px-8 pb-8">
+      <div className="scroll-area flex-1 px-8 pb-8 pt-6">
+        <HeroBanner
+          active={active}
+          instance={stats.mostPlayed}
+          running={stats.mostPlayed ? running.has(stats.mostPlayed.id) : false}
+          totalSeconds={stats.totalSeconds}
+          instanceCount={instances.length}
+          onPlay={() => stats.mostPlayed && launch(stats.mostPlayed.id)}
+          onOpen={() => stats.mostPlayed && openInstance(stats.mostPlayed.id)}
+        />
         {/* Stat cards */}
-        <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+        <div className="mt-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
           <StatCard
             icon={<Clock className="h-5 w-5" />}
             label="Total playtime"
@@ -107,28 +211,25 @@ export function HomePage() {
           <StatCard
             icon={<Boxes className="h-5 w-5" />}
             label="Instances"
-            value={`${instances.length}`}
+            value={<CountUp value={instances.length} />}
           />
           <StatCard
             icon={<Package className="h-5 w-5" />}
             label="Mods installed"
-            value={`${stats.totalMods}`}
+            value={<CountUp value={stats.totalMods} />}
           />
           <StatCard
             icon={<Users className="h-5 w-5" />}
             label="Accounts"
-            value={`${accounts.length}`}
+            value={<CountUp value={accounts.length} />}
           />
         </div>
 
-        {/* Most played hero */}
-        {stats.mostPlayed && (
-          <MostPlayedCard
-            instance={stats.mostPlayed}
-            running={running.has(stats.mostPlayed.id)}
-            onOpen={() => openInstance(stats.mostPlayed!.id)}
-            onPlay={() => launch(stats.mostPlayed!.id)}
-          />
+        {/* Play activity (last 14 days) */}
+        {activity.total > 0 && (
+          <div className="mt-6">
+            <ActivityChart buckets={activity.buckets} max={activity.max} total={activity.total} />
+          </div>
         )}
 
         <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-[1fr_300px]">
@@ -221,6 +322,71 @@ function Header() {
   );
 }
 
+function ActivityChart({
+  buckets,
+  max,
+  total,
+}: {
+  buckets: { key: string; tick: string; full: string; seconds: number }[];
+  max: number;
+  total: number;
+}) {
+  return (
+    <section className="card-surface p-5">
+      <h2 className="mb-4 flex items-center gap-2 text-sm font-semibold">
+        <Activity className="h-4 w-4 text-accent" />
+        Play activity
+        <span className="ml-auto text-xs font-normal text-muted-foreground">
+          {formatDuration(total)} · last 14 days
+        </span>
+      </h2>
+      <div className="flex h-28 items-end gap-1.5">
+        {buckets.map((b) => (
+          <div key={b.key} className="flex h-full flex-1 items-end" title={`${b.full}: ${b.seconds > 0 ? formatDuration(b.seconds) : "no play"}`}>
+            <motion.div
+              initial={{ height: 0 }}
+              animate={{ height: `${(b.seconds / max) * 100}%` }}
+              transition={{ type: "spring", stiffness: 120, damping: 20 }}
+              className="w-full rounded-t bg-accent/80 transition-colors hover:bg-accent"
+              style={{ minHeight: b.seconds > 0 ? 3 : 0 }}
+            />
+          </div>
+        ))}
+      </div>
+      <div className="mt-1 flex gap-1.5">
+        {buckets.map((b, i) => (
+          <span key={b.key} className="flex-1 text-center text-[10px] text-muted-foreground">
+            {i % 2 === 0 ? b.tick : ""}
+          </span>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+/** Animates a number from 0 to `value` once on mount / when it changes. */
+function CountUp({ value }: { value: number }) {
+  const [n, setN] = useState(0);
+  useEffect(() => {
+    if (value <= 0) {
+      setN(0);
+      return;
+    }
+    let raf = 0;
+    const start = performance.now();
+    const dur = 650;
+    const tick = (t: number) => {
+      const p = Math.min(1, (t - start) / dur);
+      const eased = 1 - Math.pow(1 - p, 3);
+      setN(Math.round(value * eased));
+      if (p < 1) raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [value]);
+  return <>{n}</>;
+}
+
 function StatCard({
   icon,
   label,
@@ -228,7 +394,7 @@ function StatCard({
 }: {
   icon: React.ReactNode;
   label: string;
-  value: string;
+  value: React.ReactNode;
 }) {
   return (
     <div className="card-surface flex flex-col gap-3 p-5">
@@ -240,57 +406,6 @@ function StatCard({
         <div className="text-xs text-muted-foreground">{label}</div>
       </div>
     </div>
-  );
-}
-
-function MostPlayedCard({
-  instance,
-  running,
-  onOpen,
-  onPlay,
-}: {
-  instance: Instance;
-  running: boolean;
-  onOpen: () => void;
-  onPlay: () => void;
-}) {
-  const isATM10 = instance.name.toLowerCase().includes("all the mods 10") || instance.name.toLowerCase().includes("atm10");
-  
-  const theme = isATM10 
-    ? "from-yellow-600/30 to-zinc-900/90 border-yellow-500/40" 
-    : (LOADER_THEMES[instance.loader] || LOADER_THEMES.vanilla);
-
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 10 }}
-      animate={{ opacity: 1, y: 0 }}
-      className={cn(
-        "mt-6 flex items-center gap-5 overflow-hidden border bg-gradient-to-br p-5 rounded-xl shadow-sm transition-colors",
-        theme
-      )}
-    >
-      <InstanceIcon instance={instance} size={16} className="text-3xl" />
-      <div className="min-w-0 flex-1">
-        <div className="text-xs font-semibold uppercase tracking-wide text-accent">
-          Most played
-        </div>
-        <button onClick={onOpen} className="truncate text-lg font-bold hover:underline">
-          {instance.name}
-        </button>
-        <div className="text-sm text-muted-foreground">
-          {formatDuration(instance.totalPlaySeconds)} · {instance.mcVersion}
-          {instance.loader !== "vanilla" && ` · ${loaderLabel(instance.loader)}`}
-        </div>
-      </div>
-      <button
-        onClick={onPlay}
-        disabled={running}
-        className="inline-flex h-10 shrink-0 items-center gap-2 rounded-lg bg-accent px-4 text-sm font-semibold text-accent-foreground shadow-lg shadow-accent/25 transition hover:brightness-110 disabled:opacity-50 btn-focus"
-      >
-        <Play className="h-4 w-4 fill-current" />
-        {running ? "Running" : "Play"}
-      </button>
-    </motion.div>
   );
 }
 

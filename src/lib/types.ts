@@ -193,3 +193,55 @@ export interface ModpackUpdate {
   removed: string[];
   updated: string[];
 }
+
+export interface InstallOutcome {
+  file: string;
+  /** Required dependency filenames auto-installed alongside the primary file. */
+  dependencies: string[];
+}
+
+export interface Session {
+  instanceId: string;
+  /** Unix seconds when the session started. */
+  started: number;
+  seconds: number;
+}
+
+export interface PlayerSkin {
+  username: string;
+  uuid: string;
+  url: string;
+  variant: string;
+}
+
+export interface SavedSkin {
+  id: string;
+  name: string;
+  variant: string;
+  /** "url" for a remote texture, "file" for one imported from disk. */
+  kind: string;
+  /** Remote texture URL (empty for file skins). */
+  url: string;
+  /** Local PNG path for file skins (used to re-apply). */
+  path?: string | null;
+  /** Data-URI preview for file skins (URL skins preview from `url`). */
+  image?: string | null;
+}
+
+export interface SavedServer {
+  name: string;
+  ip: string;
+  /** Base64 PNG (no data-URI prefix) cached by the game, if any. */
+  icon?: string | null;
+}
+
+export interface ServerStatus {
+  online: boolean;
+  latencyMs?: number | null;
+  playersOnline?: number | null;
+  playersMax?: number | null;
+  version?: string | null;
+  motd?: string | null;
+  /** Data-URI PNG favicon the server returned, if any. */
+  favicon?: string | null;
+}

@@ -69,10 +69,11 @@ body {
 }
 
 #root {
-  /* Subtle accent glow in the corners for depth. */
+  /* Layered accent glow for depth — corners plus a faint top sheen. */
   background:
-    radial-gradient(1100px 700px at 100% -10%, hsl(var(--accent) / 0.10), transparent 60%),
-    radial-gradient(900px 600px at -10% 110%, hsl(var(--accent) / 0.07), transparent 55%);
+    radial-gradient(1200px 760px at 100% -12%, hsl(var(--accent) / 0.13), transparent 60%),
+    radial-gradient(960px 640px at -12% 112%, hsl(var(--accent) / 0.09), transparent 55%),
+    radial-gradient(1500px 440px at 50% -22%, hsl(var(--foreground) / 0.04), transparent 70%);
 }
 
 /* ------------------------------------------------------------------ */
@@ -110,6 +111,10 @@ body {
     background-color: hsl(var(--card));
     border: 1px solid hsl(var(--border));
     border-radius: var(--radius);
+    box-shadow:
+      inset 0 1px 0 0 hsl(var(--foreground) / 0.04),
+      0 1px 2px hsl(240 12% 2% / 0.2),
+      0 8px 24px -16px hsl(240 12% 2% / 0.5);
   }
 
   .btn-focus {

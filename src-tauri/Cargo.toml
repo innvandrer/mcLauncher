@@ -1,6 +1,6 @@
 [package]
 name = "beacon-launcher"
-version = "0.1.0"
+version = "0.2.0"
 description = "A modern, open-source Minecraft launcher"
 authors = ["Beacon contributors"]
 edition = "2021"
@@ -33,6 +33,7 @@ tokio = { version = "1", features = [
     "fs",
     "process",
     "io-util",
+    "net",
     "sync",
     "time",
 ] }

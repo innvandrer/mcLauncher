@@ -4,7 +4,7 @@ import { Cpu, MonitorCog, Package, Palette, Search, Sparkles, Wand2 } from "luci
 import { Button, Field, Input } from "@/components/ui";
 import { useStore } from "@/store/useStore";
 import { api } from "@/lib/api";
-import { ACCENTS, cn } from "@/lib/utils";
+import { ACCENTS, AIKAR_FLAGS, cn } from "@/lib/utils";
 import type { JavaInstall, Settings } from "@/lib/types";
 
 /** Suggest a heap size: ~half of system RAM, clamped to a sane Minecraft range
@@ -155,14 +155,7 @@ export function SettingsPage() {
           </div>
         )}
 
-        <Field label="Default JVM arguments">
-          <textarea
-            defaultValue={settings.jvmArgs}
-            onBlur={(e) => patch({ jvmArgs: e.target.value })}
-            rows={3}
-            className="input-base resize-none font-mono text-xs"
-          />
-        </Field>
+        <JvmArgsField value={settings.jvmArgs} onCommit={(v) => patch({ jvmArgs: v })} />
       </Section>
 
       {/* Behavior */}
@@ -216,6 +209,65 @@ export function SettingsPage() {
       </div>
       </div>
     </div>
+  );
+}
+
+/** JVM arguments editor with a one-click "Aikar's flags" preset. Controlled so
+ *  applying the preset updates the textarea immediately. */
+function JvmArgsField({
+  value,
+  onCommit,
+}: {
+  value: string;
+  onCommit: (v: string) => void;
+}) {
+  const [text, setText] = useState(value);
+  useEffect(() => setText(value), [value]);
+  const isAikar = text.trim() === AIKAR_FLAGS;
+
+  return (
+    <Field
+      label="Default JVM arguments"
+      hint="Aikar's flags tune the garbage collector for smoother modded play. Pair them with a generous memory setting."
+    >
+      <div className="mb-2 flex flex-wrap items-center gap-1.5">
+        <button
+          type="button"
+          onClick={() => {
+            setText(AIKAR_FLAGS);
+            onCommit(AIKAR_FLAGS);
+          }}
+          className={cn(
+            "inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium transition btn-focus",
+            isAikar
+              ? "bg-accent/20 text-accent"
+              : "bg-muted/60 text-muted-foreground hover:text-foreground",
+          )}
+        >
+          <Wand2 className="h-3 w-3" />
+          {isAikar ? "Aikar's flags applied" : "Use Aikar's flags"}
+        </button>
+        {text.trim() !== "" && (
+          <button
+            type="button"
+            onClick={() => {
+              setText("");
+              onCommit("");
+            }}
+            className="rounded-md px-2 py-1 text-xs text-muted-foreground transition hover:text-foreground btn-focus"
+          >
+            Clear
+          </button>
+        )}
+      </div>
+      <textarea
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        onBlur={() => onCommit(text)}
+        rows={3}
+        className="input-base resize-none font-mono text-xs"
+      />
+    </Field>
   );
 }
 

@@ -13,6 +13,7 @@ mod modloader;
 mod modrinth;
 mod mojang;
 mod net;
+mod servers;
 mod state;
 mod system;
 mod tools;
@@ -103,10 +104,19 @@ pub fn run() {
             commands::restore_snapshot,
             commands::delete_snapshot,
             commands::scan_mod_conflicts,
+            commands::resolve_mod_conflicts,
             commands::cancel_task,
             commands::check_modpack_update,
             commands::apply_modpack_update,
             commands::detect_java,
+            commands::list_servers,
+            commands::ping_server,
+            commands::list_sessions,
+            commands::list_saved_skins,
+            commands::save_skin,
+            commands::save_skin_file,
+            commands::delete_saved_skin,
+            commands::fetch_player_skin,
             commands::system_memory_mb,
             commands::get_modrinth_project_body,
             commands::get_curseforge_description,
@@ -114,15 +124,6 @@ pub fn run() {
             commands::install_curseforge_file,
             commands::open_url,
         ])
-        .on_window_event(|win, event| {
-            // Minimize to tray instead of closing when X is clicked on the main window.
-            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                if win.label() == "main" {
-                    api.prevent_close();
-                    let _ = win.hide();
-                }
-            }
-        })
         .run(tauri::generate_context!())
         .expect("error while running Beacon");
 }

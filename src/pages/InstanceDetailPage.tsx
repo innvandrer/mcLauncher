@@ -21,11 +21,15 @@ import {
   Square,
   Trash2,
   Upload,
+  Server,
+  Users,
+  Wifi,
+  Copy,
 } from "lucide-react";
-import { Button, EmptyState, Field, Input, Modal, Select, Spinner } from "@/components/ui";
+import { Button, EmptyState, Field, Input, Modal, Select, Skeleton, Spinner } from "@/components/ui";
 import { useStore } from "@/store/useStore";
 import { api, errMessage } from "@/lib/api";
-import { ACCENTS, cn, formatBytes, formatNumber, isImageIcon, loaderLabel } from "@/lib/utils";
+import { ACCENTS, AIKAR_FLAGS, cn, formatBytes, formatNumber, isImageIcon, loaderLabel } from "@/lib/utils";
 import { InstanceIcon } from "@/components/InstanceIcon";
 import { LoaderLogo } from "@/components/LoaderLogo";
 import { analyzeCrash, type CrashFinding } from "@/lib/crash";
@@ -40,13 +44,15 @@ import type {
   ModpackUpdate,
   ModUpdate,
   ResourcePackEntry,
+  SavedServer,
   ScreenshotEntry,
+  ServerStatus,
   ShaderEntry,
   Snapshot,
   WorldEntry,
 } from "@/lib/types";
 
-type Tab = "content" | "logs" | "settings";
+type Tab = "content" | "servers" | "logs" | "settings";
 
 function contentUrl(hit: ModHit, provider: Provider): string {
   const typeSlug: Record<string, string> = {
@@ -102,6 +108,7 @@ export function InstanceDetailPage({ id }: { id: string }) {
 
   const tabs: { id: Tab; label: string; icon: typeof Package }[] = [
     { id: "content", label: "Content", icon: Package },
+    { id: "servers", label: "Servers", icon: Server },
     { id: "logs", label: "Logs", icon: ScrollText },
     { id: "settings", label: "Settings", icon: Settings2 },
   ];
@@ -182,6 +189,7 @@ export function InstanceDetailPage({ id }: { id: string }) {
 
       <div className="scroll-area flex-1 px-8 py-5">
         {tab === "content" && <ContentTab instance={instance} />}
+        {tab === "servers" && <ServersTab instance={instance} />}
         {tab === "logs" && (
           <LogsTab id={id} instance={instance} onOpenSettings={() => setTab("settings")} />
         )}
@@ -502,6 +510,7 @@ function InstalledIcon({
 
 function ModsPanel({ instance }: { instance: Instance }) {
   const toast = useStore((s) => s.toast);
+  const refreshInstances = useStore((s) => s.refreshInstances);
   const [installed, setInstalled] = useState<ModEntry[]>([]);
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<ModHit[]>([]);
@@ -511,10 +520,31 @@ function ModsPanel({ instance }: { instance: Instance }) {
   const [page, setPage] = useState(0);
   const [totalHits, setTotalHits] = useState(0);
   const [conflicts, setConflicts] = useState<ModConflict[]>([]);
+  const [cleaning, setCleaning] = useState(false);
 
   const refresh = () => {
     api.listMods(instance.id).then(setInstalled).catch(() => {});
     api.scanModConflicts(instance.id).then(setConflicts).catch(() => {});
+  };
+
+  // Keep the newest version of each duplicated mod, delete the older copies.
+  const cleanupConflicts = async () => {
+    setCleaning(true);
+    try {
+      const removed = await api.resolveModConflicts(instance.id);
+      toast(
+        removed.length ? "success" : "info",
+        removed.length
+          ? `Removed ${removed.length} older ${removed.length === 1 ? "copy" : "copies"}`
+          : "Nothing to clean up",
+      );
+      refresh();
+      refreshInstances();
+    } catch (e) {
+      toast("error", errMessage(e));
+    } finally {
+      setCleaning(false);
+    }
   };
   useEffect(() => {
     refresh();
@@ -555,21 +585,29 @@ function ModsPanel({ instance }: { instance: Instance }) {
     setInstalling(hit.project_id);
     setVersionPickTarget(null);
     try {
-      const file =
-        provider === "curseforge"
-          ? await api.installCurseforgeFile({
-              instanceId: instance.id,
-              projectId: hit.project_id,
-              fileId: versionId,
-              contentType: "mod",
-            })
-          : await api.installContentVersion({
-              instanceId: instance.id,
-              projectId: hit.project_id,
-              versionId,
-              contentType: "mod",
-            });
-      toast("success", `Installed ${file}`);
+      if (provider === "curseforge") {
+        const file = await api.installCurseforgeFile({
+          instanceId: instance.id,
+          projectId: hit.project_id,
+          fileId: versionId,
+          contentType: "mod",
+        });
+        toast("success", `Installed ${file}`);
+      } else {
+        const res = await api.installContentVersion({
+          instanceId: instance.id,
+          projectId: hit.project_id,
+          versionId,
+          contentType: "mod",
+        });
+        const n = res.dependencies.length;
+        toast(
+          "success",
+          n
+            ? `Installed ${res.file} · +${n} ${n === 1 ? "dependency" : "dependencies"}`
+            : `Installed ${res.file}`,
+        );
+      }
       refresh();
     } catch (e) {
       toast("error", errMessage(e));
@@ -666,8 +704,18 @@ function ModsPanel({ instance }: { instance: Instance }) {
               ))}
             </ul>
             <p className="mt-1.5 text-[11px] text-muted-foreground/70">
-              Two builds of the same mod can crash the game — remove the older one.
+              Two builds of the same mod can crash the game. This keeps the newest
+              version of each and removes the rest.
             </p>
+            <Button
+              size="sm"
+              variant="secondary"
+              className="mt-2"
+              loading={cleaning}
+              onClick={cleanupConflicts}
+            >
+              <Trash2 className="h-3.5 w-3.5" /> Remove older copies
+            </Button>
           </div>
         )}
 
@@ -992,8 +1040,17 @@ function ModrinthResultList({
 }: ModrinthResultListProps) {
   if (searching && results.length === 0) {
     return (
-      <div className="flex justify-center py-10">
-        <Spinner />
+      <div className="space-y-2">
+        {Array.from({ length: 5 }).map((_, i) => (
+          <div key={i} className="flex items-start gap-3 rounded-xl border bg-card/60 p-3">
+            <Skeleton className="h-11 w-11 rounded-lg" />
+            <div className="flex-1 space-y-2 py-1">
+              <Skeleton className="h-3.5 w-1/3" />
+              <Skeleton className="h-3 w-3/4" />
+            </div>
+            <Skeleton className="h-8 w-16 rounded-md" />
+          </div>
+        ))}
       </div>
     );
   }
@@ -1441,6 +1498,280 @@ function ScreenshotsPanel({ instance }: { instance: Instance }) {
 }
 
 // --------------------------------------------------------------------------
+// Servers — saved multiplayer list with live status (MOTD, players, latency)
+// --------------------------------------------------------------------------
+
+/** Tailwind bg-* class for a latency dot: green < 100ms, amber < 300ms, red. */
+function latencyColor(ms?: number | null): string {
+  if (ms == null) return "bg-muted-foreground";
+  if (ms < 100) return "bg-emerald-400";
+  if (ms < 300) return "bg-amber-400";
+  return "bg-red-400";
+}
+
+function ServersTab({ instance }: { instance: Instance }) {
+  const toast = useStore((s) => s.toast);
+  const running = useStore((s) => s.running.has(instance.id));
+  const [servers, setServers] = useState<SavedServer[]>([]);
+  const [statuses, setStatuses] = useState<Record<string, ServerStatus | null>>({});
+  const [pinging, setPinging] = useState<Record<string, boolean>>({});
+  const [query, setQuery] = useState("");
+  const [manual, setManual] = useState<{ address: string; status: ServerStatus } | null>(null);
+  const [manualBusy, setManualBusy] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+
+  const ping = async (address: string) => {
+    setPinging((m) => ({ ...m, [address]: true }));
+    try {
+      const st = await api.pingServer(address);
+      setStatuses((m) => ({ ...m, [address]: st }));
+    } catch {
+      setStatuses((m) => ({ ...m, [address]: { online: false } }));
+    } finally {
+      setPinging((m) => ({ ...m, [address]: false }));
+    }
+  };
+
+  useEffect(() => {
+    setLoaded(false);
+    setStatuses({});
+    api
+      .listServers(instance.id)
+      .then((list) => {
+        setServers(list);
+        list.forEach((s) => ping(s.ip));
+      })
+      .catch((e) => toast("error", errMessage(e)))
+      .finally(() => setLoaded(true));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [instance.id]);
+
+  const pingManual = async () => {
+    const address = query.trim();
+    if (!address) return;
+    setManualBusy(true);
+    try {
+      setManual({ address, status: await api.pingServer(address) });
+    } finally {
+      setManualBusy(false);
+    }
+  };
+
+  const connect = async (ip: string) => {
+    if (running) {
+      toast("error", "This instance is already running.");
+      return;
+    }
+    try {
+      await api.launchInstance(instance.id, { server: ip });
+      toast("info", `Connecting to ${ip}…`);
+    } catch (e) {
+      toast("error", errMessage(e));
+    }
+  };
+
+  const copy = async (ip: string) => {
+    try {
+      await navigator.clipboard.writeText(ip);
+      toast("success", "Address copied");
+    } catch {
+      /* clipboard unavailable */
+    }
+  };
+
+  return (
+    <div className="max-w-2xl space-y-5">
+      {/* Ping / connect to any address */}
+      <div className="rounded-xl border bg-card/40 p-4">
+        <h3 className="mb-2 flex items-center gap-1.5 text-sm font-semibold">
+          <Wifi className="h-4 w-4 text-accent" />
+          Ping a server
+        </h3>
+        <div className="flex gap-2">
+          <Input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && pingManual()}
+            placeholder="play.example.net   or   mc.host.com:25566"
+          />
+          <Button variant="secondary" onClick={pingManual} loading={manualBusy}>
+            Ping
+          </Button>
+        </div>
+        {manual && (
+          <div className="mt-3">
+            <ServerRow
+              server={{ name: manual.address, ip: manual.address, icon: null }}
+              status={manual.status}
+              pinging={false}
+              running={running}
+              onRefresh={pingManual}
+              onConnect={() => connect(manual.address)}
+              onCopy={() => copy(manual.address)}
+            />
+          </div>
+        )}
+      </div>
+
+      {/* Saved servers (from servers.dat) */}
+      <section>
+        <div className="mb-3 flex items-center justify-between">
+          <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Saved servers ({servers.length})
+          </h3>
+          {servers.length > 0 && (
+            <button
+              onClick={() => servers.forEach((s) => ping(s.ip))}
+              className="inline-flex items-center gap-1 text-xs text-muted-foreground transition hover:text-foreground btn-focus"
+            >
+              <RefreshCw className="h-3 w-3" /> Refresh all
+            </button>
+          )}
+        </div>
+
+        {!loaded ? (
+          <div className="space-y-2">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <div key={i} className="flex items-start gap-3 rounded-xl border bg-card/60 p-3">
+                <Skeleton className="h-11 w-11 rounded-lg" />
+                <div className="flex-1 space-y-2 py-1">
+                  <Skeleton className="h-3.5 w-1/4" />
+                  <Skeleton className="h-3 w-1/2" />
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : servers.length === 0 ? (
+          <EmptyState
+            icon={<Server className="h-7 w-7" />}
+            title="No saved servers"
+            description="Servers you add to the in-game multiplayer list appear here with live status. You can also ping any address above."
+          />
+        ) : (
+          <div className="space-y-2">
+            {servers.map((s) => (
+              <ServerRow
+                key={`${s.ip}__${s.name}`}
+                server={s}
+                status={statuses[s.ip] ?? null}
+                pinging={!!pinging[s.ip]}
+                running={running}
+                onRefresh={() => ping(s.ip)}
+                onConnect={() => connect(s.ip)}
+                onCopy={() => copy(s.ip)}
+              />
+            ))}
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}
+
+function ServerRow({
+  server,
+  status,
+  pinging,
+  running,
+  onRefresh,
+  onConnect,
+  onCopy,
+}: {
+  server: SavedServer;
+  status: ServerStatus | null;
+  pinging: boolean;
+  running: boolean;
+  onRefresh: () => void;
+  onConnect: () => void;
+  onCopy: () => void;
+}) {
+  const favicon =
+    status?.favicon ?? (server.icon ? `data:image/png;base64,${server.icon}` : null);
+  const online = status?.online ?? false;
+
+  return (
+    <div className="flex items-start gap-3 rounded-xl border bg-card/60 p-3">
+      {favicon ? (
+        <img src={favicon} alt="" className="h-11 w-11 shrink-0 rounded-lg object-cover" />
+      ) : (
+        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-muted">
+          <Server className="h-5 w-5 text-muted-foreground" />
+        </div>
+      )}
+
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2">
+          <span className="truncate font-medium">{server.name || server.ip}</span>
+          {pinging ? (
+            <Spinner className="h-3 w-3" />
+          ) : (
+            <span
+              className={cn(
+                "h-2 w-2 shrink-0 rounded-full",
+                online ? latencyColor(status?.latencyMs) : "bg-muted-foreground/40",
+              )}
+              title={online ? "Online" : "Offline"}
+            />
+          )}
+        </div>
+        <p className="truncate text-xs text-muted-foreground">{server.ip}</p>
+        {status?.motd ? (
+          <p className="mt-1 line-clamp-2 text-xs text-muted-foreground/90">{status.motd}</p>
+        ) : pinging ? (
+          <p className="mt-1 text-xs text-muted-foreground/70">Pinging…</p>
+        ) : !online ? (
+          <p className="mt-1 text-xs text-muted-foreground/70">Offline or unreachable</p>
+        ) : null}
+      </div>
+
+      <div className="flex shrink-0 flex-col items-end gap-1.5">
+        {online && (
+          <div className="flex items-center gap-2.5 text-xs">
+            {status?.playersOnline != null && (
+              <span className="inline-flex items-center gap-1 text-muted-foreground">
+                <Users className="h-3 w-3" />
+                {status.playersOnline}
+                {status?.playersMax != null ? `/${status.playersMax}` : ""}
+              </span>
+            )}
+            {status?.latencyMs != null && (
+              <span className="text-muted-foreground">{status.latencyMs} ms</span>
+            )}
+          </div>
+        )}
+        <div className="flex items-center gap-1">
+          <button
+            onClick={onCopy}
+            title="Copy address"
+            className="rounded-md p-1.5 text-muted-foreground transition hover:bg-muted hover:text-foreground btn-focus"
+          >
+            <Copy className="h-3.5 w-3.5" />
+          </button>
+          <button
+            onClick={onRefresh}
+            title="Re-ping"
+            disabled={pinging}
+            className="rounded-md p-1.5 text-muted-foreground transition hover:bg-muted hover:text-foreground btn-focus disabled:opacity-40"
+          >
+            <RefreshCw className={cn("h-3.5 w-3.5", pinging && "animate-spin")} />
+          </button>
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={onConnect}
+            disabled={running}
+            title="Launch and connect"
+          >
+            <Play className="h-3.5 w-3.5 fill-current" />
+            Join
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// --------------------------------------------------------------------------
 // Logs
 // --------------------------------------------------------------------------
 
@@ -1660,6 +1991,30 @@ function SettingsTab({ instance }: { instance: Instance }) {
         />
       </Field>
       <Field label="Extra JVM arguments override">
+        <div className="mb-2 flex flex-wrap items-center gap-1.5">
+          <button
+            type="button"
+            onClick={() => setJvmArgs(AIKAR_FLAGS)}
+            className={cn(
+              "inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium transition btn-focus",
+              jvmArgs.trim() === AIKAR_FLAGS
+                ? "bg-accent/20 text-accent"
+                : "bg-muted/60 text-muted-foreground hover:text-foreground",
+            )}
+          >
+            <Sparkles className="h-3 w-3" />
+            {jvmArgs.trim() === AIKAR_FLAGS ? "Aikar's flags applied" : "Use Aikar's flags"}
+          </button>
+          {jvmArgs.trim() !== "" && (
+            <button
+              type="button"
+              onClick={() => setJvmArgs("")}
+              className="rounded-md px-2 py-1 text-xs text-muted-foreground transition hover:text-foreground btn-focus"
+            >
+              Clear
+            </button>
+          )}
+        </div>
         <textarea
           value={jvmArgs}
           onChange={(e) => setJvmArgs(e.target.value)}

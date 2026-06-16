@@ -41,6 +41,9 @@ impl AppDirs {
     pub fn accounts_file(&self) -> PathBuf {
         self.root.join("accounts.json")
     }
+    pub fn sessions_file(&self) -> PathBuf {
+        self.root.join("sessions.json")
+    }
 
     pub fn instance_dir(&self, id: &str) -> PathBuf {
         self.instances().join(id)

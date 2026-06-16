@@ -269,3 +269,71 @@ pub fn scan_mod_conflicts(state: &AppState, instance_id: &str) -> Vec<ModConflic
     out.sort_by(|a, b| a.name.cmp(&b.name));
     out
 }
+
+/// Version-aware ("natural") filename comparison so `mod-1.10.jar` sorts after
+/// `mod-1.9.jar`. Compares digit runs numerically, everything else lexically.
+fn natural_cmp(a: &str, b: &str) -> std::cmp::Ordering {
+    use std::cmp::Ordering;
+    let av: Vec<char> = a.to_lowercase().chars().collect();
+    let bv: Vec<char> = b.to_lowercase().chars().collect();
+    let (mut i, mut j) = (0usize, 0usize);
+    while i < av.len() && j < bv.len() {
+        let (ca, cb) = (av[i], bv[j]);
+        if ca.is_ascii_digit() && cb.is_ascii_digit() {
+            let si = i;
+            while i < av.len() && av[i].is_ascii_digit() {
+                i += 1;
+            }
+            let sj = j;
+            while j < bv.len() && bv[j].is_ascii_digit() {
+                j += 1;
+            }
+            let na: String = av[si..i].iter().collect();
+            let nb: String = bv[sj..j].iter().collect();
+            let na_t = na.trim_start_matches('0');
+            let nb_t = nb.trim_start_matches('0');
+            let ord = na_t.len().cmp(&nb_t.len()).then_with(|| na_t.cmp(nb_t));
+            if ord != Ordering::Equal {
+                return ord;
+            }
+        } else {
+            if ca != cb {
+                return ca.cmp(&cb);
+            }
+            i += 1;
+            j += 1;
+        }
+    }
+    av.len().cmp(&bv.len())
+}
+
+/// For every duplicate group, keep the newest-versioned jar and delete the rest.
+/// Returns the file names that were removed. Triggered explicitly by the user.
+pub fn resolve_mod_conflicts(state: &AppState, instance_id: &str) -> Vec<String> {
+    let mut removed = Vec::new();
+    for c in scan_mod_conflicts(state, instance_id) {
+        let mut files = c.files.clone();
+        files.sort_by(|a, b| natural_cmp(a, b));
+        // The greatest by natural order is the newest version — keep it.
+        let keep = match files.last() {
+            Some(k) => k.clone(),
+            None => continue,
+        };
+        let keep_display = keep.trim_end_matches(".disabled").to_string();
+        let mut seen = std::collections::HashSet::new();
+        for f in &files {
+            if *f == keep {
+                continue;
+            }
+            let display = f.trim_end_matches(".disabled").to_string();
+            // Never delete via a name that also matches the kept file.
+            if display == keep_display || !seen.insert(display.clone()) {
+                continue;
+            }
+            if crate::instances::delete_mod(state, instance_id, &display).is_ok() {
+                removed.push(f.clone());
+            }
+        }
+    }
+    removed
+}

@@ -5,7 +5,8 @@ use crate::instances::{ResourcePackEntry, ScreenshotEntry, ShaderEntry, WorldEnt
 use crate::models::*;
 use crate::state::AppState;
 use crate::{
-    auth, curseforge, forge, instances, java, launch, modloader, modrinth, mojang, skin, tools,
+    auth, curseforge, forge, instances, java, launch, modloader, modrinth, mojang, servers, skin,
+    tools,
 };
 use serde::Serialize;
 use std::path::Path;
@@ -679,6 +680,15 @@ pub async fn get_curseforge_description(
 // Version-specific installs (for the version picker)
 // ---------------------------------------------------------------------------
 
+/// The result of installing content: the primary file plus any required
+/// dependencies that were auto-installed alongside it.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InstallOutcome {
+    pub file: String,
+    pub dependencies: Vec<String>,
+}
+
 /// Install a specific Modrinth version (from the version picker).
 #[tauri::command]
 pub async fn install_content_version(
@@ -687,8 +697,8 @@ pub async fn install_content_version(
     project_id: String,
     version_id: String,
     content_type: String,
-) -> Result<String> {
-    let file = modrinth::install_version(
+) -> Result<InstallOutcome> {
+    let (file, dependencies) = modrinth::install_version(
         state.inner(),
         &instance_id,
         &version_id,
@@ -696,7 +706,7 @@ pub async fn install_content_version(
     )
     .await?;
     instances::record_install(state.inner(), &instance_id, &file, &project_id, "modrinth");
-    Ok(file)
+    Ok(InstallOutcome { file, dependencies })
 }
 
 /// Install a specific CurseForge file (from the version picker).
@@ -790,6 +800,16 @@ pub async fn scan_mod_conflicts(
     Ok(tools::scan_mod_conflicts(state.inner(), &instance_id))
 }
 
+/// Remove duplicate mods, keeping the newest version of each. Returns the
+/// removed file names.
+#[tauri::command]
+pub async fn resolve_mod_conflicts(
+    state: State<'_, AppState>,
+    instance_id: String,
+) -> Result<Vec<String>> {
+    Ok(tools::resolve_mod_conflicts(state.inner(), &instance_id))
+}
+
 /// Signal an in-flight download task (e.g. "modpack:<id>") to stop.
 #[tauri::command]
 pub async fn cancel_task(state: State<'_, AppState>, task_id: String) -> Result<()> {
@@ -824,4 +844,81 @@ pub async fn apply_modpack_update(
 #[tauri::command]
 pub async fn detect_java(state: State<'_, AppState>) -> Result<Vec<java::JavaInstall>> {
     Ok(java::detect(state.inner()))
+}
+
+// ---------------------------------------------------------------------------
+// Servers — saved multiplayer list + live Server List Ping
+// ---------------------------------------------------------------------------
+
+/// Read the saved servers (`servers.dat`) for an instance. Empty until the user
+/// has added servers in-game.
+#[tauri::command]
+pub async fn list_servers(
+    state: State<'_, AppState>,
+    instance_id: String,
+) -> Result<Vec<servers::SavedServer>> {
+    Ok(servers::list_servers(state.inner(), &instance_id))
+}
+
+/// Live-ping a `host` / `host:port` address for MOTD, player count and latency.
+#[tauri::command]
+pub async fn ping_server(address: String) -> Result<servers::ServerStatus> {
+    Ok(servers::ping_server(&address).await)
+}
+
+// ---------------------------------------------------------------------------
+// Play sessions (activity stats)
+// ---------------------------------------------------------------------------
+
+/// The recorded play sessions across all instances (for the activity chart).
+#[tauri::command]
+pub async fn list_sessions(state: State<'_, AppState>) -> Result<Vec<instances::Session>> {
+    Ok(instances::list_sessions(state.inner()))
+}
+
+// ---------------------------------------------------------------------------
+// Skin wardrobe
+// ---------------------------------------------------------------------------
+
+#[tauri::command]
+pub async fn list_saved_skins(state: State<'_, AppState>) -> Result<Vec<skin::SavedSkin>> {
+    Ok(skin::list_saved_skins(state.inner()))
+}
+
+#[tauri::command]
+pub async fn save_skin(
+    state: State<'_, AppState>,
+    name: String,
+    url: String,
+    variant: String,
+) -> Result<Vec<skin::SavedSkin>> {
+    skin::save_skin(state.inner(), &name, &url, &variant)
+}
+
+/// Import a local PNG into the skin wardrobe (apply later without a URL).
+#[tauri::command]
+pub async fn save_skin_file(
+    state: State<'_, AppState>,
+    name: String,
+    file_path: String,
+    variant: String,
+) -> Result<Vec<skin::SavedSkin>> {
+    skin::save_skin_file(state.inner(), &name, &file_path, &variant)
+}
+
+#[tauri::command]
+pub async fn delete_saved_skin(
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<Vec<skin::SavedSkin>> {
+    skin::delete_saved_skin(state.inner(), &id)
+}
+
+/// Look up any player's current skin by username / UUID / NameMC link.
+#[tauri::command]
+pub async fn fetch_player_skin(
+    state: State<'_, AppState>,
+    query: String,
+) -> Result<skin::PlayerSkin> {
+    skin::fetch_player_skin(state.inner(), &query).await
 }

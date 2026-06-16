@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Check, LogIn, Shirt, Trash2, UserCircle2, UserPlus } from "lucide-react";
+import { Check, LogIn, Shirt, Trash2, UserCircle2, Users, UserPlus } from "lucide-react";
 import { Button, Field, Input } from "@/components/ui";
 import { useStore } from "@/store/useStore";
 import { cn } from "@/lib/utils";
@@ -19,10 +19,17 @@ export function AccountsPage() {
   return (
     <>
     <div className="mx-auto max-w-2xl px-8 py-6">
-      <h1 className="text-2xl font-bold tracking-tight">Accounts</h1>
-      <p className="mt-1 text-sm text-muted-foreground">
-        Sign in with Microsoft to play online, or add an offline account for testing.
-      </p>
+      <div className="flex items-center gap-3">
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-accent/15 text-accent">
+          <Users className="h-5 w-5" />
+        </div>
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">Accounts</h1>
+          <p className="text-sm text-muted-foreground">
+            Sign in with Microsoft to play online, or add an offline account for testing.
+          </p>
+        </div>
+      </div>
 
       <div className="mt-6 space-y-2">
         {accounts.length === 0 && (
@@ -38,7 +45,7 @@ export function AccountsPage() {
               a.active ? "border-accent bg-accent/5" : "bg-card/60",
             )}
           >
-            <PlayerAvatar account={a} size={44} className="shrink-0" />
+            <AccountRender account={a} />
             <div className="min-w-0 flex-1">
               <div className="truncate font-medium">{a.username}</div>
               <div className="text-xs text-muted-foreground">
@@ -119,5 +126,21 @@ export function AccountsPage() {
       accountId={skinAccountId ?? ""}
     />
     </>
+  );
+}
+
+/** A full-body skin render for an account, falling back to the head avatar. */
+function AccountRender({ account }: { account: { id: string; username: string; kind: string } }) {
+  const [failed, setFailed] = useState(false);
+  if (failed) {
+    return <PlayerAvatar account={account} size={48} className="shrink-0" />;
+  }
+  return (
+    <img
+      src={`https://mc-heads.net/body/${encodeURIComponent(account.id)}/64`}
+      alt={account.username}
+      onError={() => setFailed(true)}
+      className="h-16 w-auto shrink-0 [image-rendering:pixelated]"
+    />
   );
 }

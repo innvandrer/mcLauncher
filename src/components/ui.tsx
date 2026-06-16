@@ -75,6 +75,11 @@ export function Spinner({ className }: { className?: string }) {
   return <Loader2 className={cn("h-5 w-5 animate-spin text-muted-foreground", className)} />;
 }
 
+/** A pulsing placeholder block for loading states. */
+export function Skeleton({ className }: { className?: string }) {
+  return <div className={cn("animate-pulse rounded-md bg-muted/60", className)} />;
+}
+
 export function Badge({
   children,
   className,
@@ -187,7 +192,7 @@ export function EmptyState({
 }) {
   return (
     <div className="flex flex-col items-center justify-center py-20 text-center animate-fade-in">
-      <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-muted/60 text-muted-foreground">
+      <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-accent/20 to-accent/5 text-accent ring-1 ring-inset ring-accent/20">
         {icon}
       </div>
       <h3 className="text-lg font-semibold">{title}</h3>

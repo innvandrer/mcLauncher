@@ -332,10 +332,12 @@ pub async fn launch(
     let inst_id = instance.id.clone();
     let close_on_launch = settings.close_on_launch;
     let start = std::time::Instant::now();
+    let started_at = chrono::Utc::now().timestamp();
     std::thread::spawn(move || {
         let status = child.wait();
         let secs = start.elapsed().as_secs();
         instances::record_play_dirs(&dirs, &inst_id, secs);
+        instances::record_session_dirs(&dirs, &inst_id, started_at, secs);
         discord.set_idle();
         if let Ok(mut m) = running_map.lock() {
             m.remove(&inst_id);

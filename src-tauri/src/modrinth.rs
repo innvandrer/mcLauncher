@@ -253,43 +253,46 @@ pub async fn install_content(
     Ok(file.filename)
 }
 
-/// Install a single required dependency into the mods folder (skips if already present).
+/// Install a single required dependency into the mods folder. Returns the
+/// installed filename, or `None` if it was skipped (already present) or failed.
 async fn install_dependency(
     state: &AppState,
     project_id: &str,
     loader: Option<&str>,
     game_version: Option<&str>,
     mods_dir: &std::path::Path,
-) -> Result<()> {
-    let Ok(versions) = project_versions(state, project_id, loader, game_version).await else {
-        return Ok(());
-    };
-    let Some(version) = versions.into_iter().next() else {
-        return Ok(());
-    };
-    let Some(file) = version.files.iter().find(|f| f.primary).or_else(|| version.files.first()) else {
-        return Ok(());
-    };
+) -> Option<String> {
+    let versions = project_versions(state, project_id, loader, game_version).await.ok()?;
+    let version = versions.into_iter().next()?;
+    let file = version
+        .files
+        .iter()
+        .find(|f| f.primary)
+        .or_else(|| version.files.first())?
+        .clone();
     let target = mods_dir.join(&file.filename);
     let target_dis = mods_dir.join(format!("{}.disabled", file.filename));
     if target.exists() || target_dis.exists() {
-        return Ok(());
+        return None;
     }
     net::download_one(
         &state.http,
         &DownloadItem::new(file.url.clone(), target, file.hashes.sha1.clone()),
     )
-    .await?;
-    Ok(())
+    .await
+    .ok()?;
+    Some(file.filename)
 }
 
-/// Install a specific Modrinth version by its version ID directly.
+/// Install a specific Modrinth version by its version ID directly. Returns the
+/// installed filename plus the filenames of any required dependencies that were
+/// auto-installed alongside it (for mods).
 pub async fn install_version(
     state: &AppState,
     instance_id: &str,
     version_id: &str,
     content_type: &str,
-) -> Result<String> {
+) -> Result<(String, Vec<String>)> {
     let version: ProjectVersion = state
         .http
         .get(format!("{API}/version/{version_id}"))
@@ -299,13 +302,18 @@ pub async fn install_version(
         .json()
         .await?;
 
-    // Auto-install required dependencies for mods (best-effort).
+    // Auto-install required dependencies for mods, collecting what we added so
+    // the UI can report it.
+    let mut installed_deps = Vec::new();
     if content_type == "mod" {
         let mods_dir = state.dirs.game_dir(instance_id).join("mods");
         for dep in &version.dependencies {
             if dep.dependency_type == "required" {
                 if let Some(dep_id) = &dep.project_id {
-                    let _ = install_dependency(state, dep_id, None, None, &mods_dir).await;
+                    if let Some(name) = install_dependency(state, dep_id, None, None, &mods_dir).await
+                    {
+                        installed_deps.push(name);
+                    }
                 }
             }
         }
@@ -331,7 +339,7 @@ pub async fn install_version(
     )
     .await?;
 
-    Ok(file.filename)
+    Ok((file.filename, installed_deps))
 }
 
 /// Fetch the full project body (GitHub-flavored markdown string) from Modrinth.

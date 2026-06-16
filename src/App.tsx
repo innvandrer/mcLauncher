@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { AnimatePresence, motion } from "framer-motion";
+import { motion } from "framer-motion";
 import { TitleBar } from "./components/TitleBar";
 import { Sidebar } from "./components/Sidebar";
 import { ErrorBoundary } from "./components/ErrorBoundary";
@@ -8,6 +8,8 @@ import { CommandPalette } from "./components/CommandPalette";
 import { DropZone } from "./components/DropZone";
 import { AuthPromptModal } from "./components/AuthPromptModal";
 import { UpdateModal } from "./components/UpdateModal";
+import { OnboardingModal } from "./components/OnboardingModal";
+import { ShortcutsOverlay } from "./components/ShortcutsOverlay";
 import { Spinner } from "./components/ui";
 import { HomePage } from "./pages/HomePage";
 import { InstancesPage } from "./pages/InstancesPage";
@@ -42,32 +44,29 @@ export default function App() {
               <span className="text-sm">Loading Beacon…</span>
             </div>
           ) : (
-            <AnimatePresence mode="wait">
-              <motion.div
-                key={screenKey}
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -6 }}
-                transition={{ duration: 0.18, ease: "easeOut" }}
-                className="h-full"
-              >
-                <ErrorBoundary>
-                  {selectedInstanceId ? (
-                    <InstanceDetailPage id={selectedInstanceId} />
-                  ) : view === "home" ? (
-                    <HomePage />
-                  ) : view === "instances" ? (
-                    <InstancesPage />
-                  ) : view === "modpacks" ? (
-                    <ModpacksPage />
-                  ) : view === "accounts" ? (
-                    <AccountsPage />
-                  ) : (
-                    <SettingsPage />
-                  )}
-                </ErrorBoundary>
-              </motion.div>
-            </AnimatePresence>
+            <motion.div
+              key={screenKey}
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.18, ease: "easeOut" }}
+              className="h-full"
+            >
+              <ErrorBoundary>
+                {selectedInstanceId ? (
+                  <InstanceDetailPage id={selectedInstanceId} />
+                ) : view === "home" ? (
+                  <HomePage />
+                ) : view === "instances" ? (
+                  <InstancesPage />
+                ) : view === "modpacks" ? (
+                  <ModpacksPage />
+                ) : view === "accounts" ? (
+                  <AccountsPage />
+                ) : (
+                  <SettingsPage />
+                )}
+              </ErrorBoundary>
+            </motion.div>
           )}
         </main>
       </div>
@@ -76,6 +75,8 @@ export default function App() {
       <DropZone />
       <AuthPromptModal />
       <UpdateModal />
+      <OnboardingModal />
+      <ShortcutsOverlay />
     </div>
   );
 }

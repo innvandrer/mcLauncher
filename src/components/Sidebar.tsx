@@ -17,6 +17,7 @@ export function Sidebar() {
   const setView = useStore((s) => s.setView);
   const accounts = useStore((s) => s.accounts);
   const active = accounts.find((a) => a.active);
+  const anyRunning = useStore((s) => s.running.size > 0);
 
   return (
     <aside className="flex w-56 shrink-0 flex-col border-r border-border/60 bg-surface/30 p-3">
@@ -50,15 +51,33 @@ export function Sidebar() {
       <div className="mt-auto">
         <button
           onClick={() => setView("accounts")}
-          className="flex w-full items-center gap-3 rounded-lg border border-border/60 bg-card/60 p-2.5 text-left transition-colors hover:bg-muted/50 btn-focus"
+          className="flex w-full items-center gap-3 rounded-xl border border-border/60 bg-gradient-to-br from-card/80 to-card/40 p-2.5 text-left transition-colors hover:from-muted/60 hover:to-muted/30 btn-focus"
         >
-          <PlayerAvatar account={active} size={36} className="shrink-0" />
+          <div className="relative shrink-0">
+            <PlayerAvatar
+              account={active}
+              size={38}
+              className="ring-2 ring-accent/30 ring-offset-2 ring-offset-background"
+            />
+            {anyRunning && (
+              <span className="absolute -bottom-0.5 -right-0.5 flex h-3 w-3">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-70" />
+                <span className="relative inline-flex h-3 w-3 rounded-full border-2 border-background bg-emerald-400" />
+              </span>
+            )}
+          </div>
           <div className="min-w-0 flex-1">
             <div className="truncate text-sm font-medium">
               {active ? active.username : "No account"}
             </div>
             <div className="truncate text-xs text-muted-foreground">
-              {active ? (active.kind === "offline" ? "Offline" : "Microsoft") : "Click to add"}
+              {active
+                ? anyRunning
+                  ? "Playing now"
+                  : active.kind === "offline"
+                    ? "Offline account"
+                    : "Microsoft account"
+                : "Click to add"}
             </div>
           </div>
         </button>

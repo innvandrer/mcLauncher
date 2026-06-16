@@ -4,18 +4,15 @@ import { Minus, Square, X } from "lucide-react";
 const appWindow = getCurrentWindow();
 
 export function BeaconLogo({ className }: { className?: string }) {
+  // Use the actual app icon (same artwork as the Windows taskbar / installer
+  // icon) so the in-app brand matches the OS icon exactly.
   return (
-    <svg viewBox="0 0 32 32" className={className} fill="none" xmlns="http://www.w3.org/2000/svg">
-      <defs>
-        <linearGradient id="beam" x1="16" y1="2" x2="16" y2="30" gradientUnits="userSpaceOnUse">
-          <stop stopColor="hsl(var(--accent))" stopOpacity="0.95" />
-          <stop offset="1" stopColor="hsl(var(--accent))" stopOpacity="0.25" />
-        </linearGradient>
-      </defs>
-      <path d="M16 3 L22 16 L10 16 Z" fill="url(#beam)" />
-      <rect x="10" y="18" width="12" height="11" rx="2.5" fill="hsl(var(--accent))" />
-      <rect x="13.5" y="21.5" width="5" height="5" rx="1.2" fill="hsl(var(--accent-foreground))" fillOpacity="0.85" />
-    </svg>
+    <img
+      src="/beacon-icon.png"
+      alt="Beacon"
+      draggable={false}
+      className={className}
+    />
   );
 }
 

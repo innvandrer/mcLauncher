@@ -234,6 +234,48 @@ pub fn record_play_dirs(dirs: &crate::state::AppDirs, id: &str, seconds: u64) {
 }
 
 // ---------------------------------------------------------------------------
+// Play sessions (for the activity chart on Home)
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Session {
+    pub instance_id: String,
+    /// Unix timestamp when the session started.
+    pub started: i64,
+    pub seconds: u64,
+}
+
+pub fn list_sessions(state: &AppState) -> Vec<Session> {
+    read_json_or_default::<Vec<Session>>(&state.dirs.sessions_file())
+}
+
+/// Append a finished play session to the activity log (best-effort, capped to
+/// the most recent 2000 entries). Called from the process watcher on game exit.
+pub fn record_session_dirs(dirs: &crate::state::AppDirs, id: &str, started: i64, seconds: u64) {
+    if seconds == 0 {
+        return;
+    }
+    let path = dirs.sessions_file();
+    let mut sessions: Vec<Session> = std::fs::read(&path)
+        .ok()
+        .and_then(|b| serde_json::from_slice(&b).ok())
+        .unwrap_or_default();
+    sessions.push(Session {
+        instance_id: id.to_string(),
+        started,
+        seconds,
+    });
+    let len = sessions.len();
+    if len > 2000 {
+        sessions.drain(0..len - 2000);
+    }
+    if let Ok(data) = serde_json::to_vec_pretty(&sessions) {
+        let _ = std::fs::write(&path, data);
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Export / import (zip the instance directory)
 // ---------------------------------------------------------------------------
 

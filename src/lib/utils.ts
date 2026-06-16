@@ -72,11 +72,30 @@ export function formatEta(startedMs: number, current: number, total: number): st
 export const ACCENTS: Record<string, string> = {
   violet: "263 85% 66%",
   blue: "217 91% 60%",
-  emerald: "152 69% 46%",
-  rose: "346 84% 61%",
-  amber: "38 92% 55%",
+  sky: "199 89% 56%",
   cyan: "189 85% 52%",
+  teal: "172 66% 50%",
+  emerald: "152 69% 46%",
+  lime: "84 74% 48%",
+  amber: "38 92% 55%",
+  orange: "24 95% 58%",
+  red: "0 84% 60%",
+  rose: "346 84% 61%",
+  pink: "330 81% 60%",
+  fuchsia: "292 84% 64%",
+  indigo: "243 75% 68%",
 };
+
+/** Aikar's flags — the widely-used G1GC tuning for Minecraft. Pair with a
+ *  generous heap; makes a big difference on heavy modded packs. */
+export const AIKAR_FLAGS =
+  "-XX:+UseG1GC -XX:+ParallelRefProcEnabled -XX:MaxGCPauseMillis=200 " +
+  "-XX:+UnlockExperimentalVMOptions -XX:+DisableExplicitGC -XX:+AlwaysPreTouch " +
+  "-XX:G1NewSizePercent=30 -XX:G1MaxNewSizePercent=40 -XX:G1HeapRegionSize=8M " +
+  "-XX:G1ReservePercent=20 -XX:G1HeapWastePercent=5 -XX:G1MixedGCCountTarget=4 " +
+  "-XX:InitiatingHeapOccupancyPercent=15 -XX:G1MixedGCLiveThresholdPercent=90 " +
+  "-XX:G1RSetUpdatingPauseTimePercent=5 -XX:SurvivorRatio=32 " +
+  "-XX:+PerfDisableSharedMem -XX:MaxTenuringThreshold=1";
 
 export function applyTheme(theme: string, accent: string) {
   const root = document.documentElement;
