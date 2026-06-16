@@ -1,11 +1,11 @@
 {
-  "version": "v0.1.6",
-  "notes": "Microsoft-innlogging viser nå konto-velgeren (bruk en annen konto enn Windows-kontoen), og når du legger til en mod foreslås og forhåndsvelges versjonen som passer instansens Minecraft-versjon og loader.",
-  "pub_date": "2026-06-16T19:00:00Z",
+  "version": "v0.2.0",
+  "notes": "Server-browser, skin-bibliotek og mer.\n\n🟢 Live serverliste per instans (MOTD, spillere, ping) + Quick Connect\n🎨 Skin-bibliotek: bytt skin uten URL — fra spillernavn/NameMC, PNG-import eller lagre nåværende\n⚡ Aikar's flags med ett klikk\n📊 Spilltid-statistikk med 14-dagers aktivitetsgraf\n🧩 Auto-installerer påkrevde mod-avhengigheter\n🧹 Ett-klikks opprydding av dubletter\n✨ Større fargepalett, onboarding, snarveier (?), ny forside\n🐛 Fikset blank skjerm ved rask fane-bytting",
+  "pub_date": "2026-06-16T20:30:00Z",
   "platforms": {
     "windows-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUaWJJeGNySmg2R05TTDVObmFpQUtvWTVuNHpyUnZCTkx0SmMrWHJQcEdxdEtxdUFXOGNmVXVrOW9ocW1uQVZEMnZBQndiOFE2V1NaOWNaMUwwYzNzSDY4V0x0b1lVd0FBPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzgxNjA3OTU3CWZpbGU6QmVhY29uXzAuMS42X3g2NC1zZXR1cC5leGUKQ011TUJ2MzJ0NzR2TnZPSnkvWkk1cU5lQVRCUDdzSXhzWjBna3NWVHlHbVFRMGNJdHpLSUl1eVNNWXI5WE9HWWo2RkY3QU5tdmwrN2ova0FEMGsvQnc9PQo=",
-      "url": "https://github.com/innvandrer/mcLauncher/releases/download/v0.1.6/Beacon_0.1.6_x64-setup.exe"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUaWJJeGNySmg2R0JTYWRIdFVPUzNvQXRjbmw4TU95ZzVHTWtxNzVZYi94QnJoV29tUDBBQkIxaGh4VDRoV0xwbUt5T1pGaUR1MjNUbHh4eG1SQ2k5clJNdVBNVHorZlFjPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzgxNjQxNTc4CWZpbGU6QmVhY29uXzAuMi4wX3g2NC1zZXR1cC5leGUKNTRBTVB6QnRTaitGVDhHNWNGa0prTjY1NGxIY3kzZ2FUQ1lSbmNiNTBHY0hNSU5OVVNnU1BvTlFFWGYzTCtidE00dEZxTWpxVERjWmZQTHFVbnYwQXc9PQo=",
+      "url": "https://github.com/innvandrer/mcLauncher/releases/download/v0.2.0/Beacon_0.2.0_x64-setup.exe"
     }
   }
 }
