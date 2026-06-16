@@ -151,12 +151,15 @@ pub fn create_instance(
         loader_version,
         icon,
         group: None,
+        accent: None,
+        favorite: false,
         created: chrono::Utc::now().timestamp(),
         last_played: None,
         total_play_seconds: 0,
         memory_mb: None,
         java_path: None,
         jvm_args: None,
+        pack_source: None,
         mod_count: 0,
     };
 

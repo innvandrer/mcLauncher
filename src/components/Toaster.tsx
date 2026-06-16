@@ -1,11 +1,13 @@
 import { AnimatePresence, motion } from "framer-motion";
 import { AlertCircle, CheckCircle2, Info, X } from "lucide-react";
 import { useStore } from "@/store/useStore";
-import { cn } from "@/lib/utils";
+import { api } from "@/lib/api";
+import { cn, formatBytes, formatEta, formatSpeed } from "@/lib/utils";
 
 export function Toaster() {
   const toasts = useStore((s) => s.toasts);
   const tasks = useStore((s) => s.tasks);
+  const taskStarted = useStore((s) => s.taskStarted);
   const dismiss = useStore((s) => s.dismissToast);
   const taskList = Object.values(tasks);
 
@@ -14,6 +16,15 @@ export function Toaster() {
       <AnimatePresence>
         {taskList.map((t) => {
           const pct = t.total > 0 ? Math.round((t.current / t.total) * 100) : 0;
+          const speed = formatSpeed(t.speed);
+          const eta = t.done ? "" : formatEta(taskStarted[t.id] ?? Date.now(), t.current, t.total);
+          // Build the meta line: "142 / 318 · 47.3 MB · 12.1 MB/s · 18s left".
+          const meta = [
+            t.total > 0 ? `${t.current} / ${t.total}` : null,
+            t.bytesDone ? formatBytes(t.bytesDone) : null,
+            speed || null,
+            eta || null,
+          ].filter(Boolean);
           return (
             <motion.div
               key={t.id}
@@ -23,20 +34,46 @@ export function Toaster() {
               exit={{ opacity: 0, x: 40 }}
               className="pointer-events-auto overflow-hidden card-surface p-3 shadow-lg"
             >
-              <div className="flex items-center justify-between text-sm">
-                <span className="font-medium">{t.label}</span>
-                <span className="text-xs text-muted-foreground">{pct}%</span>
+              <div className="flex items-center justify-between gap-2 text-sm">
+                <span className="truncate font-medium">{t.label}</span>
+                <div className="flex shrink-0 items-center gap-1.5">
+                  <span className="text-xs text-muted-foreground">
+                    {t.done ? "Done" : `${pct}%`}
+                  </span>
+                  {!t.done && t.id.startsWith("modpack:") && (
+                    <button
+                      onClick={() => api.cancelTask(t.id)}
+                      title="Cancel"
+                      className="text-muted-foreground transition hover:text-destructive"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+                </div>
               </div>
               <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-muted">
                 <motion.div
-                  className="h-full rounded-full bg-accent"
+                  className={cn(
+                    "h-full rounded-full",
+                    t.done ? "bg-success" : "bg-accent",
+                  )}
                   animate={{ width: `${pct}%` }}
                   transition={{ ease: "easeOut", duration: 0.2 }}
                 />
               </div>
-              {t.total > 0 && (
-                <div className="mt-1 text-[11px] text-muted-foreground">
-                  {t.current} / {t.total} files
+              {meta.length > 0 && (
+                <div className="mt-1 flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                  {meta.map((m, i) => (
+                    <span key={i} className="flex items-center gap-1.5">
+                      {i > 0 && <span className="opacity-40">·</span>}
+                      <span>{m}</span>
+                    </span>
+                  ))}
+                </div>
+              )}
+              {t.currentFile && !t.done && (
+                <div className="mt-0.5 truncate text-[11px] text-muted-foreground/70">
+                  {t.currentFile}
                 </div>
               )}
             </motion.div>

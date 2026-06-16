@@ -71,6 +71,8 @@ pub struct VersionJson {
     pub minecraft_arguments: Option<String>,
     #[serde(default, rename = "inheritsFrom")]
     pub inherits_from: Option<String>,
+    #[serde(default)]
+    pub processors: Vec<ProcessorJson>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -166,6 +168,18 @@ pub enum ArgValue {
     Many(Vec<String>),
 }
 
+// Ny struktur for en prosessor-definisjon i Forge/NeoForge JSON
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProcessorJson {
+    pub jar: String, // Maven-koordinat for prosessor-JAR
+    pub main: String, // Hovedklasse for prosessoren
+    pub args: Vec<String>, // Argumenter for prosessoren
+    #[serde(default)]
+    pub classpath: Vec<String>, // Ekstra classpath-elementer for prosessoren
+    // Andre felt som "outputs", "side", etc. kan legges til ved behov
+}
+
 // ---------------------------------------------------------------------------
 // Resolved version (after merging inheritance) — what `launch` consumes.
 // ---------------------------------------------------------------------------
@@ -184,6 +198,16 @@ pub struct Resolved {
     pub game_args: Vec<Argument>,
     pub jvm_args: Vec<Argument>,
     pub legacy_args: Option<String>,
+    // Nytt felt for løste prosessorer, klar for kjøring
+    pub processors: Vec<Processor>,
+}
+
+// En "løst" prosessor, klar for kjøring (maven-koordinater er løst til stier)
+#[derive(Debug, Clone)]
+pub struct Processor {
+    pub main_class: String,
+    pub classpath_jars: Vec<std::path::PathBuf>, // Fullstendige stier til JAR-er
+    pub args: Vec<String>, // Argumenter med plassholdere løst
 }
 
 // ---------------------------------------------------------------------------
@@ -338,6 +362,11 @@ pub async fn resolve_version(state: &AppState, version_id: &str) -> Result<Resol
             game_args: args.game,
             jvm_args: args.jvm,
             legacy_args: v.minecraft_arguments,
+            processors: v.processors.into_iter().map(|p| Processor {
+                main_class: p.main,
+                classpath_jars: Vec::new(),
+                args: p.args,
+            }).collect(),
         })
     }
 }
@@ -380,6 +409,11 @@ fn merge(parent: Resolved, child: VersionJson) -> Resolved {
         game_args,
         jvm_args,
         legacy_args: child.minecraft_arguments.or(parent.legacy_args),
+        processors: child.processors.into_iter().map(|p| Processor {
+            main_class: p.main,
+            classpath_jars: Vec::new(),
+            args: p.args,
+        }).collect(),
     }
 }
 
@@ -624,7 +658,8 @@ pub async fn install(
         natives_dir.join("java")
     };
     let native_jars: Vec<std::path::PathBuf> = natives_dl.into_iter().map(|d| d.path).collect();
-    extract_natives(&native_jars, &native_extract_dir)?;
+    let out_dir = native_extract_dir.to_path_buf();
+    tokio::task::spawn_blocking(move || extract_natives(&native_jars, &out_dir)).await??;
 
     Ok(resolved)
 }

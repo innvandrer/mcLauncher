@@ -15,8 +15,7 @@ the background, so you always run the latest version.
 - **Instances** — create, duplicate, import, export and delete isolated Minecraft
   installations. Each instance has its own mods, config, saves and options, and
   can be organised into groups.
-- **Mod loaders** — Vanilla, **Fabric** and **Quilt** are fully supported.
-  Forge / NeoForge modpacks install but don't launch yet (see _Roadmap_).
+- **Mod loaders** — Vanilla, **Fabric**, **Quilt**, **Forge** and **NeoForge** are fully supported.
 - **Content from two providers** — search and install **mods, modpacks, resource
   packs and shaders** from **Modrinth** _and_ **CurseForge**, straight into an
   instance. Browse with pagination, see which items are already installed, and
@@ -174,8 +173,6 @@ beacon-launcher/
 ---
 
 ## Roadmap
-
-- Forge / NeoForge launching (installer + processor support)
 - Cross-platform builds (macOS / Linux)
 - Per-instance JVM args & memory tuning in the UI
 

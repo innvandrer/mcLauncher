@@ -1,18 +1,36 @@
-import { useState } from "react";
-import { Cpu, MonitorCog, Package, Palette, Search, Sparkles } from "lucide-react";
+import { useEffect, useState } from "react";
+import { getVersion } from "@tauri-apps/api/app";
+import { Cpu, MonitorCog, Package, Palette, Search, Sparkles, Wand2 } from "lucide-react";
 import { Button, Field, Input } from "@/components/ui";
 import { useStore } from "@/store/useStore";
 import { api } from "@/lib/api";
 import { ACCENTS, cn } from "@/lib/utils";
 import type { JavaInstall, Settings } from "@/lib/types";
 
+/** Suggest a heap size: ~half of system RAM, clamped to a sane Minecraft range
+ *  and snapped to the 512 MB slider step. */
+function recommendedMemoryMb(totalMb: number): number {
+  const half = totalMb * 0.5;
+  const clamped = Math.min(8192, Math.max(2048, half));
+  return Math.round(clamped / 512) * 512;
+}
+
 export function SettingsPage() {
   const settings = useStore((s) => s.settings);
   const saveSettings = useStore((s) => s.saveSettings);
   const [javaList, setJavaList] = useState<JavaInstall[] | null>(null);
   const [detecting, setDetecting] = useState(false);
+  const [totalRamMb, setTotalRamMb] = useState(0);
+  const [version, setVersion] = useState("");
+
+  useEffect(() => {
+    api.systemMemoryMb().then(setTotalRamMb).catch(() => setTotalRamMb(0));
+    getVersion().then(setVersion).catch(() => setVersion(""));
+  }, []);
 
   if (!settings) return null;
+
+  const recommended = totalRamMb > 0 ? recommendedMemoryMb(totalRamMb) : 0;
 
   const patch = (p: Partial<Settings>) => saveSettings({ ...settings, ...p });
 
@@ -82,6 +100,24 @@ export function SettingsPage() {
             onChange={(e) => patch({ memoryMb: Number(e.target.value) })}
             className="w-full accent-[hsl(var(--accent))]"
           />
+          {recommended > 0 && (
+            <div className="mt-2 flex items-center justify-between text-xs text-muted-foreground">
+              <span>
+                You have {(totalRamMb / 1024).toFixed(1)} GB RAM · recommended{" "}
+                <span className="font-medium text-foreground">
+                  {(recommended / 1024).toFixed(1)} GB
+                </span>
+              </span>
+              {settings.memoryMb !== recommended && (
+                <button
+                  onClick={() => patch({ memoryMb: recommended })}
+                  className="inline-flex items-center gap-1 rounded-md bg-accent/15 px-2 py-1 font-medium text-accent transition hover:bg-accent/25 btn-focus"
+                >
+                  <Wand2 className="h-3 w-3" /> Use recommended
+                </button>
+              )}
+            </div>
+          )}
         </Field>
 
         <Field label="Java executable" hint="Leave empty to auto-detect or download the right version per instance.">
@@ -176,7 +212,7 @@ export function SettingsPage() {
 
       <div className="mt-8 flex items-center gap-2 text-xs text-muted-foreground">
         <Sparkles className="h-3.5 w-3.5" />
-        Beacon v0.1 — a modern, open-source Minecraft launcher.
+        Beacon{version ? ` v${version}` : ""} — a modern, open-source Minecraft launcher.
       </div>
       </div>
     </div>

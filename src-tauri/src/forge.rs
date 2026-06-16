@@ -133,30 +133,14 @@ fn parse_xml_versions(xml: &str) -> Vec<String> {
 fn emit_progress(app: &AppHandle, id: &str, label: &str, stage: &str, cur: u64, total: u64) {
     let _ = app.emit(
         "task://progress",
-        TaskProgress {
-            id: id.to_string(),
-            label: label.to_string(),
-            stage: stage.to_string(),
-            current: cur,
-            total,
-            done: false,
-            error: None,
-        },
+        TaskProgress::simple(id, label, stage, cur, total, false, None),
     );
 }
 
 fn emit_done(app: &AppHandle, id: &str, label: &str) {
     let _ = app.emit(
         "task://progress",
-        TaskProgress {
-            id: id.to_string(),
-            label: label.to_string(),
-            stage: String::new(),
-            current: 1,
-            total: 1,
-            done: true,
-            error: None,
-        },
+        TaskProgress::simple(id, label, "", 1, 1, true, None),
     );
 }
 

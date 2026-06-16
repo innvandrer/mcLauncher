@@ -2,7 +2,7 @@ import { create } from "zustand";
 import { check, type Update } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { api, errMessage, events } from "@/lib/api";
-import { applyTheme } from "@/lib/utils";
+import { applyTheme, isImageIcon } from "@/lib/utils";
 import type {
   AuthPrompt,
   Instance,
@@ -35,6 +35,7 @@ interface State {
 
   running: Set<string>;
   tasks: Record<string, TaskProgress>;
+  taskStarted: Record<string, number>;
   logs: Record<string, LogLine[]>;
   toasts: Toast[];
   authPrompt: AuthPrompt | null;
@@ -62,6 +63,7 @@ interface State {
   updateInstance: (instance: Instance) => Promise<void>;
   deleteInstance: (id: string) => Promise<void>;
   duplicateInstance: (id: string) => Promise<void>;
+  importInstanceFromPath: (path: string) => Promise<void>;
   launch: (id: string) => Promise<void>;
   stop: (id: string) => Promise<void>;
 
@@ -97,6 +99,7 @@ export const useStore = create<State>((set, get) => ({
 
   running: new Set(),
   tasks: {},
+  taskStarted: {},
   logs: {},
   toasts: [],
   authPrompt: null,
@@ -121,6 +124,20 @@ export const useStore = create<State>((set, get) => ({
         running: new Set(running),
         ready: true,
       });
+
+      // One-time: drop legacy auto-assigned emoji icons so existing instances
+      // fall back to their mod-loader logo. The icon picker still works for
+      // deliberate choices made after this runs.
+      if (!localStorage.getItem("beacon:iconMigration")) {
+        const legacy = instances.filter((i) => i.icon && !isImageIcon(i.icon));
+        if (legacy.length) {
+          await Promise.all(
+            legacy.map((i) => api.updateInstance({ ...i, icon: null })),
+          );
+          set({ instances: await api.listInstances() });
+        }
+        localStorage.setItem("beacon:iconMigration", "1");
+      }
     } catch (e) {
       set({ ready: true });
       get().toast("error", errMessage(e));
@@ -137,17 +154,42 @@ export const useStore = create<State>((set, get) => ({
     if (!listenersBound) {
       listenersBound = true;
       events.onTaskProgress((p) => {
-        set((s) => ({ tasks: { ...s.tasks, [p.id]: p } }));
-        if (p.error) get().toast("error", `${p.label}: ${p.error}`);
+        set((s) => ({
+          tasks: { ...s.tasks, [p.id]: p },
+          taskStarted: s.taskStarted[p.id]
+            ? s.taskStarted
+            : { ...s.taskStarted, [p.id]: Date.now() },
+        }));
+        // Cancelled installs surface their own info toast + card removal; don't
+        // double up with a scary error toast.
+        if (p.error && !/cancel/i.test(p.error)) get().toast("error", `${p.label}: ${p.error}`);
         if (p.done) {
+          // A finished modpack install turns its "installing" card into a real
+          // one — pull the fully populated instance (mod count, etc.).
+          if (p.id.startsWith("modpack:")) get().refreshInstances();
           setTimeout(() => {
             set((s) => {
               const tasks = { ...s.tasks };
+              const taskStarted = { ...s.taskStarted };
               delete tasks[p.id];
-              return { tasks };
+              delete taskStarted[p.id];
+              return { tasks, taskStarted };
             });
           }, 1400);
         }
+      });
+      events.onInstanceCreated((inst) => {
+        set((s) =>
+          s.instances.some((i) => i.id === inst.id)
+            ? s
+            : { instances: [...s.instances, inst] },
+        );
+      });
+      events.onInstanceRemoved((id) => {
+        set((s) => ({
+          instances: s.instances.filter((i) => i.id !== id),
+          selectedInstanceId: s.selectedInstanceId === id ? null : s.selectedInstanceId,
+        }));
       });
       events.onLog((line) => {
         set((s) => {
@@ -242,6 +284,18 @@ export const useStore = create<State>((set, get) => ({
     await api.duplicateInstance(id);
     await get().refreshInstances();
     get().toast("success", "Instance duplicated");
+  },
+
+  importInstanceFromPath: async (path) => {
+    try {
+      get().toast("info", "Importing instance…");
+      const inst = await api.importInstance(path);
+      await get().refreshInstances();
+      get().toast("success", `Imported “${inst.name}”`);
+      set({ view: "instances", selectedInstanceId: inst.id });
+    } catch (e) {
+      get().toast("error", errMessage(e));
+    }
   },
 
   launch: async (id) => {

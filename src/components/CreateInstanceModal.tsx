@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { Search } from "lucide-react";
 import { Button, Field, Input, Modal, Select } from "./ui";
+import { LoaderLogo } from "./LoaderLogo";
 import { useStore } from "@/store/useStore";
 import { api, errMessage } from "@/lib/api";
 import { cn, LOADERS } from "@/lib/utils";
 import type { Loader, LoaderVersion } from "@/lib/types";
 
+// Empty string = "Auto": use the loader's logo as the icon.
 const ICONS = ["🟩", "🔥", "⚙️", "🧪", "🏰", "🌲", "💎", "🚀", "🐉", "⛏️", "🧱", "✨"];
 const ALL_LOADERS: Loader[] = ["vanilla", "fabric", "quilt", "forge", "neoforge"];
 
@@ -15,7 +17,7 @@ export function CreateInstanceModal({ open, onClose }: { open: boolean; onClose:
   const toast = useStore((s) => s.toast);
 
   const [name, setName] = useState("");
-  const [icon, setIcon] = useState(ICONS[0]);
+  const [icon, setIcon] = useState(""); // "" = Auto (loader logo)
   const [mcVersion, setMcVersion] = useState("");
   const [showSnapshots, setShowSnapshots] = useState(false);
   const [filter, setFilter] = useState("");
@@ -29,7 +31,7 @@ export function CreateInstanceModal({ open, onClose }: { open: boolean; onClose:
   useEffect(() => {
     if (open) {
       setName("");
-      setIcon(ICONS[Math.floor(Math.random() * ICONS.length)]);
+      setIcon(""); // default to the loader logo
       setMcVersion(versions?.latestRelease ?? "");
       setShowSnapshots(false);
       setFilter("");
@@ -88,7 +90,7 @@ export function CreateInstanceModal({ open, onClose }: { open: boolean; onClose:
         mcVersion,
         loader,
         loaderVersion: loader === "vanilla" ? null : loaderVersion,
-        icon,
+        icon: icon || null,
       });
       onClose();
     } catch (e) {
@@ -132,6 +134,17 @@ export function CreateInstanceModal({ open, onClose }: { open: boolean; onClose:
         <div>
           <span className="mb-1.5 block text-sm font-medium">Icon</span>
           <div className="flex flex-wrap gap-1.5">
+            {/* Auto = the mod loader's own logo (the default). */}
+            <button
+              onClick={() => setIcon("")}
+              title="Auto — use the loader logo"
+              className={cn(
+                "flex h-9 w-9 items-center justify-center rounded-lg transition btn-focus",
+                icon === "" ? "bg-accent/20 ring-2 ring-accent" : "bg-muted/60 hover:bg-muted",
+              )}
+            >
+              <LoaderLogo loader={loader} className="h-6 w-6" />
+            </button>
             {ICONS.map((e) => (
               <button
                 key={e}

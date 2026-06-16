@@ -8,7 +8,7 @@ use crate::modrinth::{ContentVersion, ModHit, SearchResponse};
 use crate::net::{self, DownloadItem};
 use crate::state::AppState;
 use serde::Deserialize;
-use tauri::AppHandle;
+use tauri::{AppHandle, Emitter};
 
 const API: &str = "https://api.curseforge.com/v1";
 const GAME_ID: u32 = 432; // Minecraft
@@ -533,6 +533,9 @@ pub async fn install_modpack(
 
     let instance =
         crate::instances::create_instance(state, &pack_name, &mc_version, loader, loader_version, icon)?;
+    // Surface the new instance in the grid immediately so it shows an
+    // "installing" card while its content downloads.
+    let _ = app.emit("instance://created", instance.clone());
     let game_dir = state.dirs.game_dir(&instance.id);
 
     // Extract the overrides folder into the game dir.
@@ -589,15 +592,26 @@ pub async fn install_modpack(
         }
     }
 
-    net::download_many(
+    let task_id = format!("modpack:{}", instance.id);
+    let cancel = state.cancel_flag(&task_id);
+    let res = net::download_many_cancellable(
         app,
         &state.http,
-        &format!("modpack:{}", instance.id),
+        &task_id,
         &format!("Installing {pack_name}"),
         items,
         settings.max_concurrent_downloads,
+        Some(cancel),
     )
-    .await?;
+    .await;
+    state.clear_cancel(&task_id);
+
+    if let Err(e) = res {
+        // Roll back the half-installed instance and pull its card from the grid.
+        let _ = crate::instances::delete_instance(state, &instance.id);
+        let _ = app.emit("instance://removed", instance.id.clone());
+        return Err(e);
+    }
 
     Ok(instance)
 }

@@ -49,6 +49,13 @@ pub struct Instance {
     pub icon: Option<String>,
     #[serde(default)]
     pub group: Option<String>,
+    /// Accent colour key for this instance's card (falls back to the loader
+    /// theme when `None`). One of the keys in the frontend ACCENTS map.
+    #[serde(default)]
+    pub accent: Option<String>,
+    /// Pinned to the top of the instances list.
+    #[serde(default)]
+    pub favorite: bool,
     #[serde(default)]
     pub created: i64,
     #[serde(default)]
@@ -62,9 +69,25 @@ pub struct Instance {
     pub java_path: Option<String>,
     #[serde(default)]
     pub jvm_args: Option<String>,
+    /// Origin of a modpack-derived instance, used to offer updates with a diff.
+    #[serde(default)]
+    pub pack_source: Option<PackSource>,
     /// Number of .jar files in the mods/ folder. Computed at list time, never read from disk.
     #[serde(default, skip_deserializing)]
     pub mod_count: u32,
+}
+
+/// Where a modpack instance came from, so we can check for newer versions.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PackSource {
+    /// "modrinth" or "curseforge".
+    pub provider: String,
+    pub project_id: String,
+    #[serde(default)]
+    pub version_id: Option<String>,
+    #[serde(default)]
+    pub version_name: Option<String>,
 }
 
 /// Global launcher settings.
@@ -188,6 +211,42 @@ pub struct TaskProgress {
     pub done: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    /// Total bytes downloaded so far across the task (when known).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bytes_done: Option<u64>,
+    /// Current download speed in bytes/second (rolling).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub speed: Option<u64>,
+    /// Name of the file currently being fetched (for detail panels).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub current_file: Option<String>,
+}
+
+impl TaskProgress {
+    /// A bare progress update without byte-level detail (used by staged tasks
+    /// like Forge install and version resolution).
+    pub fn simple(
+        id: &str,
+        label: &str,
+        stage: &str,
+        current: u64,
+        total: u64,
+        done: bool,
+        error: Option<String>,
+    ) -> Self {
+        Self {
+            id: id.to_string(),
+            label: label.to_string(),
+            stage: stage.to_string(),
+            current,
+            total,
+            done,
+            error,
+            bytes_done: None,
+            speed: None,
+            current_file: None,
+        }
+    }
 }
 
 /// A line of output emitted on the `instance://log` event.

@@ -1,9 +1,36 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import { Boxes, Clock, Package, Play, Trophy, Users } from "lucide-react";
 import { useStore } from "@/store/useStore";
-import { cn, formatDuration, loaderLabel, timeAgo } from "@/lib/utils";
+import { cn, formatDuration, isImageIcon, loaderLabel, timeAgo } from "@/lib/utils";
 import type { Instance, Loader } from "@/lib/types";
+
+const SPLASHES = [
+  "Now with 100% more blocks!",
+  "Also try Redstone!",
+  "Diamonds not included.",
+  "Creeper? Aw man.",
+  "Built different.",
+  "git gud at mining.",
+  "Sneak 100.",
+  "Powered by good vibes.",
+  "It's dangerous to go alone!",
+  "No mobs were harmed.",
+  "Respawn anchor charged.",
+  "Loaded faster than a chunk.",
+  "Punch a tree, get wood.",
+  "Mine your own business.",
+  "100% open source!",
+  "Beacon-shaped.",
+];
+
+const LOADER_THEMES: Record<string, string> = {
+  vanilla: "from-emerald-600/20 to-emerald-900/5 border-emerald-500/20",
+  fabric: "from-blue-600/20 to-yellow-500/5 border-blue-500/20",
+  forge: "from-orange-600/20 to-red-600/5 border-orange-500/20",
+  neoforge: "from-cyan-600/20 to-blue-600/5 border-cyan-500/20",
+  quilt: "from-purple-600/20 to-pink-600/5 border-purple-500/20",
+};
 
 export function HomePage() {
   const instances = useStore((s) => s.instances);
@@ -178,11 +205,17 @@ export function HomePage() {
 function Header() {
   const accounts = useStore((s) => s.accounts);
   const active = accounts.find((a) => a.active);
+  const splash = useMemo(() => SPLASHES[Math.floor(Math.random() * SPLASHES.length)], []);
   return (
     <header className="px-8 pb-4 pt-6">
-      <h1 className="text-2xl font-bold tracking-tight">
-        {active ? `Welcome back, ${active.username}` : "Welcome to Beacon"}
-      </h1>
+      <div className="flex items-center gap-3">
+        <h1 className="text-2xl font-bold tracking-tight">
+          {active ? `Welcome back, ${active.username}` : "Welcome to Beacon"}
+        </h1>
+        <span className="-rotate-6 select-none text-sm font-semibold italic text-amber-400">
+          {splash}
+        </span>
+      </div>
       <p className="text-sm text-muted-foreground">Your launcher at a glance</p>
     </header>
   );
@@ -221,11 +254,20 @@ function MostPlayedCard({
   onOpen: () => void;
   onPlay: () => void;
 }) {
+  const isATM10 = instance.name.toLowerCase().includes("all the mods 10") || instance.name.toLowerCase().includes("atm10");
+  
+  const theme = isATM10 
+    ? "from-yellow-600/30 to-zinc-900/90 border-yellow-500/40" 
+    : (LOADER_THEMES[instance.loader] || LOADER_THEMES.vanilla);
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
-      className="mt-6 flex items-center gap-5 overflow-hidden card-surface p-5"
+      className={cn(
+        "mt-6 flex items-center gap-5 overflow-hidden border bg-gradient-to-br p-5 rounded-xl shadow-sm transition-colors",
+        theme
+      )}
     >
       <InstanceIcon instance={instance} size={16} className="text-3xl" />
       <div className="min-w-0 flex-1">
@@ -291,18 +333,46 @@ function InstanceIcon({
   size: number;
   className?: string;
 }) {
+  const [imageError, setImageError] = useState(false);
+  const isATM10 = instance.name.toLowerCase().includes("all the mods 10") || instance.name.toLowerCase().includes("atm10");
+  const bgClass = useMemo(() => {
+    if (isATM10) return "from-yellow-500/40 to-yellow-800/20";
+    
+    switch (instance.loader) {
+      case "fabric": return "from-blue-500/30 to-yellow-400/20";
+      case "forge": return "from-orange-500/30 to-red-600/20";
+      case "neoforge": return "from-cyan-500/30 to-blue-500/20";
+      case "quilt": return "from-purple-500/30 to-pink-500/20";
+      default: return "from-emerald-500/30 to-emerald-800/20";
+    }
+  }, [instance.loader, isATM10]);
+
+  // Reset imageError when instance changes
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => setImageError(false), [instance.id]);
+
   return (
     <div
       className={cn(
-        "flex shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-accent/25 to-accent/5",
+        "flex shrink-0 items-center justify-center overflow-hidden rounded-xl bg-gradient-to-br shadow-inner",
+        bgClass,
         className,
       )}
       style={{ height: `${size * 4}px`, width: `${size * 4}px` }}
     >
-      {instance.icon ? (
-        <span>{instance.icon}</span>
+      {imageError || (!isATM10 && !isImageIcon(instance.icon)) ? (
+        instance.icon ? (
+          <span>{instance.icon}</span>
+        ) : (
+          <span className="font-bold uppercase text-accent">{instance.name.charAt(0)}</span>
+        )
       ) : (
-        <span className="font-bold uppercase text-accent">{instance.name.charAt(0)}</span>
+        <img
+          src={isATM10 ? "https://raw.githubusercontent.com/AllTheMods/ATM-10/main/icon.png" : instance.icon!}
+          alt={instance.name}
+          className="h-full w-full object-cover"
+          onError={() => setImageError(true)}
+        />
       )}
     </div>
   );

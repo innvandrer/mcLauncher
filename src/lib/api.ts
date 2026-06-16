@@ -8,8 +8,11 @@ import type {
   Loader,
   LoaderVersion,
   ContentVersion,
+  DiskUsage,
   LogLine,
+  ModConflict,
   ModEntry,
+  ModpackUpdate,
   ModUpdate,
   PublicAccount,
   ResourcePackEntry,
@@ -17,6 +20,7 @@ import type {
   SearchResponse,
   Settings,
   ShaderEntry,
+  Snapshot,
   TaskProgress,
   VersionList,
   WorldEntry,
@@ -69,7 +73,12 @@ export const api = {
   openInstanceFolder: (id: string) => invoke<void>("open_instance_folder", { id }),
 
   // Launch
-  launchInstance: (id: string) => invoke<void>("launch_instance", { id }),
+  launchInstance: (id: string, quick?: { world?: string; server?: string }) =>
+    invoke<void>("launch_instance", {
+      id,
+      quickWorld: quick?.world ?? null,
+      quickServer: quick?.server ?? null,
+    }),
   stopInstance: (id: string) => invoke<void>("stop_instance", { id }),
   runningInstances: () => invoke<string[]>("running_instances"),
 
@@ -187,8 +196,29 @@ export const api = {
   openScreenshot: (instanceId: string, fileName: string) =>
     invoke<void>("open_screenshot", { instanceId, fileName }),
 
+  // Disk usage
+  instanceDiskUsage: (instanceId: string) =>
+    invoke<DiskUsage>("instance_disk_usage", { instanceId }),
+
+  // World snapshots / backups
+  listSnapshots: (instanceId: string) =>
+    invoke<Snapshot[]>("list_snapshots", { instanceId }),
+  createSnapshot: (instanceId: string, world: string) =>
+    invoke<Snapshot>("create_snapshot", { instanceId, world }),
+  restoreSnapshot: (instanceId: string, fileName: string) =>
+    invoke<void>("restore_snapshot", { instanceId, fileName }),
+  deleteSnapshot: (instanceId: string, fileName: string) =>
+    invoke<void>("delete_snapshot", { instanceId, fileName }),
+
+  // Mod conflict scan
+  scanModConflicts: (instanceId: string) =>
+    invoke<ModConflict[]>("scan_mod_conflicts", { instanceId }),
+
   // Java
   detectJava: () => invoke<JavaInstall[]>("detect_java"),
+
+  // System
+  systemMemoryMb: () => invoke<number>("system_memory_mb"),
 
   // Project body / descriptions (for detail pages)
   getModrinthProjectBody: (projectId: string) =>
@@ -210,6 +240,15 @@ export const api = {
     contentType: string;
   }) => invoke<string>("install_curseforge_file", args),
 
+  // Cancel an in-flight download task (e.g. "modpack:<id>")
+  cancelTask: (taskId: string) => invoke<void>("cancel_task", { taskId }),
+
+  // Modpack updates (diff + apply)
+  checkModpackUpdate: (instanceId: string) =>
+    invoke<ModpackUpdate | null>("check_modpack_update", { instanceId }),
+  applyModpackUpdate: (instanceId: string, versionId: string) =>
+    invoke<void>("apply_modpack_update", { instanceId, versionId }),
+
   // Open a URL in the system browser
   openUrl: (url: string) => invoke<void>("open_url", { url }),
 };
@@ -221,6 +260,10 @@ export const events = {
     listen<LogLine>("instance://log", (e) => cb(e.payload)),
   onInstanceState: (cb: (s: InstanceStateEvent) => void): Promise<UnlistenFn> =>
     listen<InstanceStateEvent>("instance://state", (e) => cb(e.payload)),
+  onInstanceCreated: (cb: (i: Instance) => void): Promise<UnlistenFn> =>
+    listen<Instance>("instance://created", (e) => cb(e.payload)),
+  onInstanceRemoved: (cb: (id: string) => void): Promise<UnlistenFn> =>
+    listen<string>("instance://removed", (e) => cb(e.payload)),
   onAuthPrompt: (cb: (p: AuthPrompt) => void): Promise<UnlistenFn> =>
     listen<AuthPrompt>("auth://prompt", (e) => cb(e.payload)),
 };

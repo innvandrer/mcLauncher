@@ -152,7 +152,7 @@ function PackDetailView({
 }) {
   const toast = useStore((s) => s.toast);
   const refreshInstances = useStore((s) => s.refreshInstances);
-  const openInstance = useStore((s) => s.openInstance);
+  const setView = useStore((s) => s.setView);
 
   const [versions, setVersions] = useState<ContentVersion[]>([]);
   const [versionId, setVersionId] = useState("");
@@ -190,22 +190,25 @@ function PackDetailView({
 
   const install = async () => {
     setInstalling(true);
-    toast("info", `Installing "${hit.title}" — this can take a while…`);
+    toast("info", `Installing "${hit.title}" — added to Instances`);
+    // Jump to the Instances tab so the new instance shows its download
+    // progress live while the content streams in.
+    setView("instances");
     try {
       const inst =
         provider === "curseforge"
           ? await api.installCurseforgeModpack({
               projectId: hit.project_id,
               fileId: versionId || null,
+              icon: hit.icon_url ?? null,
             })
           : await api.installModrinthModpack({
               projectId: hit.project_id,
               versionId: versionId || null,
+              icon: hit.icon_url ?? null,
             });
       await refreshInstances();
       toast("success", `Installed "${inst.name}"`);
-      onBack();
-      openInstance(inst.id);
     } catch (e) {
       toast("error", errMessage(e));
     } finally {

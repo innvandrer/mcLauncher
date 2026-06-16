@@ -4,6 +4,8 @@ import { TitleBar } from "./components/TitleBar";
 import { Sidebar } from "./components/Sidebar";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { Toaster } from "./components/Toaster";
+import { CommandPalette } from "./components/CommandPalette";
+import { DropZone } from "./components/DropZone";
 import { AuthPromptModal } from "./components/AuthPromptModal";
 import { UpdateModal } from "./components/UpdateModal";
 import { Spinner } from "./components/ui";
@@ -70,6 +72,8 @@ export default function App() {
         </main>
       </div>
       <Toaster />
+      <CommandPalette />
+      <DropZone />
       <AuthPromptModal />
       <UpdateModal />
     </div>

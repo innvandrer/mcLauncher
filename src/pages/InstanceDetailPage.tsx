@@ -1,5 +1,6 @@
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import {
+  AlertTriangle,
   ArrowLeft,
   Camera,
   Check,
@@ -13,6 +14,7 @@ import {
   Package,
   Play,
   RefreshCw,
+  Save,
   ScrollText,
   Settings2,
   Sparkles,
@@ -23,17 +25,24 @@ import {
 import { Button, EmptyState, Field, Input, Modal, Select, Spinner } from "@/components/ui";
 import { useStore } from "@/store/useStore";
 import { api, errMessage } from "@/lib/api";
-import { cn, formatBytes, formatNumber, loaderLabel } from "@/lib/utils";
+import { ACCENTS, cn, formatBytes, formatNumber, isImageIcon, loaderLabel } from "@/lib/utils";
+import { InstanceIcon } from "@/components/InstanceIcon";
+import { LoaderLogo } from "@/components/LoaderLogo";
+import { analyzeCrash, type CrashFinding } from "@/lib/crash";
 import { save } from "@tauri-apps/plugin-dialog";
 import type {
   ContentVersion,
+  DiskUsage,
   Instance,
+  ModConflict,
   ModEntry,
   ModHit,
+  ModpackUpdate,
   ModUpdate,
   ResourcePackEntry,
   ScreenshotEntry,
   ShaderEntry,
+  Snapshot,
   WorldEntry,
 } from "@/lib/types";
 
@@ -109,9 +118,7 @@ export function InstanceDetailPage({ id }: { id: string }) {
         </button>
 
         <div className="flex items-center gap-4">
-          <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-accent/25 to-accent/5 text-3xl">
-            {instance.icon ?? instance.name.charAt(0).toUpperCase()}
-          </div>
+          <InstanceIcon instance={instance} size="detail" className="border border-white/5" />
           <div className="min-w-0 flex-1">
             <h1 className="truncate text-2xl font-bold tracking-tight">{instance.name}</h1>
             <div className="mt-0.5 flex items-center gap-2 text-sm text-muted-foreground">
@@ -169,11 +176,97 @@ export function InstanceDetailPage({ id }: { id: string }) {
         </nav>
       </header>
 
+      <div className="px-8">
+        <ModpackUpdateBanner instance={instance} />
+      </div>
+
       <div className="scroll-area flex-1 px-8 py-5">
         {tab === "content" && <ContentTab instance={instance} />}
-        {tab === "logs" && <LogsTab id={id} />}
+        {tab === "logs" && (
+          <LogsTab id={id} instance={instance} onOpenSettings={() => setTab("settings")} />
+        )}
         {tab === "settings" && <SettingsTab instance={instance} />}
       </div>
+    </div>
+  );
+}
+
+// --------------------------------------------------------------------------
+// Modpack update banner — checks for a newer pack version and shows the diff
+// --------------------------------------------------------------------------
+
+function ModpackUpdateBanner({ instance }: { instance: Instance }) {
+  const toast = useStore((s) => s.toast);
+  const [update, setUpdate] = useState<ModpackUpdate | null>(null);
+  const [expanded, setExpanded] = useState(false);
+  const [applying, setApplying] = useState(false);
+
+  useEffect(() => {
+    setUpdate(null);
+    setExpanded(false);
+    // Only modpack-derived instances carry a pack source; the command returns
+    // null for everything else, so this is a cheap no-op otherwise.
+    api.checkModpackUpdate(instance.id).then(setUpdate).catch(() => {});
+  }, [instance.id]);
+
+  if (!update) return null;
+
+  const apply = async () => {
+    setApplying(true);
+    toast("info", "Updating modpack…");
+    try {
+      await api.applyModpackUpdate(instance.id, update.versionId);
+      toast("success", `Updated to ${update.versionName}`);
+      setUpdate(null);
+    } catch (e) {
+      toast("error", errMessage(e));
+    } finally {
+      setApplying(false);
+    }
+  };
+
+  const Line = ({ label, items, color }: { label: string; items: string[]; color: string }) =>
+    items.length === 0 ? null : (
+      <div className="mt-2">
+        <p className={cn("text-xs font-semibold", color)}>
+          {label} ({items.length})
+        </p>
+        <ul className="mt-0.5 space-y-0.5 text-xs text-muted-foreground">
+          {items.map((f) => (
+            <li key={f} className="truncate">{f}</li>
+          ))}
+        </ul>
+      </div>
+    );
+
+  return (
+    <div className="mt-4 rounded-xl border border-accent/40 bg-accent/10 p-3">
+      <div className="flex items-center gap-3">
+        <Download className="h-4 w-4 shrink-0 text-accent" />
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-semibold">
+            Modpack update available — {update.versionName}
+          </p>
+          <p className="text-xs text-muted-foreground">
+            {update.currentVersion ? `From ${update.currentVersion} · ` : ""}
+            {update.added.length} added · {update.updated.length} updated ·{" "}
+            {update.removed.length} removed
+          </p>
+        </div>
+        <Button size="sm" variant="ghost" onClick={() => setExpanded((v) => !v)}>
+          {expanded ? "Hide" : "View changes"}
+        </Button>
+        <Button size="sm" variant="primary" onClick={apply} loading={applying}>
+          Update
+        </Button>
+      </div>
+      {expanded && (
+        <div className="mt-2 border-t border-accent/20 pt-1">
+          <Line label="Added" items={update.added} color="text-emerald-400" />
+          <Line label="Updated" items={update.updated} color="text-accent" />
+          <Line label="Removed" items={update.removed} color="text-destructive" />
+        </div>
+      )}
     </div>
   );
 }
@@ -417,8 +510,12 @@ function ModsPanel({ instance }: { instance: Instance }) {
   const [provider, setProvider] = useState<Provider>("modrinth");
   const [page, setPage] = useState(0);
   const [totalHits, setTotalHits] = useState(0);
+  const [conflicts, setConflicts] = useState<ModConflict[]>([]);
 
-  const refresh = () => api.listMods(instance.id).then(setInstalled).catch(() => {});
+  const refresh = () => {
+    api.listMods(instance.id).then(setInstalled).catch(() => {});
+    api.scanModConflicts(instance.id).then(setConflicts).catch(() => {});
+  };
   useEffect(() => {
     refresh();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -553,6 +650,26 @@ function ModsPanel({ instance }: { instance: Instance }) {
             </button>
           )}
         </div>
+
+        {conflicts.length > 0 && (
+          <div className="mb-3 rounded-lg border border-amber-500/40 bg-amber-500/10 p-3">
+            <p className="flex items-center gap-1.5 text-sm font-medium text-amber-200">
+              <AlertTriangle className="h-3.5 w-3.5" />
+              {conflicts.length} possible duplicate{conflicts.length > 1 ? "s" : ""}
+            </p>
+            <ul className="mt-1.5 space-y-1 text-xs text-muted-foreground">
+              {conflicts.map((c) => (
+                <li key={c.name}>
+                  <span className="font-medium text-foreground/90">{c.name}</span>:{" "}
+                  {c.files.join(", ")}
+                </li>
+              ))}
+            </ul>
+            <p className="mt-1.5 text-[11px] text-muted-foreground/70">
+              Two builds of the same mod can crash the game — remove the older one.
+            </p>
+          </div>
+        )}
 
         {updates.length > 0 && (
           <div className="mb-3 rounded-lg border border-accent/40 bg-accent/10 p-3">
@@ -1059,10 +1176,15 @@ function VersionPickerModal({
 
 function WorldsPanel({ instance }: { instance: Instance }) {
   const toast = useStore((s) => s.toast);
+  const running = useStore((s) => s.running.has(instance.id));
   const [worlds, setWorlds] = useState<WorldEntry[]>([]);
+  const [snapshots, setSnapshots] = useState<Snapshot[]>([]);
+  const [busy, setBusy] = useState<string | null>(null);
 
-  const refresh = () =>
+  const refresh = () => {
     api.listWorlds(instance.id).then(setWorlds).catch(() => {});
+    api.listSnapshots(instance.id).then(setSnapshots).catch(() => {});
+  };
   useEffect(() => {
     refresh();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1074,48 +1196,153 @@ function WorldsPanel({ instance }: { instance: Instance }) {
     refresh();
   };
 
-  if (worlds.length === 0) {
-    return (
-      <EmptyState
-        icon={<Globe className="h-7 w-7" />}
-        title="No worlds"
-        description="Worlds will appear here once you play and create or load one."
-      />
-    );
-  }
+  // Quick Play — launch straight into this world, skipping the main menu.
+  const playWorld = async (name: string) => {
+    if (running) {
+      toast("error", "This instance is already running.");
+      return;
+    }
+    try {
+      await api.launchInstance(instance.id, { world: name });
+      toast("info", `Launching into “${name}”…`);
+    } catch (e) {
+      toast("error", errMessage(e));
+    }
+  };
+
+  const backup = async (name: string) => {
+    setBusy(name);
+    try {
+      await api.createSnapshot(instance.id, name);
+      toast("success", `Backed up “${name}”`);
+      refresh();
+    } catch (e) {
+      toast("error", errMessage(e));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const restore = async (s: Snapshot) => {
+    if (!confirm(`Restore “${s.world}” from ${new Date(s.created * 1000).toLocaleString()}? This overwrites the current world.`))
+      return;
+    setBusy(s.fileName);
+    try {
+      await api.restoreSnapshot(instance.id, s.fileName);
+      toast("success", `Restored “${s.world}”`);
+      refresh();
+    } catch (e) {
+      toast("error", errMessage(e));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const deleteSnapshot = async (s: Snapshot) => {
+    await api.deleteSnapshot(instance.id, s.fileName).catch((e) => toast("error", errMessage(e)));
+    refresh();
+  };
 
   return (
-    <div className="max-w-xl space-y-1.5">
-      {worlds.map((w) => (
-        <div
-          key={w.name}
-          className="flex items-center gap-3 rounded-lg border bg-card/60 p-3"
-        >
-          <Globe className="h-5 w-5 shrink-0 text-muted-foreground" />
-          <div className="min-w-0 flex-1">
-            <p className="truncate font-medium text-sm">{w.name}</p>
-            {w.modified && (
-              <p className="text-xs text-muted-foreground">
-                {new Date(w.modified * 1000).toLocaleDateString()}
-              </p>
-            )}
+    <div className="max-w-xl space-y-6">
+      <div className="space-y-1.5">
+        {worlds.length === 0 ? (
+          <EmptyState
+            icon={<Globe className="h-7 w-7" />}
+            title="No worlds"
+            description="Worlds will appear here once you play and create or load one."
+          />
+        ) : (
+          worlds.map((w) => (
+            <div
+              key={w.name}
+              className="flex items-center gap-3 rounded-lg border bg-card/60 p-3"
+            >
+              <Globe className="h-5 w-5 shrink-0 text-muted-foreground" />
+              <div className="min-w-0 flex-1">
+                <p className="truncate font-medium text-sm">{w.name}</p>
+                {w.modified && (
+                  <p className="text-xs text-muted-foreground">
+                    {new Date(w.modified * 1000).toLocaleDateString()}
+                  </p>
+                )}
+              </div>
+              <button
+                onClick={() => playWorld(w.name)}
+                disabled={running}
+                className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-accent transition hover:bg-accent/10 disabled:opacity-40"
+                title="Play this world"
+              >
+                <Play className="h-3.5 w-3.5 fill-current" />
+                Play
+              </button>
+              <button
+                onClick={() => backup(w.name)}
+                disabled={busy === w.name}
+                className="text-muted-foreground transition hover:text-foreground disabled:opacity-40"
+                title="Back up this world"
+              >
+                <Save className="h-4 w-4" />
+              </button>
+              <button
+                onClick={() => api.openWorldFolder(instance.id, w.name)}
+                className="text-muted-foreground transition hover:text-foreground"
+                title="Open folder"
+              >
+                <ExternalLink className="h-4 w-4" />
+              </button>
+              <button
+                onClick={() => remove(w.name)}
+                className="text-muted-foreground transition hover:text-destructive"
+                title="Delete world"
+              >
+                <Trash2 className="h-4 w-4" />
+              </button>
+            </div>
+          ))
+        )}
+      </div>
+
+      {snapshots.length > 0 && (
+        <section>
+          <h3 className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            <Save className="h-3.5 w-3.5" />
+            Backups
+            <span className="opacity-60">{snapshots.length}</span>
+          </h3>
+          <div className="space-y-1.5">
+            {snapshots.map((s) => (
+              <div
+                key={s.fileName}
+                className="flex items-center gap-3 rounded-lg border bg-card/40 p-2.5"
+              >
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium">{s.world}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {new Date(s.created * 1000).toLocaleString()} · {formatBytes(s.size)}
+                  </p>
+                </div>
+                <button
+                  onClick={() => restore(s)}
+                  disabled={busy === s.fileName}
+                  className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-muted-foreground transition hover:text-foreground disabled:opacity-40"
+                  title="Restore this backup"
+                >
+                  <RefreshCw className="h-3.5 w-3.5" />
+                  Restore
+                </button>
+                <button
+                  onClick={() => deleteSnapshot(s)}
+                  className="text-muted-foreground transition hover:text-destructive"
+                  title="Delete backup"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </button>
+              </div>
+            ))}
           </div>
-          <button
-            onClick={() => api.openWorldFolder(instance.id, w.name)}
-            className="text-muted-foreground transition hover:text-foreground"
-            title="Open folder"
-          >
-            <ExternalLink className="h-4 w-4" />
-          </button>
-          <button
-            onClick={() => remove(w.name)}
-            className="text-muted-foreground transition hover:text-destructive"
-            title="Delete world"
-          >
-            <Trash2 className="h-4 w-4" />
-          </button>
-        </div>
-      ))}
+        </section>
+      )}
     </div>
   );
 }
@@ -1171,17 +1398,61 @@ function ScreenshotsPanel({ instance }: { instance: Instance }) {
 // Logs
 // --------------------------------------------------------------------------
 
-function LogsTab({ id }: { id: string }) {
+function LogsTab({
+  id,
+  instance,
+  onOpenSettings,
+}: {
+  id: string;
+  instance: Instance;
+  onOpenSettings: () => void;
+}) {
   const logs = useStore((s) => s.logs[id] ?? []);
   const clearLogs = useStore((s) => s.clearLogs);
+  const updateInstance = useStore((s) => s.updateInstance);
+  const toast = useStore((s) => s.toast);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [logs.length]);
 
+  // Re-run only when new lines arrive; cheap enough for the capped log buffer.
+  const finding = useMemo(() => analyzeCrash(logs), [logs]);
+
+  const applyAction = async (action: NonNullable<CrashFinding["action"]>) => {
+    if (action === "increase-ram") {
+      const next = (instance.memoryMb ?? 4096) + 2048;
+      await updateInstance({ ...instance, memoryMb: next });
+      toast("success", `Raised memory to ${(next / 1024).toFixed(0)} GB`);
+    } else if (action === "open-settings") {
+      onOpenSettings();
+    }
+  };
+
   return (
     <div className="flex h-full flex-col">
+      {finding && (
+        <div className="mb-3 rounded-xl border border-amber-500/40 bg-amber-500/10 p-3">
+          <div className="flex items-start gap-2.5">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-400" />
+            <div className="flex-1">
+              <p className="text-sm font-semibold text-amber-200">{finding.title}</p>
+              <p className="mt-0.5 text-xs text-muted-foreground">{finding.detail}</p>
+              {finding.action && (
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  className="mt-2"
+                  onClick={() => applyAction(finding.action!)}
+                >
+                  {finding.action === "increase-ram" ? "Add 2 GB RAM" : "Open settings"}
+                </Button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
       <div className="mb-2 flex items-center justify-between">
         <span className="text-sm text-muted-foreground">{logs.length} lines</span>
         <Button size="sm" variant="ghost" onClick={() => clearLogs(id)}>
@@ -1221,10 +1492,19 @@ function SettingsTab({ instance }: { instance: Instance }) {
 
   const [name, setName] = useState(instance.name);
   const [group, setGroup] = useState(instance.group ?? "");
+  const [accent, setAccent] = useState(instance.accent ?? "");
+  // Modpack art (an image icon) is left untouched; emoji / Auto stay editable.
+  const hasImageIcon = isImageIcon(instance.icon);
+  const [icon, setIcon] = useState(hasImageIcon ? "" : instance.icon ?? "");
   const [memory, setMemory] = useState(instance.memoryMb ?? 0);
   const [javaPath, setJavaPath] = useState(instance.javaPath ?? "");
   const [jvmArgs, setJvmArgs] = useState(instance.jvmArgs ?? "");
   const [saving, setSaving] = useState(false);
+  const [usage, setUsage] = useState<DiskUsage | null>(null);
+
+  useEffect(() => {
+    api.instanceDiskUsage(instance.id).then(setUsage).catch(() => {});
+  }, [instance.id]);
 
   const save = async () => {
     setSaving(true);
@@ -1233,6 +1513,8 @@ function SettingsTab({ instance }: { instance: Instance }) {
         ...instance,
         name: name.trim() || instance.name,
         group: group.trim() || null,
+        accent: accent || null,
+        icon: hasImageIcon ? instance.icon : icon || null,
         memoryMb: memory > 0 ? memory : null,
         javaPath: javaPath.trim() || null,
         jvmArgs: jvmArgs.trim() || null,
@@ -1254,6 +1536,63 @@ function SettingsTab({ instance }: { instance: Instance }) {
           onChange={(e) => setGroup(e.target.value)}
           placeholder="e.g. Modded, Vanilla, Servers…"
         />
+      </Field>
+      {!hasImageIcon && (
+        <Field label="Icon" hint="Auto uses the mod loader's logo.">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => setIcon("")}
+              title="Auto — use the loader logo"
+              className={cn(
+                "flex h-9 w-9 items-center justify-center rounded-lg transition",
+                icon === "" ? "bg-accent/20 ring-2 ring-accent" : "bg-muted/60 hover:bg-muted",
+              )}
+            >
+              <LoaderLogo loader={instance.loader} className="h-6 w-6" />
+            </button>
+            {["🟩", "🔥", "⚙️", "🧪", "🏰", "🌲", "💎", "🚀", "🐉", "⛏️", "🧱", "✨"].map((e) => (
+              <button
+                key={e}
+                type="button"
+                onClick={() => setIcon(e)}
+                className={cn(
+                  "flex h-9 w-9 items-center justify-center rounded-lg text-lg transition",
+                  icon === e ? "bg-accent/20 ring-2 ring-accent" : "bg-muted/60 hover:bg-muted",
+                )}
+              >
+                {e}
+              </button>
+            ))}
+          </div>
+        </Field>
+      )}
+      <Field label="Card colour" hint="Tint this instance's card. Auto follows the mod loader.">
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setAccent("")}
+            className={cn(
+              "h-7 rounded-md border px-2 text-xs transition",
+              accent === "" ? "border-accent text-foreground" : "border-border text-muted-foreground",
+            )}
+          >
+            Auto
+          </button>
+          {Object.entries(ACCENTS).map(([key, hsl]) => (
+            <button
+              key={key}
+              type="button"
+              onClick={() => setAccent(key)}
+              title={key}
+              style={{ backgroundColor: `hsl(${hsl})` }}
+              className={cn(
+                "h-7 w-7 rounded-md ring-2 ring-offset-2 ring-offset-background transition",
+                accent === key ? "ring-foreground/60" : "ring-transparent",
+              )}
+            />
+          ))}
+        </div>
       </Field>
       <Field
         label="Memory override (MB)"
@@ -1289,6 +1628,51 @@ function SettingsTab({ instance }: { instance: Instance }) {
           Save changes
         </Button>
       </div>
+
+      {usage && usage.total > 0 && (
+        <div className="rounded-xl border bg-card/40 p-4">
+          <div className="mb-2 flex items-center justify-between">
+            <h3 className="text-sm font-semibold">Disk usage</h3>
+            <span className="text-sm text-muted-foreground">{formatBytes(usage.total)}</span>
+          </div>
+          <div className="flex h-2.5 w-full overflow-hidden rounded-full bg-muted">
+            {(
+              [
+                ["mods", usage.mods, "bg-blue-500"],
+                ["saves", usage.saves, "bg-emerald-500"],
+                ["resourcepacks", usage.resourcepacks, "bg-violet-500"],
+                ["shaders", usage.shaders, "bg-amber-500"],
+                ["other", usage.other, "bg-zinc-500"],
+              ] as const
+            ).map(([key, val, color]) => (
+              <div
+                key={key}
+                className={color}
+                style={{ width: `${(val / usage.total) * 100}%` }}
+                title={`${key}: ${formatBytes(val)}`}
+              />
+            ))}
+          </div>
+          <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+            {(
+              [
+                ["Mods", usage.mods, "bg-blue-500"],
+                ["Worlds", usage.saves, "bg-emerald-500"],
+                ["Resource packs", usage.resourcepacks, "bg-violet-500"],
+                ["Shaders", usage.shaders, "bg-amber-500"],
+                ["Other", usage.other, "bg-zinc-500"],
+              ] as const
+            )
+              .filter(([, val]) => val > 0)
+              .map(([label, val, color]) => (
+                <span key={label} className="flex items-center gap-1.5">
+                  <span className={cn("h-2 w-2 rounded-sm", color)} />
+                  {label} {formatBytes(val)}
+                </span>
+              ))}
+          </div>
+        </div>
+      )}
 
       <div className="mt-8 rounded-xl border border-destructive/30 bg-destructive/5 p-4">
         <h3 className="text-sm font-semibold text-destructive">Danger zone</h3>

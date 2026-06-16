@@ -10,6 +10,8 @@ export interface Instance {
   loaderVersion?: string | null;
   icon?: string | null;
   group?: string | null;
+  accent?: string | null;
+  favorite?: boolean;
   created: number;
   lastPlayed?: number | null;
   totalPlaySeconds: number;
@@ -64,6 +66,9 @@ export interface TaskProgress {
   total: number;
   done: boolean;
   error?: string | null;
+  bytesDone?: number | null;
+  speed?: number | null;
+  currentFile?: string | null;
 }
 
 export interface LogLine {
@@ -156,4 +161,34 @@ export interface ModUpdate {
   url: string;
   sha1?: string | null;
   enabled: boolean;
+}
+
+export interface DiskUsage {
+  total: number;
+  mods: number;
+  saves: number;
+  resourcepacks: number;
+  shaders: number;
+  other: number;
+}
+
+export interface Snapshot {
+  fileName: string;
+  world: string;
+  size: number;
+  created: number;
+}
+
+export interface ModConflict {
+  name: string;
+  files: string[];
+}
+
+export interface ModpackUpdate {
+  versionId: string;
+  versionName: string;
+  currentVersion?: string | null;
+  added: string[];
+  removed: string[];
+  updated: string[];
 }

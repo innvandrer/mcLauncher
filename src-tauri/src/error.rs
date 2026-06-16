@@ -22,6 +22,9 @@ pub enum Error {
     #[error("tauri error: {0}")]
     Tauri(#[from] tauri::Error),
 
+    #[error("task error: {0}")]
+    Join(#[from] tokio::task::JoinError),
+
     #[error("checksum mismatch for {file} (expected {expected}, got {actual})")]
     Checksum {
         file: String,

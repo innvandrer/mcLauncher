@@ -14,6 +14,8 @@ mod modrinth;
 mod mojang;
 mod net;
 mod state;
+mod system;
+mod tools;
 
 use state::AppState;
 use tauri::Manager;
@@ -95,7 +97,17 @@ pub fn run() {
             commands::open_world_folder,
             commands::list_screenshots,
             commands::open_screenshot,
+            commands::instance_disk_usage,
+            commands::list_snapshots,
+            commands::create_snapshot,
+            commands::restore_snapshot,
+            commands::delete_snapshot,
+            commands::scan_mod_conflicts,
+            commands::cancel_task,
+            commands::check_modpack_update,
+            commands::apply_modpack_update,
             commands::detect_java,
+            commands::system_memory_mb,
             commands::get_modrinth_project_body,
             commands::get_curseforge_description,
             commands::install_content_version,

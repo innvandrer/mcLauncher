@@ -5,7 +5,7 @@ use crate::net::{self, DownloadItem};
 use crate::state::AppState;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use tauri::AppHandle;
+use tauri::{AppHandle, Emitter};
 
 const API: &str = "https://api.modrinth.com/v2";
 
@@ -356,6 +356,8 @@ pub async fn get_project_body(state: &AppState, project_id: &str) -> Result<Stri
 struct MrpackIndex {
     #[serde(default)]
     name: String,
+    #[serde(default, rename = "versionId")]
+    version_id: String,
     #[serde(default)]
     files: Vec<MrpackEntry>,
     #[serde(default)]
@@ -543,6 +545,153 @@ pub async fn install_mrpack(
 }
 
 // ---------------------------------------------------------------------------
+// Modpack updates (diff + apply)
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModpackUpdate {
+    pub version_id: String,
+    pub version_name: String,
+    pub current_version: Option<String>,
+    pub added: Vec<String>,
+    pub removed: Vec<String>,
+    pub updated: Vec<String>,
+}
+
+/// Read the mod file names (basenames under `mods/`) from a target mrpack.
+async fn target_mod_files(
+    state: &AppState,
+    project_id: &str,
+    version_id: &str,
+) -> Result<(String, Vec<String>)> {
+    let (tmp_path, _) = fetch_mrpack_archive(state, project_id, Some(version_id)).await?;
+    let meta: MrpackIndex = {
+        let file = std::fs::File::open(&tmp_path)?;
+        let mut archive = zip::ZipArchive::new(file)?;
+        let mut idx = archive.by_name("modrinth.index.json")?;
+        let mut buf = Vec::new();
+        std::io::Read::read_to_end(&mut idx, &mut buf)?;
+        serde_json::from_slice(&buf)?
+    };
+    std::fs::remove_file(&tmp_path).ok();
+    let files = meta
+        .files
+        .iter()
+        .filter(|e| e.path.starts_with("mods/"))
+        .filter_map(|e| e.path.rsplit('/').next().map(|s| s.to_string()))
+        .collect();
+    Ok((meta.name, files))
+}
+
+/// Check whether a newer version of a Modrinth modpack exists for this instance
+/// and, if so, compute the mod-level diff against what's currently installed.
+pub async fn check_modpack_update(
+    state: &AppState,
+    instance_id: &str,
+) -> Result<Option<ModpackUpdate>> {
+    let instance = crate::instances::get_instance(state, instance_id)?;
+    let src = match instance.pack_source {
+        Some(s) if s.provider == "modrinth" => s,
+        _ => return Ok(None),
+    };
+
+    let versions = list_versions(state, &src.project_id).await?;
+    let latest = match versions.first() {
+        Some(v) => v.clone(),
+        None => return Ok(None),
+    };
+    if Some(&latest.id) == src.version_id.as_ref() {
+        return Ok(None); // already newest
+    }
+
+    let (_, target) = target_mod_files(state, &src.project_id, &latest.id).await?;
+    let installed: Vec<String> = crate::instances::list_mods(state, instance_id)
+        .into_iter()
+        .map(|m| m.file_name.trim_end_matches(".disabled").to_string())
+        .collect();
+
+    use std::collections::HashMap;
+    let target_keys: HashMap<String, String> = target
+        .iter()
+        .map(|f| (crate::tools::mod_base_key(f), f.clone()))
+        .collect();
+    let installed_keys: HashMap<String, String> = installed
+        .iter()
+        .map(|f| (crate::tools::mod_base_key(f), f.clone()))
+        .collect();
+
+    let mut added = Vec::new();
+    let mut updated = Vec::new();
+    for (k, f) in &target_keys {
+        match installed_keys.get(k) {
+            None => added.push(f.clone()),
+            Some(cur) if cur != f => updated.push(f.clone()),
+            _ => {}
+        }
+    }
+    let mut removed: Vec<String> = installed_keys
+        .iter()
+        .filter(|(k, _)| !target_keys.contains_key(*k))
+        .map(|(_, f)| f.clone())
+        .collect();
+
+    added.sort();
+    removed.sort();
+    updated.sort();
+
+    Ok(Some(ModpackUpdate {
+        version_id: latest.id,
+        version_name: latest.version_number,
+        current_version: src.version_name,
+        added,
+        removed,
+        updated,
+    }))
+}
+
+/// Apply a modpack update: remove mods no longer in the pack, install the target
+/// version, and record the new version on the instance.
+pub async fn apply_modpack_update(
+    app: &AppHandle,
+    state: &AppState,
+    instance_id: &str,
+    version_id: &str,
+) -> Result<()> {
+    let mut instance = crate::instances::get_instance(state, instance_id)?;
+    let src = match instance.pack_source.clone() {
+        Some(s) if s.provider == "modrinth" => s,
+        _ => return Err(Error::Other("This instance isn't a Modrinth modpack.".into())),
+    };
+
+    // Remove mods that the target version drops, so stale jars don't linger.
+    let (_, target) = target_mod_files(state, &src.project_id, version_id).await?;
+    use std::collections::HashSet;
+    let target_keys: HashSet<String> =
+        target.iter().map(|f| crate::tools::mod_base_key(f)).collect();
+    let mods_dir = state.dirs.game_dir(instance_id).join("mods");
+    for m in crate::instances::list_mods(state, instance_id) {
+        let base = m.file_name.trim_end_matches(".disabled");
+        if !target_keys.contains(&crate::tools::mod_base_key(base)) {
+            std::fs::remove_file(mods_dir.join(&m.file_name)).ok();
+        }
+    }
+
+    // Install the target version's files into the existing instance.
+    let name = install_mrpack(app, state, instance_id, &src.project_id, Some(version_id)).await?;
+
+    // Record the new version so future checks compare correctly.
+    instance.pack_source = Some(crate::models::PackSource {
+        provider: "modrinth".into(),
+        project_id: src.project_id,
+        version_id: Some(version_id.to_string()),
+        version_name: Some(name),
+    });
+    crate::instances::save_instance(state, &instance)?;
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
 // Mod updates (via Modrinth's version_files/update endpoint)
 // ---------------------------------------------------------------------------
 
@@ -700,22 +849,44 @@ pub async fn install_modpack(
         .filter(|s| !s.trim().is_empty())
         .unwrap_or_else(|| if meta.name.is_empty() { fallback_name } else { meta.name.clone() });
 
-    let instance =
+    let mut instance =
         crate::instances::create_instance(state, &pack_name, &mc_version, loader, loader_version, icon)?;
+    // Remember where this pack came from so we can offer diff-based updates.
+    instance.pack_source = Some(crate::models::PackSource {
+        provider: "modrinth".into(),
+        project_id: project_id.to_string(),
+        version_id: version_id.map(|s| s.to_string()),
+        version_name: Some(meta.version_id.clone()),
+    });
+    crate::instances::save_instance(state, &instance)?;
+    // Surface the new instance in the grid immediately so it shows an
+    // "installing" card while its content downloads.
+    let _ = app.emit("instance://created", instance.clone());
 
     let game_dir = state.dirs.game_dir(&instance.id);
     let (_index, items) = unpack_mrpack(&tmp_path, &game_dir)?;
     std::fs::remove_file(&tmp_path).ok();
 
-    net::download_many(
+    let task_id = format!("modpack:{}", instance.id);
+    let cancel = state.cancel_flag(&task_id);
+    let res = net::download_many_cancellable(
         app,
         &state.http,
-        &format!("modpack:{}", instance.id),
+        &task_id,
         &format!("Installing {pack_name}"),
         items,
         settings.max_concurrent_downloads,
+        Some(cancel),
     )
-    .await?;
+    .await;
+    state.clear_cancel(&task_id);
+
+    if let Err(e) = res {
+        // Roll back the half-installed instance and pull its card from the grid.
+        let _ = crate::instances::delete_instance(state, &instance.id);
+        let _ = app.emit("instance://removed", instance.id.clone());
+        return Err(e);
+    }
 
     Ok(instance)
 }

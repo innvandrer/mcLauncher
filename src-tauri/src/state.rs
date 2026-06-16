@@ -86,6 +86,31 @@ pub struct AppState {
     /// an `Arc<Mutex<_>>` so the process-watcher threads can update it on exit.
     pub running: Arc<Mutex<HashMap<String, u32>>>,
     pub discord: DiscordPresence,
+    /// Cancellation flags for in-flight download tasks, keyed by task id. Set to
+    /// `true` to ask `net::download_many` to stop after the current file.
+    pub cancels: Arc<Mutex<HashMap<String, Arc<std::sync::atomic::AtomicBool>>>>,
+}
+
+impl AppState {
+    /// Get (creating if needed) the cancellation flag for a task.
+    pub fn cancel_flag(&self, task_id: &str) -> Arc<std::sync::atomic::AtomicBool> {
+        let mut map = self.cancels.lock().unwrap();
+        map.entry(task_id.to_string())
+            .or_insert_with(|| Arc::new(std::sync::atomic::AtomicBool::new(false)))
+            .clone()
+    }
+
+    /// Signal cancellation for a task id.
+    pub fn cancel_task(&self, task_id: &str) {
+        if let Some(flag) = self.cancels.lock().unwrap().get(task_id) {
+            flag.store(true, std::sync::atomic::Ordering::SeqCst);
+        }
+    }
+
+    /// Drop the cancellation flag once a task is finished.
+    pub fn clear_cancel(&self, task_id: &str) {
+        self.cancels.lock().unwrap().remove(task_id);
+    }
 }
 
 impl AppState {
@@ -109,6 +134,7 @@ impl AppState {
             dirs,
             running: Arc::new(Mutex::new(HashMap::new())),
             discord: DiscordPresence::new(),
+            cancels: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 }

@@ -74,7 +74,13 @@ fn spawn_reader<R: Read + Send + 'static>(
 
 /// Launch an instance. Returns once the process has started; the game then runs
 /// independently and reports state via events.
-pub async fn launch(app: &AppHandle, state: &AppState, instance_id: &str) -> Result<()> {
+pub async fn launch(
+    app: &AppHandle,
+    state: &AppState,
+    instance_id: &str,
+    quick_world: Option<&str>,
+    quick_server: Option<&str>,
+) -> Result<()> {
     if state.running.lock().unwrap().contains_key(instance_id) {
         return Err(Error::Other("This instance is already running.".into()));
     }
@@ -180,6 +186,43 @@ pub async fn launch(app: &AppHandle, state: &AppState, instance_id: &str) -> Res
 
     let features: HashMap<String, bool> = HashMap::new();
 
+    // --- Steg 2: Kjør Forge/NeoForge Processors -----------------------------
+    if !resolved.processors.is_empty() {
+        let _ = app.emit(
+            "instance://log",
+            LogLine {
+                instance_id: instance.id.clone(),
+                line: "[Beacon] Kjører Forge-prosessorer (patcher spillet)...".into(),
+                is_err: false,
+            },
+        );
+
+        for proc in &resolved.processors {
+            let mut proc_args = Vec::new();
+            for arg in &proc.args {
+                proc_args.push(substitute(arg, &vars));
+            }
+
+            let mut cmd = std::process::Command::new(&java_path);
+            // Forge-prosessorer trenger tilgang til hele classpath for å patche korrekt
+            cmd.arg("-cp").arg(&classpath);
+            cmd.arg(&proc.main_class);
+            cmd.args(&proc_args);
+            cmd.current_dir(&game_dir);
+
+            #[cfg(windows)]
+            {
+                use std::os::windows::process::CommandExt;
+                cmd.creation_flags(CREATE_NO_WINDOW);
+            }
+
+            let status = cmd.status().map_err(|e| Error::Other(format!("Prosessor feilet: {e}")))?;
+            if !status.success() {
+                return Err(Error::Other(format!("Prosessor {} feilet med kode {:?}", proc.main_class, status.code())));
+            }
+        }
+    }
+
     // --- JVM arguments -------------------------------------------------------
     let mut jvm: Vec<String> = Vec::new();
     let mem = instance.memory_mb.unwrap_or(settings.memory_mb);
@@ -212,6 +255,16 @@ pub async fn launch(app: &AppHandle, state: &AppState, instance_id: &str) -> Res
         for tok in legacy.split_whitespace() {
             game.push(substitute(tok, &vars));
         }
+    }
+
+    // --- Quick Play (jump straight into a world / server) --------------------
+    // Supported on 1.20+; older clients simply ignore the unknown args.
+    if let Some(world) = quick_world.filter(|s| !s.is_empty()) {
+        game.push("--quickPlaySingleplayer".to_string());
+        game.push(world.to_string());
+    } else if let Some(server) = quick_server.filter(|s| !s.is_empty()) {
+        game.push("--quickPlayMultiplayer".to_string());
+        game.push(server.to_string());
     }
 
     // --- Spawn ---------------------------------------------------------------
@@ -283,7 +336,7 @@ pub async fn launch(app: &AppHandle, state: &AppState, instance_id: &str) -> Res
         let status = child.wait();
         let secs = start.elapsed().as_secs();
         instances::record_play_dirs(&dirs, &inst_id, secs);
-        discord.clear();
+        discord.set_idle();
         if let Ok(mut m) = running_map.lock() {
             m.remove(&inst_id);
         }

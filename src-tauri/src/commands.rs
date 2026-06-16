@@ -4,7 +4,9 @@ use crate::error::{Error, Result};
 use crate::instances::{ResourcePackEntry, ScreenshotEntry, ShaderEntry, WorldEntry};
 use crate::models::*;
 use crate::state::AppState;
-use crate::{auth, curseforge, forge, instances, java, launch, modloader, modrinth, mojang, skin};
+use crate::{
+    auth, curseforge, forge, instances, java, launch, modloader, modrinth, mojang, skin, tools,
+};
 use serde::Serialize;
 use std::path::Path;
 use tauri::{AppHandle, State};
@@ -88,6 +90,16 @@ pub async fn set_skin_file(
     variant: String,
 ) -> Result<()> {
     skin::set_skin_file(state.inner(), &file_path, &variant).await
+}
+
+// ---------------------------------------------------------------------------
+// System
+// ---------------------------------------------------------------------------
+
+/// Total physical RAM in megabytes (0 if unknown). Used to suggest a heap size.
+#[tauri::command]
+pub fn system_memory_mb() -> u64 {
+    crate::system::total_memory_mb()
 }
 
 // ---------------------------------------------------------------------------
@@ -253,8 +265,17 @@ pub async fn launch_instance(
     app: AppHandle,
     state: State<'_, AppState>,
     id: String,
+    quick_world: Option<String>,
+    quick_server: Option<String>,
 ) -> Result<()> {
-    launch::launch(&app, state.inner(), &id).await
+    launch::launch(
+        &app,
+        state.inner(),
+        &id,
+        quick_world.as_deref(),
+        quick_server.as_deref(),
+    )
+    .await
 }
 
 #[tauri::command]
@@ -712,6 +733,88 @@ pub async fn open_url(url: String) -> Result<()> {
     #[cfg(all(unix, not(target_os = "macos")))]
     { let _ = std::process::Command::new("xdg-open").arg(&url).spawn(); }
     Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Tools — disk usage, world snapshots, mod conflicts
+// ---------------------------------------------------------------------------
+
+#[tauri::command]
+pub async fn instance_disk_usage(
+    state: State<'_, AppState>,
+    instance_id: String,
+) -> Result<tools::DiskUsage> {
+    Ok(tools::instance_disk_usage(state.inner(), &instance_id))
+}
+
+#[tauri::command]
+pub async fn list_snapshots(
+    state: State<'_, AppState>,
+    instance_id: String,
+) -> Result<Vec<tools::Snapshot>> {
+    Ok(tools::list_snapshots(state.inner(), &instance_id))
+}
+
+#[tauri::command]
+pub async fn create_snapshot(
+    state: State<'_, AppState>,
+    instance_id: String,
+    world: String,
+) -> Result<tools::Snapshot> {
+    tools::create_snapshot(state.inner(), &instance_id, &world)
+}
+
+#[tauri::command]
+pub async fn restore_snapshot(
+    state: State<'_, AppState>,
+    instance_id: String,
+    file_name: String,
+) -> Result<()> {
+    tools::restore_snapshot(state.inner(), &instance_id, &file_name)
+}
+
+#[tauri::command]
+pub async fn delete_snapshot(
+    state: State<'_, AppState>,
+    instance_id: String,
+    file_name: String,
+) -> Result<()> {
+    tools::delete_snapshot(state.inner(), &instance_id, &file_name)
+}
+
+#[tauri::command]
+pub async fn scan_mod_conflicts(
+    state: State<'_, AppState>,
+    instance_id: String,
+) -> Result<Vec<tools::ModConflict>> {
+    Ok(tools::scan_mod_conflicts(state.inner(), &instance_id))
+}
+
+/// Signal an in-flight download task (e.g. "modpack:<id>") to stop.
+#[tauri::command]
+pub async fn cancel_task(state: State<'_, AppState>, task_id: String) -> Result<()> {
+    state.cancel_task(&task_id);
+    Ok(())
+}
+
+/// Check whether a newer version of this instance's modpack exists, with a diff.
+#[tauri::command]
+pub async fn check_modpack_update(
+    state: State<'_, AppState>,
+    instance_id: String,
+) -> Result<Option<modrinth::ModpackUpdate>> {
+    modrinth::check_modpack_update(state.inner(), &instance_id).await
+}
+
+/// Apply a modpack update to the given target version.
+#[tauri::command]
+pub async fn apply_modpack_update(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    instance_id: String,
+    version_id: String,
+) -> Result<()> {
+    modrinth::apply_modpack_update(&app, state.inner(), &instance_id, &version_id).await
 }
 
 // ---------------------------------------------------------------------------
