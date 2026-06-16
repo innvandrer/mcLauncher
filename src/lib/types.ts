@@ -151,6 +151,7 @@ export interface ContentVersion {
   name: string;
   versionNumber: string;
   gameVersions: string[];
+  loaders: string[];
   date: string;
 }
 

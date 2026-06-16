@@ -140,6 +140,10 @@ pub struct ContentVersion {
     pub name: String,
     pub version_number: String,
     pub game_versions: Vec<String>,
+    /// Mod loaders this version targets (Modrinth). Empty for CurseForge, where
+    /// loader names appear inside `game_versions` instead.
+    #[serde(default)]
+    pub loaders: Vec<String>,
     pub date: String,
 }
 
@@ -153,6 +157,7 @@ pub async fn list_versions(state: &AppState, project_id: &str) -> Result<Vec<Con
             name: if v.name.is_empty() { v.version_number.clone() } else { v.name },
             version_number: v.version_number,
             game_versions: v.game_versions,
+            loaders: v.loaders,
             date: v.date_published,
         })
         .collect())

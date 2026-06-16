@@ -127,7 +127,8 @@ pub async fn login_redirect(app: &AppHandle, state: &AppState) -> Result<Account
          ?client_id={cid}\
          &response_type=code\
          &redirect_uri={}\
-         &scope={}",
+         &scope={}\
+         &prompt=select_account",
         percent_encode(REDIRECT_URI),
         percent_encode(SCOPE),
     );

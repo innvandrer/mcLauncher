@@ -778,6 +778,8 @@ function ModsPanel({ instance }: { instance: Instance }) {
       <VersionPickerModal
         hit={versionPickTarget}
         provider={provider}
+        mcVersion={instance.mcVersion}
+        loader={instance.loader}
         onClose={() => setVersionPickTarget(null)}
         onInstall={installWithVersion}
       />
@@ -1071,14 +1073,29 @@ function ModrinthResultList({
 // Version picker modal — shown when "Add" is clicked on a mod result
 // --------------------------------------------------------------------------
 
+/** True when a version targets this instance's MC version and mod loader. */
+function versionFitsInstance(v: ContentVersion, mcVersion: string, loader: string): boolean {
+  const mcOk = v.gameVersions.includes(mcVersion);
+  if (loader === "vanilla") return mcOk;
+  const ld = v.loaders.map((x) => x.toLowerCase());
+  const gv = v.gameVersions.map((x) => x.toLowerCase());
+  // Modrinth lists loaders explicitly; CurseForge folds them into gameVersions.
+  const loaderOk = ld.includes(loader) || gv.includes(loader);
+  return mcOk && loaderOk;
+}
+
 function VersionPickerModal({
   hit,
   provider,
+  mcVersion,
+  loader,
   onClose,
   onInstall,
 }: {
   hit: ModHit | null;
   provider: Provider;
+  mcVersion: string;
+  loader: string;
   onClose: () => void;
   onInstall: (hit: ModHit, versionId: string) => void;
 }) {
@@ -1086,6 +1103,18 @@ function VersionPickerModal({
   const [versions, setVersions] = useState<ContentVersion[]>([]);
   const [versionId, setVersionId] = useState("");
   const [loading, setLoading] = useState(false);
+
+  // The newest version that fits this instance — the one we recommend + preselect.
+  const recommendedId = useMemo(() => {
+    const match = versions.find((v) => versionFitsInstance(v, mcVersion, loader));
+    return match?.id ?? "";
+  }, [versions, mcVersion, loader]);
+
+  // Sort compatible versions to the top, keeping newest-first order within groups.
+  const ordered = useMemo(() => {
+    const fits = (v: ContentVersion) => versionFitsInstance(v, mcVersion, loader);
+    return [...versions].sort((a, b) => Number(fits(b)) - Number(fits(a)));
+  }, [versions, mcVersion, loader]);
 
   useEffect(() => {
     if (!hit) return;
@@ -1097,14 +1126,17 @@ function VersionPickerModal({
         ? api.listCurseforgeFiles(hit.project_id)
         : api.listModrinthVersions(hit.project_id);
     fetcher
-      .then((v) => {
-        setVersions(v);
-        setVersionId(v[0]?.id ?? "");
-      })
+      .then((v) => setVersions(v))
       .catch((e) => toast("error", errMessage(e)))
       .finally(() => setLoading(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hit?.project_id, provider]);
+
+  // Default to the recommended version once versions load; fall back to newest.
+  useEffect(() => {
+    if (versions.length === 0) return;
+    setVersionId(recommendedId || versions[0].id);
+  }, [versions, recommendedId]);
 
   return (
     <Modal
@@ -1151,17 +1183,31 @@ function VersionPickerModal({
                 Loading versions…
               </div>
             ) : versions.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No compatible versions found.</p>
+              <p className="text-sm text-muted-foreground">No versions found.</p>
             ) : (
-              <Select value={versionId} onChange={(e) => setVersionId(e.target.value)}>
-                {versions.map((v) => (
-                  <option key={v.id} value={v.id}>
-                    {v.name || v.versionNumber}
-                    {v.gameVersions.length > 0 && ` — MC ${v.gameVersions[0]}`}
-                    {` (${new Date(v.date).toLocaleDateString()})`}
-                  </option>
-                ))}
-              </Select>
+              <>
+                <Select value={versionId} onChange={(e) => setVersionId(e.target.value)}>
+                  {ordered.map((v) => {
+                    const mc = v.gameVersions.includes(mcVersion)
+                      ? mcVersion
+                      : v.gameVersions[0] ?? "?";
+                    const recommended = v.id === recommendedId;
+                    const fits = versionFitsInstance(v, mcVersion, loader);
+                    return (
+                      <option key={v.id} value={v.id}>
+                        {recommended ? "★ " : ""}
+                        {v.name || v.versionNumber} — MC {mc}
+                        {!fits ? " (other)" : ""} ({new Date(v.date).toLocaleDateString()})
+                      </option>
+                    );
+                  })}
+                </Select>
+                <p className="mt-1.5 text-xs text-muted-foreground">
+                  {recommendedId
+                    ? `★ Recommended for MC ${mcVersion} · ${loaderLabel(loader as Instance["loader"])}`
+                    : `No version explicitly lists MC ${mcVersion} — showing newest.`}
+                </p>
+              </>
             )}
           </div>
         </div>

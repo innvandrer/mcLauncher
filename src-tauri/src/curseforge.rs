@@ -239,6 +239,7 @@ pub async fn list_files(state: &AppState, project_id: &str) -> Result<Vec<Conten
             name: if f.display_name.is_empty() { f.file_name.clone() } else { f.display_name },
             version_number: f.file_name,
             game_versions: f.game_versions,
+            loaders: Vec::new(),
             date: f.file_date,
         })
         .collect())
