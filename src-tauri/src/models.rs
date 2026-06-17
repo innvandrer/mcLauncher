@@ -69,6 +69,20 @@ pub struct Instance {
     pub java_path: Option<String>,
     #[serde(default)]
     pub jvm_args: Option<String>,
+    /// Game window size — both must be set to pass `--width`/`--height`.
+    #[serde(default)]
+    pub window_width: Option<u32>,
+    #[serde(default)]
+    pub window_height: Option<u32>,
+    /// Newline-separated `KEY=VALUE` pairs set on the game process environment.
+    #[serde(default)]
+    pub env_vars: Option<String>,
+    /// Shell command run before launch (blocking).
+    #[serde(default)]
+    pub pre_launch: Option<String>,
+    /// Shell command run after the game exits.
+    #[serde(default)]
+    pub post_exit: Option<String>,
     /// Origin of a modpack-derived instance, used to offer updates with a diff.
     #[serde(default)]
     pub pack_source: Option<PackSource>,

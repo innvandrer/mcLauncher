@@ -159,6 +159,11 @@ pub fn create_instance(
         memory_mb: None,
         java_path: None,
         jvm_args: None,
+        window_width: None,
+        window_height: None,
+        env_vars: None,
+        pre_launch: None,
+        post_exit: None,
         pack_source: None,
         mod_count: 0,
     };

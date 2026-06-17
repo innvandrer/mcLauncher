@@ -86,6 +86,7 @@ pub fn run() {
             commands::apply_mod_update,
             commands::export_instance,
             commands::import_instance,
+            commands::export_mrpack,
             commands::list_mods,
             commands::set_mod_enabled,
             commands::delete_mod,

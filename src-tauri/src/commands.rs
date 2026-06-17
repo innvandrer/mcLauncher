@@ -656,6 +656,12 @@ pub async fn import_instance(state: State<'_, AppState>, src: String) -> Result<
     instances::import_instance(state.inner(), Path::new(&src))
 }
 
+/// Export an instance as a Modrinth modpack (`.mrpack`).
+#[tauri::command]
+pub async fn export_mrpack(state: State<'_, AppState>, id: String, dest: String) -> Result<()> {
+    modrinth::export_mrpack(state.inner(), &id, Path::new(&dest)).await
+}
+
 // ---------------------------------------------------------------------------
 // Project info (for description pages)
 // ---------------------------------------------------------------------------

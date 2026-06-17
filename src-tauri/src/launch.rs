@@ -267,6 +267,16 @@ pub async fn launch(
         game.push(server.to_string());
     }
 
+    // --- Window size ---------------------------------------------------------
+    if let (Some(w), Some(h)) = (instance.window_width, instance.window_height) {
+        if w > 0 && h > 0 {
+            game.push("--width".to_string());
+            game.push(w.to_string());
+            game.push("--height".to_string());
+            game.push(h.to_string());
+        }
+    }
+
     // --- Spawn ---------------------------------------------------------------
     let mut cmd = std::process::Command::new(&java_path);
     cmd.args(&jvm);
@@ -275,10 +285,36 @@ pub async fn launch(
     cmd.current_dir(&game_dir);
     cmd.stdout(Stdio::piped());
     cmd.stderr(Stdio::piped());
+
+    // Per-instance environment variables (KEY=VALUE lines).
+    if let Some(env) = &instance.env_vars {
+        for line in env.lines() {
+            if let Some((k, v)) = line.split_once('=') {
+                let k = k.trim();
+                if !k.is_empty() {
+                    cmd.env(k, v.trim());
+                }
+            }
+        }
+    }
+
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
         cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+
+    // Pre-launch hook (blocking).
+    if let Some(pre) = instance.pre_launch.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        let _ = app.emit(
+            "instance://log",
+            LogLine {
+                instance_id: instance.id.clone(),
+                line: format!("[Beacon] Running pre-launch command: {pre}"),
+                is_err: false,
+            },
+        );
+        run_shell(pre, &game_dir);
     }
 
     let mut child = cmd.spawn().map_err(|e| {
@@ -331,6 +367,7 @@ pub async fn launch(
     let discord = state.discord.clone();
     let inst_id = instance.id.clone();
     let close_on_launch = settings.close_on_launch;
+    let post_exit = instance.post_exit.clone();
     let start = std::time::Instant::now();
     let started_at = chrono::Utc::now().timestamp();
     std::thread::spawn(move || {
@@ -339,6 +376,9 @@ pub async fn launch(
         instances::record_play_dirs(&dirs, &inst_id, secs);
         instances::record_session_dirs(&dirs, &inst_id, started_at, secs);
         discord.set_idle();
+        if let Some(cmd) = post_exit.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+            run_shell(cmd, &dirs.game_dir(&inst_id));
+        }
         if let Ok(mut m) = running_map.lock() {
             m.remove(&inst_id);
         }
@@ -395,4 +435,25 @@ pub fn stop(state: &AppState, instance_id: &str) -> Result<()> {
 
 pub fn running_ids(state: &AppState) -> Vec<String> {
     state.running.lock().unwrap().keys().cloned().collect()
+}
+
+/// Run a user-provided shell command (pre-launch / post-exit hook), blocking
+/// until it finishes. Failures are ignored — hooks are best-effort.
+fn run_shell(command: &str, dir: &std::path::Path) {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        let _ = std::process::Command::new("cmd")
+            .args(["/C", command])
+            .current_dir(dir)
+            .creation_flags(CREATE_NO_WINDOW)
+            .status();
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = std::process::Command::new("sh")
+            .args(["-c", command])
+            .current_dir(dir)
+            .status();
+    }
 }

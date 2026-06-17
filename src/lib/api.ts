@@ -174,6 +174,8 @@ export const api = {
   // Export / import
   exportInstance: (id: string, dest: string) =>
     invoke<void>("export_instance", { id, dest }),
+  exportMrpack: (id: string, dest: string) =>
+    invoke<void>("export_mrpack", { id, dest }),
   importInstance: (src: string) => invoke<Instance>("import_instance", { src }),
 
   // Resource packs

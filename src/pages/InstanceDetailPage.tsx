@@ -1916,14 +1916,38 @@ function SettingsTab({ instance }: { instance: Instance }) {
   const [memory, setMemory] = useState(instance.memoryMb ?? 0);
   const [javaPath, setJavaPath] = useState(instance.javaPath ?? "");
   const [jvmArgs, setJvmArgs] = useState(instance.jvmArgs ?? "");
+  const [winW, setWinW] = useState(instance.windowWidth ?? 0);
+  const [winH, setWinH] = useState(instance.windowHeight ?? 0);
+  const [envVars, setEnvVars] = useState(instance.envVars ?? "");
+  const [preLaunch, setPreLaunch] = useState(instance.preLaunch ?? "");
+  const [postExit, setPostExit] = useState(instance.postExit ?? "");
   const [saving, setSaving] = useState(false);
+  const [exportingPack, setExportingPack] = useState(false);
   const [usage, setUsage] = useState<DiskUsage | null>(null);
 
   useEffect(() => {
     api.instanceDiskUsage(instance.id).then(setUsage).catch(() => {});
   }, [instance.id]);
 
-  const save = async () => {
+  const exportPack = async () => {
+    try {
+      const path = await save({
+        defaultPath: `${instance.name}.mrpack`,
+        filters: [{ name: "Modrinth modpack", extensions: ["mrpack"] }],
+      });
+      if (!path) return;
+      setExportingPack(true);
+      toast("info", "Exporting modpack…");
+      await api.exportMrpack(instance.id, path);
+      toast("success", "Exported .mrpack");
+    } catch (e) {
+      toast("error", errMessage(e));
+    } finally {
+      setExportingPack(false);
+    }
+  };
+
+  const saveChanges = async () => {
     setSaving(true);
     try {
       await update({
@@ -1935,6 +1959,11 @@ function SettingsTab({ instance }: { instance: Instance }) {
         memoryMb: memory > 0 ? memory : null,
         javaPath: javaPath.trim() || null,
         jvmArgs: jvmArgs.trim() || null,
+        windowWidth: winW > 0 ? winW : null,
+        windowHeight: winH > 0 ? winH : null,
+        envVars: envVars.trim() || null,
+        preLaunch: preLaunch.trim() || null,
+        postExit: postExit.trim() || null,
       });
       toast("success", "Saved");
     } finally {
@@ -2064,8 +2093,58 @@ function SettingsTab({ instance }: { instance: Instance }) {
         />
       </Field>
 
+      <Field label="Game window size" hint="Leave 0 to use Minecraft's default / last size.">
+        <div className="flex items-center gap-2">
+          <Input
+            type="number"
+            value={winW}
+            onChange={(e) => setWinW(Number(e.target.value))}
+            min={0}
+            step={1}
+            placeholder="Width"
+          />
+          <span className="text-muted-foreground">×</span>
+          <Input
+            type="number"
+            value={winH}
+            onChange={(e) => setWinH(Number(e.target.value))}
+            min={0}
+            step={1}
+            placeholder="Height"
+          />
+        </div>
+      </Field>
+
+      <Field label="Environment variables" hint="One KEY=VALUE per line, set on the game process.">
+        <textarea
+          value={envVars}
+          onChange={(e) => setEnvVars(e.target.value)}
+          rows={2}
+          placeholder={"MESA_GL_VERSION_OVERRIDE=4.6"}
+          className="input-base resize-none font-mono text-xs"
+        />
+      </Field>
+
+      <Field label="Pre-launch command" hint="Runs before the game starts (blocking).">
+        <Input
+          value={preLaunch}
+          onChange={(e) => setPreLaunch(e.target.value)}
+          placeholder="Optional shell command"
+          className="font-mono text-xs"
+        />
+      </Field>
+
+      <Field label="Post-exit command" hint="Runs after the game closes.">
+        <Input
+          value={postExit}
+          onChange={(e) => setPostExit(e.target.value)}
+          placeholder="Optional shell command"
+          className="font-mono text-xs"
+        />
+      </Field>
+
       <div className="flex justify-end">
-        <Button variant="primary" onClick={save} loading={saving}>
+        <Button variant="primary" onClick={saveChanges} loading={saving}>
           Save changes
         </Button>
       </div>
@@ -2114,6 +2193,23 @@ function SettingsTab({ instance }: { instance: Instance }) {
           </div>
         </div>
       )}
+
+      <div className="rounded-xl border bg-card/40 p-4">
+        <h3 className="text-sm font-semibold">Share</h3>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Export this instance as a Modrinth modpack (.mrpack) others can install.
+          Mods on Modrinth become download links; CurseForge/local mods and configs
+          are bundled in.
+        </p>
+        <Button
+          variant="secondary"
+          className="mt-3"
+          loading={exportingPack}
+          onClick={exportPack}
+        >
+          <Upload className="h-4 w-4" /> Export as .mrpack
+        </Button>
+      </div>
 
       <div className="mt-8 rounded-xl border border-destructive/30 bg-destructive/5 p-4">
         <h3 className="text-sm font-semibold text-destructive">Danger zone</h3>

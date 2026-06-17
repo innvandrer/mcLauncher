@@ -903,3 +903,163 @@ pub async fn install_modpack(
 
     Ok(instance)
 }
+
+// ---------------------------------------------------------------------------
+// Export an instance as a Modrinth modpack (.mrpack)
+// ---------------------------------------------------------------------------
+
+#[derive(Serialize)]
+struct ExportIndex {
+    #[serde(rename = "formatVersion")]
+    format_version: u32,
+    game: String,
+    #[serde(rename = "versionId")]
+    version_id: String,
+    name: String,
+    files: Vec<ExportFile>,
+    dependencies: HashMap<String, String>,
+}
+
+#[derive(Serialize)]
+struct ExportFile {
+    path: String,
+    hashes: ExportHashes,
+    downloads: Vec<String>,
+    #[serde(rename = "fileSize")]
+    file_size: u64,
+}
+
+#[derive(Serialize)]
+struct ExportHashes {
+    sha1: String,
+    sha512: String,
+}
+
+fn collect_overrides(
+    dir: &std::path::Path,
+    game_dir: &std::path::Path,
+    out: &mut Vec<(String, std::path::PathBuf)>,
+) {
+    if let Ok(rd) = std::fs::read_dir(dir) {
+        for e in rd.flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                collect_overrides(&p, game_dir, out);
+            } else if p.is_file() {
+                if let Ok(rel) = p.strip_prefix(game_dir) {
+                    let zip_path = format!("overrides/{}", rel.to_string_lossy().replace('\\', "/"));
+                    out.push((zip_path, p.clone()));
+                }
+            }
+        }
+    }
+}
+
+/// Export an instance as a `.mrpack`: mods that exist on Modrinth become
+/// download references (resolved by hash), everything else (CurseForge/local
+/// mods + `config/`) is bundled as overrides.
+pub async fn export_mrpack(
+    state: &AppState,
+    instance_id: &str,
+    dest: &std::path::Path,
+) -> Result<()> {
+    use std::io::Write;
+    let instance = crate::instances::get_instance(state, instance_id)?;
+    let game_dir = state.dirs.game_dir(instance_id);
+    let mods_dir = game_dir.join("mods");
+
+    // Hash every enabled jar (skip .disabled), keyed sha1 -> filename.
+    let mut by_hash: HashMap<String, String> = HashMap::new();
+    if let Ok(rd) = std::fs::read_dir(&mods_dir) {
+        for e in rd.flatten() {
+            let name = e.file_name().to_string_lossy().to_string();
+            if !name.ends_with(".jar") {
+                continue;
+            }
+            if let Ok(h) = net::file_sha1(&e.path()).await {
+                by_hash.insert(h, name);
+            }
+        }
+    }
+
+    // Resolve all hashes against Modrinth in one request.
+    let mut resolved: HashMap<String, ProjectVersion> = HashMap::new();
+    if !by_hash.is_empty() {
+        let hashes: Vec<String> = by_hash.keys().cloned().collect();
+        let body = serde_json::json!({ "hashes": hashes, "algorithm": "sha1" });
+        if let Ok(r) = state.http.post(format!("{API}/version_files")).json(&body).send().await {
+            if let Ok(ok) = r.error_for_status() {
+                resolved = ok.json().await.unwrap_or_default();
+            }
+        }
+    }
+
+    let mut files = Vec::new();
+    let mut bundled: Vec<(String, std::path::PathBuf)> = Vec::new();
+
+    for (hash, filename) in &by_hash {
+        let file = resolved.get(hash).and_then(|v| {
+            v.files
+                .iter()
+                .find(|f| f.hashes.sha1.as_deref() == Some(hash.as_str()))
+                .or_else(|| v.files.iter().find(|f| f.primary))
+                .or_else(|| v.files.first())
+        });
+        if let Some(f) = file {
+            if let (Some(sha1), Some(sha512)) = (f.hashes.sha1.clone(), f.hashes.sha512.clone()) {
+                files.push(ExportFile {
+                    path: format!("mods/{filename}"),
+                    hashes: ExportHashes { sha1, sha512 },
+                    downloads: vec![f.url.clone()],
+                    file_size: f.size,
+                });
+                continue;
+            }
+        }
+        // Couldn't resolve on Modrinth — bundle the jar directly.
+        bundled.push((format!("overrides/mods/{filename}"), mods_dir.join(filename)));
+    }
+
+    // Bundle config/ as overrides so the pack is playable out of the box.
+    let config_dir = game_dir.join("config");
+    if config_dir.is_dir() {
+        collect_overrides(&config_dir, &game_dir, &mut bundled);
+    }
+
+    let mut deps = HashMap::new();
+    deps.insert("minecraft".to_string(), instance.mc_version.clone());
+    let loader_key = match instance.loader {
+        crate::models::Loader::Fabric => Some("fabric-loader"),
+        crate::models::Loader::Quilt => Some("quilt-loader"),
+        crate::models::Loader::Forge => Some("forge"),
+        crate::models::Loader::Neoforge => Some("neoforge"),
+        crate::models::Loader::Vanilla => None,
+    };
+    if let (Some(k), Some(v)) = (loader_key, instance.loader_version.clone()) {
+        deps.insert(k.to_string(), v);
+    }
+
+    let index = ExportIndex {
+        format_version: 1,
+        game: "minecraft".to_string(),
+        version_id: "1.0.0".to_string(),
+        name: instance.name.clone(),
+        files,
+        dependencies: deps,
+    };
+
+    let file = std::fs::File::create(dest)?;
+    let mut zip = zip::ZipWriter::new(file);
+    let opts: zip::write::FileOptions<()> =
+        zip::write::FileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+    zip.start_file("modrinth.index.json", opts)?;
+    zip.write_all(serde_json::to_string_pretty(&index)?.as_bytes())?;
+    for (zip_path, src) in &bundled {
+        if let Ok(bytes) = std::fs::read(src) {
+            zip.start_file(zip_path.clone(), opts)?;
+            zip.write_all(&bytes)?;
+        }
+    }
+    zip.finish()?;
+    Ok(())
+}

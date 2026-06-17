@@ -18,6 +18,11 @@ export interface Instance {
   memoryMb?: number | null;
   javaPath?: string | null;
   jvmArgs?: string | null;
+  windowWidth?: number | null;
+  windowHeight?: number | null;
+  envVars?: string | null;
+  preLaunch?: string | null;
+  postExit?: string | null;
   modCount?: number;
 }
 
