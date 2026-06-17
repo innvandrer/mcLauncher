@@ -745,6 +745,35 @@ pub async fn open_url(url: String) -> Result<()> {
     Ok(())
 }
 
+/// Upload game-log text to mclo.gs and return the shareable URL (for sharing
+/// crash logs without copy-pasting walls of text).
+#[tauri::command]
+pub async fn upload_log(state: State<'_, AppState>, content: String) -> Result<String> {
+    #[derive(serde::Deserialize)]
+    struct Resp {
+        success: bool,
+        #[serde(default)]
+        url: Option<String>,
+        #[serde(default)]
+        error: Option<String>,
+    }
+    let resp: Resp = state
+        .inner()
+        .http
+        .post("https://api.mclo.gs/1/log")
+        .form(&[("content", content.as_str())])
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    if resp.success {
+        resp.url.ok_or_else(|| Error::Other("mclo.gs returned no URL".into()))
+    } else {
+        Err(Error::Other(resp.error.unwrap_or_else(|| "log upload failed".into())))
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Tools — disk usage, world snapshots, mod conflicts
 // ---------------------------------------------------------------------------

@@ -337,3 +337,27 @@ pub fn resolve_mod_conflicts(state: &AppState, instance_id: &str) -> Vec<String>
     }
     removed
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn natural_ordering() {
+        assert!(natural_cmp("mod-1.9.jar", "mod-1.10.jar").is_lt());
+        assert!(natural_cmp("cc-1.117.1.jar", "cc-1.113.1.jar").is_gt());
+        assert!(natural_cmp("a-1.0.jar", "a-1.0.jar").is_eq());
+    }
+
+    #[test]
+    fn base_key_collapses_versions() {
+        assert_eq!(
+            mod_base_key("sodium-fabric-0.5.3.jar"),
+            mod_base_key("sodium-fabric-0.6.0.jar"),
+        );
+        assert_eq!(
+            mod_base_key("cc-tweaked-1.21.1-forge-1.113.1.jar"),
+            mod_base_key("cc-tweaked-1.21.1-forge-1.117.1.jar"),
+        );
+    }
+}

@@ -1789,6 +1789,31 @@ function LogsTab({
   const updateInstance = useStore((s) => s.updateInstance);
   const toast = useStore((s) => s.toast);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const [sharing, setSharing] = useState(false);
+
+  const logText = () => logs.map((l) => l.line).join("\n");
+  const copyLog = async () => {
+    try {
+      await navigator.clipboard.writeText(logText());
+      toast("success", "Log copied");
+    } catch {
+      /* clipboard unavailable */
+    }
+  };
+  const shareLog = async () => {
+    if (logs.length === 0) return;
+    setSharing(true);
+    try {
+      const url = await api.uploadLog(logText());
+      await navigator.clipboard.writeText(url).catch(() => {});
+      toast("success", "Log uploaded — link copied");
+      api.openUrl(url);
+    } catch (e) {
+      toast("error", errMessage(e));
+    } finally {
+      setSharing(false);
+    }
+  };
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -1832,9 +1857,24 @@ function LogsTab({
       )}
       <div className="mb-2 flex items-center justify-between">
         <span className="text-sm text-muted-foreground">{logs.length} lines</span>
-        <Button size="sm" variant="ghost" onClick={() => clearLogs(id)}>
-          Clear
-        </Button>
+        <div className="flex items-center gap-1">
+          <Button size="sm" variant="ghost" onClick={copyLog} disabled={logs.length === 0}>
+            <Copy className="h-3.5 w-3.5" /> Copy
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={shareLog}
+            loading={sharing}
+            disabled={logs.length === 0}
+            title="Upload to mclo.gs and copy the link"
+          >
+            <Upload className="h-3.5 w-3.5" /> Share
+          </Button>
+          <Button size="sm" variant="ghost" onClick={() => clearLogs(id)}>
+            Clear
+          </Button>
+        </div>
       </div>
       <div className="scroll-area flex-1 rounded-xl border bg-[hsl(240_12%_4%)] p-3 font-mono text-xs leading-relaxed">
         {logs.length === 0 ? (

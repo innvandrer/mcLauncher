@@ -408,3 +408,76 @@ fn strip_legacy_codes(s: &str) -> String {
     }
     out.split_whitespace().collect::<Vec<_>>().join(" ")
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn varint_roundtrip() {
+        for v in [0i32, 1, 127, 128, 255, 300, 25565, -1, i32::MAX] {
+            let mut buf = Vec::new();
+            write_varint(&mut buf, v);
+            let mut cur = Cur::new(&buf);
+            assert_eq!(cur.varint().unwrap(), v, "value {v}");
+        }
+    }
+
+    #[test]
+    fn varint_known_bytes() {
+        let mut buf = Vec::new();
+        write_varint(&mut buf, 300);
+        assert_eq!(buf, vec![0xAC, 0x02]);
+        let mut neg = Vec::new();
+        write_varint(&mut neg, -1);
+        assert_eq!(neg, vec![0xFF, 0xFF, 0xFF, 0xFF, 0x0F]);
+    }
+
+    #[test]
+    fn address_split() {
+        assert_eq!(split_address("play.example.net"), ("play.example.net".into(), 25565));
+        assert_eq!(split_address("mc.host.com:25566"), ("mc.host.com".into(), 25566));
+        assert_eq!(split_address("  1.2.3.4:25565 "), ("1.2.3.4".into(), 25565));
+    }
+
+    #[test]
+    fn legacy_codes_stripped() {
+        assert_eq!(strip_legacy_codes("§aHello §lWorld"), "Hello World");
+        assert_eq!(strip_legacy_codes("  spaced   out  "), "spaced out");
+    }
+
+    #[test]
+    fn chat_flattening() {
+        let v = serde_json::json!({ "text": "A ", "extra": [{ "text": "B" }, "C"] });
+        assert_eq!(chat_to_text(&v), "A BC");
+        assert_eq!(chat_to_text(&serde_json::json!("plain")), "plain");
+    }
+
+    #[test]
+    fn parse_minimal_servers_dat() {
+        fn push_string(b: &mut Vec<u8>, name: &str, value: &str) {
+            b.push(8);
+            b.extend_from_slice(&(name.len() as u16).to_be_bytes());
+            b.extend_from_slice(name.as_bytes());
+            b.extend_from_slice(&(value.len() as u16).to_be_bytes());
+            b.extend_from_slice(value.as_bytes());
+        }
+        let mut b: Vec<u8> = Vec::new();
+        b.push(10); // root compound
+        b.extend_from_slice(&[0, 0]); // root name (empty)
+        b.push(9); // list tag
+        b.extend_from_slice(&[0, 7]);
+        b.extend_from_slice(b"servers");
+        b.push(10); // element type: compound
+        b.extend_from_slice(&[0, 0, 0, 1]); // count
+        push_string(&mut b, "name", "My Server");
+        push_string(&mut b, "ip", "play.example.net:25566");
+        b.push(0); // end element
+        b.push(0); // end root
+
+        let out = parse_servers_dat(&b).unwrap();
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].name, "My Server");
+        assert_eq!(out[0].ip, "play.example.net:25566");
+    }
+}

@@ -123,6 +123,7 @@ pub fn run() {
             commands::install_content_version,
             commands::install_curseforge_file,
             commands::open_url,
+            commands::upload_log,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Beacon");

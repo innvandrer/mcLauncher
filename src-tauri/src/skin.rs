@@ -387,3 +387,41 @@ pub async fn fetch_player_skin(state: &AppState, query: &str) -> Result<PlayerSk
 
     Ok(PlayerSkin { username, uuid, url, variant })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn base64_roundtrip() {
+        let cases: &[&[u8]] = &[b"", b"a", b"ab", b"abc", b"hello world", &[0, 255, 128, 1, 2, 3]];
+        for data in cases {
+            let enc = b64_encode(data);
+            assert_eq!(b64_decode(&enc).unwrap(), *data, "roundtrip for {data:?}");
+        }
+    }
+
+    #[test]
+    fn base64_known() {
+        assert_eq!(b64_encode(b"Man"), "TWFu");
+        assert_eq!(b64_encode(b"Ma"), "TWE=");
+        assert_eq!(b64_encode(b"M"), "TQ==");
+    }
+
+    #[test]
+    fn player_query_extraction() {
+        assert_eq!(extract_player_query("Notch"), "Notch");
+        assert_eq!(extract_player_query("https://namemc.com/profile/Notch"), "Notch");
+        assert_eq!(
+            extract_player_query(" https://namemc.com/profile/jeb_/something "),
+            "jeb_",
+        );
+    }
+
+    #[test]
+    fn uuid_detection() {
+        assert!(is_uuid_like("069a79f444e94726a5befca90e38aaf5"));
+        assert!(is_uuid_like("069a79f4-44e9-4726-a5be-fca90e38aaf5"));
+        assert!(!is_uuid_like("Notch"));
+    }
+}

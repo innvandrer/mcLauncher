@@ -260,6 +260,9 @@ export const api = {
   // Open a URL in the system browser
   openUrl: (url: string) => invoke<void>("open_url", { url }),
 
+  // Upload a game log to mclo.gs, returns the shareable URL
+  uploadLog: (content: string) => invoke<string>("upload_log", { content }),
+
   // Servers — saved multiplayer list + live ping
   listServers: (instanceId: string) =>
     invoke<SavedServer[]>("list_servers", { instanceId }),

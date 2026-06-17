@@ -15,6 +15,18 @@ export default defineConfig(async () => ({
   },
   // Prevent Vite from obscuring Rust errors.
   clearScreen: false,
+  build: {
+    rollupOptions: {
+      output: {
+        // Split large vendors into their own chunks for faster cached loads.
+        manualChunks: {
+          react: ["react", "react-dom"],
+          motion: ["framer-motion"],
+          markdown: ["react-markdown", "remark-gfm"],
+        },
+      },
+    },
+  },
   server: {
     port: 1420,
     strictPort: true,
