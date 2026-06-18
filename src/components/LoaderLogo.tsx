@@ -1,4 +1,5 @@
 import type { Loader } from "@/lib/types";
+import { cn } from "@/lib/utils";
 
 /**
  * Recognisable, offline SVG marks for each mod loader. Drawn on a transparent
@@ -8,16 +9,12 @@ export function LoaderLogo({ loader, className }: { loader: Loader; className?: 
   switch (loader) {
     case "fabric":
       return (
-        <svg viewBox="0 0 32 32" className={className} aria-hidden>
-          {/* Woven tan tapestry — Fabric's signature beige loom */}
-          <rect x="7" y="7" width="18" height="18" rx="3" fill="#cdb185" />
-          <g stroke="#a98a5e" strokeWidth="1.3" opacity="0.85">
-            <line x1="7" y1="13" x2="25" y2="13" />
-            <line x1="7" y1="19" x2="25" y2="19" />
-            <line x1="13" y1="7" x2="13" y2="25" />
-            <line x1="19" y1="7" x2="19" y2="25" />
-          </g>
-        </svg>
+        <img
+          src="/fabric-logo.png"
+          alt="Fabric"
+          className={cn("object-contain", className)}
+          style={{ imageRendering: "pixelated" }}
+        />
       );
     case "quilt":
       return (

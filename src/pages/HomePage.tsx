@@ -3,7 +3,8 @@ import { motion } from "framer-motion";
 import { Activity, Boxes, Clock, Package, Play, Trophy, Users } from "lucide-react";
 import { useStore } from "@/store/useStore";
 import { api } from "@/lib/api";
-import { cn, formatDuration, isImageIcon, loaderLabel, timeAgo } from "@/lib/utils";
+import { InstanceIcon } from "@/components/InstanceIcon";
+import { cn, formatDuration, loaderLabel, timeAgo } from "@/lib/utils";
 import type { Instance, Loader, Session } from "@/lib/types";
 
 const SPLASHES = [
@@ -284,7 +285,7 @@ export function HomePage() {
                       onClick={() => openInstance(inst.id)}
                       className="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left transition-colors hover:bg-muted/60 btn-focus"
                     >
-                      <InstanceIcon instance={inst} size={9} />
+                      <InstanceIcon instance={inst} size="sm" />
                       <div className="min-w-0 flex-1">
                         <div className="truncate text-sm font-medium">{inst.name}</div>
                         <div className="truncate text-xs text-muted-foreground">
@@ -439,56 +440,3 @@ function PlaytimeBar({
   );
 }
 
-function InstanceIcon({
-  instance,
-  size,
-  className,
-}: {
-  instance: Instance;
-  size: number;
-  className?: string;
-}) {
-  const [imageError, setImageError] = useState(false);
-  const isATM10 = instance.name.toLowerCase().includes("all the mods 10") || instance.name.toLowerCase().includes("atm10");
-  const bgClass = useMemo(() => {
-    if (isATM10) return "from-yellow-500/40 to-yellow-800/20";
-    
-    switch (instance.loader) {
-      case "fabric": return "from-blue-500/30 to-yellow-400/20";
-      case "forge": return "from-orange-500/30 to-red-600/20";
-      case "neoforge": return "from-cyan-500/30 to-blue-500/20";
-      case "quilt": return "from-purple-500/30 to-pink-500/20";
-      default: return "from-emerald-500/30 to-emerald-800/20";
-    }
-  }, [instance.loader, isATM10]);
-
-  // Reset imageError when instance changes
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => setImageError(false), [instance.id]);
-
-  return (
-    <div
-      className={cn(
-        "flex shrink-0 items-center justify-center overflow-hidden rounded-xl bg-gradient-to-br shadow-inner",
-        bgClass,
-        className,
-      )}
-      style={{ height: `${size * 4}px`, width: `${size * 4}px` }}
-    >
-      {imageError || (!isATM10 && !isImageIcon(instance.icon)) ? (
-        instance.icon ? (
-          <span>{instance.icon}</span>
-        ) : (
-          <span className="font-bold uppercase text-accent">{instance.name.charAt(0)}</span>
-        )
-      ) : (
-        <img
-          src={isATM10 ? "https://raw.githubusercontent.com/AllTheMods/ATM-10/main/icon.png" : instance.icon!}
-          alt={instance.name}
-          className="h-full w-full object-cover"
-          onError={() => setImageError(true)}
-        />
-      )}
-    </div>
-  );
-}

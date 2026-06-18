@@ -301,6 +301,7 @@ pub async fn search_modrinth(
     project_type: String,
     loader: Option<String>,
     game_version: Option<String>,
+    index: Option<String>,
     limit: Option<u32>,
     offset: Option<u32>,
 ) -> Result<modrinth::SearchResponse> {
@@ -310,6 +311,7 @@ pub async fn search_modrinth(
         &project_type,
         loader.as_deref(),
         game_version.as_deref(),
+        index.as_deref().unwrap_or("relevance"),
         limit.unwrap_or(30),
         offset.unwrap_or(0),
     )
@@ -323,15 +325,22 @@ pub async fn install_mod(
     project_id: String,
     loader: Option<String>,
     game_version: Option<String>,
-) -> Result<String> {
-    modrinth::install_mod(
+) -> Result<InstallOutcome> {
+    let (file, deps) = modrinth::install_mod(
         state.inner(),
         &instance_id,
         &project_id,
         loader.as_deref(),
         game_version.as_deref(),
     )
-    .await
+    .await?;
+    for dep in &deps {
+        instances::record_install(state.inner(), &instance_id, &dep.file_name, &dep.project_id, "modrinth");
+    }
+    Ok(InstallOutcome {
+        file,
+        dependencies: deps.into_iter().map(|d| d.file_name).collect(),
+    })
 }
 
 #[tauri::command]
@@ -397,8 +406,8 @@ pub async fn install_curseforge_content(
     content_type: String,
     loader: Option<String>,
     game_version: Option<String>,
-) -> Result<String> {
-    let file = curseforge::install_content(
+) -> Result<InstallOutcome> {
+    let (file, deps) = curseforge::install_content(
         state.inner(),
         &instance_id,
         &project_id,
@@ -408,7 +417,13 @@ pub async fn install_curseforge_content(
     )
     .await?;
     instances::record_install(state.inner(), &instance_id, &file, &project_id, "curseforge");
-    Ok(file)
+    for dep in &deps {
+        instances::record_install(state.inner(), &instance_id, &dep.file_name, &dep.project_id, "curseforge");
+    }
+    Ok(InstallOutcome {
+        file,
+        dependencies: deps.into_iter().map(|d| d.file_name).collect(),
+    })
 }
 
 /// Install a CurseForge modpack as a new instance.
@@ -447,8 +462,8 @@ pub async fn install_content(
     content_type: String,
     loader: Option<String>,
     game_version: Option<String>,
-) -> Result<String> {
-    let file = modrinth::install_content(
+) -> Result<InstallOutcome> {
+    let (file, deps) = modrinth::install_content(
         state.inner(),
         &instance_id,
         &project_id,
@@ -458,7 +473,13 @@ pub async fn install_content(
     )
     .await?;
     instances::record_install(state.inner(), &instance_id, &file, &project_id, "modrinth");
-    Ok(file)
+    for dep in &deps {
+        instances::record_install(state.inner(), &instance_id, &dep.file_name, &dep.project_id, "modrinth");
+    }
+    Ok(InstallOutcome {
+        file,
+        dependencies: deps.into_iter().map(|d| d.file_name).collect(),
+    })
 }
 
 /// Download and install a Modrinth modpack (.mrpack) into an existing instance.
@@ -697,43 +718,65 @@ pub struct InstallOutcome {
 
 /// Install a specific Modrinth version (from the version picker).
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub async fn install_content_version(
     state: State<'_, AppState>,
     instance_id: String,
     project_id: String,
     version_id: String,
     content_type: String,
+    loader: Option<String>,
+    game_version: Option<String>,
 ) -> Result<InstallOutcome> {
-    let (file, dependencies) = modrinth::install_version(
+    let (file, deps) = modrinth::install_version(
         state.inner(),
         &instance_id,
         &version_id,
         &content_type,
+        loader.as_deref(),
+        game_version.as_deref(),
     )
     .await?;
     instances::record_install(state.inner(), &instance_id, &file, &project_id, "modrinth");
-    Ok(InstallOutcome { file, dependencies })
+    for dep in &deps {
+        instances::record_install(state.inner(), &instance_id, &dep.file_name, &dep.project_id, "modrinth");
+    }
+    Ok(InstallOutcome {
+        file,
+        dependencies: deps.into_iter().map(|d| d.file_name).collect(),
+    })
 }
 
 /// Install a specific CurseForge file (from the version picker).
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub async fn install_curseforge_file(
     state: State<'_, AppState>,
     instance_id: String,
     project_id: String,
     file_id: String,
     content_type: String,
-) -> Result<String> {
-    let file = curseforge::install_file(
+    loader: Option<String>,
+    game_version: Option<String>,
+) -> Result<InstallOutcome> {
+    let (file, deps) = curseforge::install_file(
         state.inner(),
         &instance_id,
         &project_id,
         &file_id,
         &content_type,
+        loader.as_deref(),
+        game_version.as_deref(),
     )
     .await?;
     instances::record_install(state.inner(), &instance_id, &file, &project_id, "curseforge");
-    Ok(file)
+    for dep in &deps {
+        instances::record_install(state.inner(), &instance_id, &dep.file_name, &dep.project_id, "curseforge");
+    }
+    Ok(InstallOutcome {
+        file,
+        dependencies: deps.into_iter().map(|d| d.file_name).collect(),
+    })
 }
 
 // ---------------------------------------------------------------------------

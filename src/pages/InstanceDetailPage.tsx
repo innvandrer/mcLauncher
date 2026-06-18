@@ -37,6 +37,7 @@ import { save } from "@tauri-apps/plugin-dialog";
 import type {
   ContentVersion,
   DiskUsage,
+  InstallOutcome,
   Instance,
   ModConflict,
   ModEntry,
@@ -423,7 +424,7 @@ function searchProvider(
   });
 }
 
-// Run a provider-aware install; returns the installed filename.
+// Run a provider-aware install; returns the installed file + any dependencies.
 function installProvider(
   provider: Provider,
   args: {
@@ -433,7 +434,7 @@ function installProvider(
     loader?: string | null;
     gameVersion?: string | null;
   },
-) {
+): Promise<InstallOutcome> {
   if (provider === "curseforge") {
     return api.installCurseforgeContent(args);
   }
@@ -585,29 +586,31 @@ function ModsPanel({ instance }: { instance: Instance }) {
     setInstalling(hit.project_id);
     setVersionPickTarget(null);
     try {
-      if (provider === "curseforge") {
-        const file = await api.installCurseforgeFile({
-          instanceId: instance.id,
-          projectId: hit.project_id,
-          fileId: versionId,
-          contentType: "mod",
-        });
-        toast("success", `Installed ${file}`);
-      } else {
-        const res = await api.installContentVersion({
-          instanceId: instance.id,
-          projectId: hit.project_id,
-          versionId,
-          contentType: "mod",
-        });
-        const n = res.dependencies.length;
-        toast(
-          "success",
-          n
-            ? `Installed ${res.file} · +${n} ${n === 1 ? "dependency" : "dependencies"}`
-            : `Installed ${res.file}`,
-        );
-      }
+      const res =
+        provider === "curseforge"
+          ? await api.installCurseforgeFile({
+              instanceId: instance.id,
+              projectId: hit.project_id,
+              fileId: versionId,
+              contentType: "mod",
+              loader: instance.loader,
+              gameVersion: instance.mcVersion,
+            })
+          : await api.installContentVersion({
+              instanceId: instance.id,
+              projectId: hit.project_id,
+              versionId,
+              contentType: "mod",
+              loader: instance.loader,
+              gameVersion: instance.mcVersion,
+            });
+      const n = res.dependencies.length;
+      toast(
+        "success",
+        n
+          ? `Installed ${res.file} · +${n} ${n === 1 ? "dependency" : "dependencies"}`
+          : `Installed ${res.file}`,
+      );
       refresh();
     } catch (e) {
       toast("error", errMessage(e));
@@ -908,14 +911,20 @@ function ContentBrowserPanel({
   const install = async (hit: ModHit) => {
     setInstalling(hit.project_id);
     try {
-      const file = await installProvider(provider, {
+      const res = await installProvider(provider, {
         instanceId: instance.id,
         projectId: hit.project_id,
         contentType,
         loader: useLoaderFilter ? instance.loader : undefined,
         gameVersion: instance.mcVersion,
       });
-      toast("success", `Installed ${file}`);
+      const n = res.dependencies.length;
+      toast(
+        "success",
+        n
+          ? `Installed ${res.file} · +${n} ${n === 1 ? "dependency" : "dependencies"}`
+          : `Installed ${res.file}`,
+      );
       refresh();
     } catch (e) {
       toast("error", errMessage(e));

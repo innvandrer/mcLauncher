@@ -201,7 +201,7 @@ export interface ModpackUpdate {
 
 export interface InstallOutcome {
   file: string;
-  /** Required dependency filenames auto-installed alongside the primary file. */
+  /** Filenames of required dependencies auto-installed alongside the primary file. */
   dependencies: string[];
 }
 

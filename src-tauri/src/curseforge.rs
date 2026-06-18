@@ -120,6 +120,23 @@ struct CfFile {
     file_date: String,
     #[serde(default)]
     game_versions: Vec<String>,
+    #[serde(default)]
+    dependencies: Vec<CfDependency>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CfDependency {
+    mod_id: u32,
+    relation_type: u8,
+}
+
+impl CfDependency {
+    /// True when this dependency should be auto-installed.
+    fn is_required(&self) -> bool {
+        // 3 = RequiredDependency, 6 = Include (bundled library).
+        matches!(self.relation_type, 3 | 6)
+    }
 }
 
 #[derive(Deserialize)]
@@ -260,7 +277,8 @@ fn fallback_url(file_id: u32, file_name: &str) -> String {
 }
 
 /// Download the newest compatible file of a CurseForge project into the correct
-/// sub-directory of the instance and return the installed filename.
+/// sub-directory of the instance and return the installed filename plus any
+/// auto-installed required dependencies.
 pub async fn install_content(
     state: &AppState,
     instance_id: &str,
@@ -268,7 +286,7 @@ pub async fn install_content(
     content_type: &str,
     loader: Option<&str>,
     game_version: Option<&str>,
-) -> Result<String> {
+) -> Result<(String, Vec<crate::modrinth::InstalledDep>)> {
     let key = api_key(state)?;
     let mod_id: u32 = project_id
         .parse()
@@ -306,6 +324,18 @@ pub async fn install_content(
         .next()
         .ok_or_else(|| Error::NotFound(format!("compatible file for CurseForge {mod_id}")))?;
 
+    install_cf_file(state, instance_id, content_type, loader, game_version, file).await
+}
+
+/// Install a resolved CurseForge file and its required dependencies.
+async fn install_cf_file(
+    state: &AppState,
+    instance_id: &str,
+    content_type: &str,
+    loader: Option<&str>,
+    game_version: Option<&str>,
+    file: CfFile,
+) -> Result<(String, Vec<crate::modrinth::InstalledDep>)> {
     let url = file.download_url.clone().unwrap_or_else(|| fallback_url(file.id, &file.file_name));
     let sha1 = file
         .hashes
@@ -318,10 +348,123 @@ pub async fn install_content(
         "shader" => "shaderpacks",
         _ => "mods",
     };
+
+    // Install required dependencies first so the primary file isn't left without
+    // libraries it needs.
+    let installed_deps = if content_type == "mod" {
+        let mods_dir = state.dirs.game_dir(instance_id).join("mods");
+        let mut visited = std::collections::HashSet::new();
+        let mut out = Vec::new();
+        for dep in file.dependencies.iter().filter(|d| d.is_required()) {
+            out.extend(
+                install_curseforge_dependency(
+                    state,
+                    dep.mod_id,
+                    loader,
+                    game_version,
+                    &mods_dir,
+                    &mut visited,
+                )
+                .await,
+            );
+        }
+        out
+    } else {
+        Vec::new()
+    };
+
     let target = state.dirs.game_dir(instance_id).join(folder).join(&file.file_name);
     net::download_one(&state.http, &DownloadItem::new(url, target, sha1)).await?;
 
-    Ok(file.file_name)
+    Ok((file.file_name, installed_deps))
+}
+
+/// Recursively install a single CurseForge dependency into the mods folder.
+/// `visited` prevents circular dependencies. Returns every dependency file that
+/// was newly installed (including transitive ones).
+fn install_curseforge_dependency<'a>(
+    state: &'a AppState,
+    mod_id: u32,
+    loader: Option<&'a str>,
+    game_version: Option<&'a str>,
+    mods_dir: &'a std::path::Path,
+    visited: &'a mut std::collections::HashSet<u32>,
+) -> std::pin::Pin<Box<dyn std::future::Future<Output = Vec<crate::modrinth::InstalledDep>> + Send + 'a>>
+{
+    Box::pin(async move {
+        if !visited.insert(mod_id) {
+            return Vec::new();
+        }
+
+        let key = match api_key(state) {
+            Ok(k) => k,
+            Err(_) => return Vec::new(),
+        };
+
+        let mut params: Vec<(&str, String)> = vec![("pageSize", "50".to_string())];
+        if let Some(v) = game_version {
+            if !v.is_empty() {
+                params.push(("gameVersion", v.to_string()));
+            }
+        }
+        if let Some(lt) = loader_type(loader) {
+            params.push(("modLoaderType", lt.to_string()));
+        }
+
+        let resp = state
+            .http
+            .get(format!("{API}/mods/{mod_id}/files"))
+            .header("x-api-key", &key)
+            .header("Accept", "application/json")
+            .query(&params)
+            .send()
+            .await;
+
+        let mut files = match resp {
+            Ok(r) => match r.error_for_status() {
+                Ok(r) => match r.json::<CfFilesResponse>().await {
+                    Ok(body) => body.data,
+                    Err(_) => return Vec::new(),
+                },
+                Err(_) => return Vec::new(),
+            },
+            Err(_) => return Vec::new(),
+        };
+        files.sort_by(|a, b| b.file_date.cmp(&a.file_date));
+        let file = match files.into_iter().next() {
+            Some(f) => f,
+            None => return Vec::new(),
+        };
+
+        let url = file.download_url.clone().unwrap_or_else(|| fallback_url(file.id, &file.file_name));
+        let sha1 = file.hashes.iter().find(|h| h.algo == 1).map(|h| h.value.clone());
+        let target = mods_dir.join(&file.file_name);
+        let target_dis = mods_dir.join(format!("{}.disabled", file.file_name));
+        if target.exists() || target_dis.exists() {
+            return Vec::new();
+        }
+
+        if net::download_one(&state.http, &DownloadItem::new(url, target, sha1))
+            .await
+            .is_err()
+        {
+            return Vec::new();
+        }
+
+        let mut out = vec![crate::modrinth::InstalledDep {
+            file_name: file.file_name.clone(),
+            project_id: mod_id.to_string(),
+        }];
+
+        for dep in file.dependencies.iter().filter(|d| d.is_required()) {
+            out.extend(
+                install_curseforge_dependency(state, dep.mod_id, loader, game_version, mods_dir, visited)
+                    .await,
+            );
+        }
+
+        out
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -418,14 +561,17 @@ pub async fn get_description(state: &AppState, project_id: &str) -> Result<Strin
     Ok(resp.data)
 }
 
-/// Install a specific CurseForge file by its file ID.
+/// Install a specific CurseForge file by its file ID, including any required
+/// dependencies when the content type is a mod.
 pub async fn install_file(
     state: &AppState,
     instance_id: &str,
     project_id: &str,
     file_id: &str,
     content_type: &str,
-) -> Result<String> {
+    loader: Option<&str>,
+    game_version: Option<&str>,
+) -> Result<(String, Vec<crate::modrinth::InstalledDep>)> {
     let key = api_key(state)?;
     let mod_id: u32 = project_id
         .parse()
@@ -445,19 +591,7 @@ pub async fn install_file(
         .json()
         .await?;
 
-    let file = resp.data;
-    let url = file.download_url.clone().unwrap_or_else(|| fallback_url(file.id, &file.file_name));
-    let sha1 = file.hashes.iter().find(|h| h.algo == 1).map(|h| h.value.clone());
-
-    let folder = match content_type {
-        "resourcepack" => "resourcepacks",
-        "shader" => "shaderpacks",
-        _ => "mods",
-    };
-    let target = state.dirs.game_dir(instance_id).join(folder).join(&file.file_name);
-    net::download_one(&state.http, &DownloadItem::new(url, target, sha1)).await?;
-
-    Ok(file.file_name)
+    install_cf_file(state, instance_id, content_type, loader, game_version, resp.data).await
 }
 
 /// Install a CurseForge modpack as a *new* instance: download the pack zip,

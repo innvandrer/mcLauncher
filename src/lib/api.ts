@@ -102,7 +102,7 @@ export const api = {
     projectId: string;
     loader?: string | null;
     gameVersion?: string | null;
-  }) => invoke<string>("install_mod", args),
+  }) => invoke<InstallOutcome>("install_mod", args),
   listMods: (instanceId: string) => invoke<ModEntry[]>("list_mods", { instanceId }),
   setModEnabled: (instanceId: string, fileName: string, enabled: boolean) =>
     invoke<void>("set_mod_enabled", { instanceId, fileName, enabled }),
@@ -116,7 +116,7 @@ export const api = {
     contentType: string;
     loader?: string | null;
     gameVersion?: string | null;
-  }) => invoke<string>("install_content", args),
+  }) => invoke<InstallOutcome>("install_content", args),
 
   // CurseForge (same SearchResponse/ModHit shape as Modrinth)
   searchCurseforge: (args: {
@@ -133,7 +133,7 @@ export const api = {
     contentType: string;
     loader?: string | null;
     gameVersion?: string | null;
-  }) => invoke<string>("install_curseforge_content", args),
+  }) => invoke<InstallOutcome>("install_curseforge_content", args),
 
   // Modrinth modpacks
   installMrpack: (args: {
@@ -242,13 +242,17 @@ export const api = {
     projectId: string;
     versionId: string;
     contentType: string;
+    loader?: string | null;
+    gameVersion?: string | null;
   }) => invoke<InstallOutcome>("install_content_version", args),
   installCurseforgeFile: (args: {
     instanceId: string;
     projectId: string;
     fileId: string;
     contentType: string;
-  }) => invoke<string>("install_curseforge_file", args),
+    loader?: string | null;
+    gameVersion?: string | null;
+  }) => invoke<InstallOutcome>("install_curseforge_file", args),
 
   // Cancel an in-flight download task (e.g. "modpack:<id>")
   cancelTask: (taskId: string) => invoke<void>("cancel_task", { taskId }),

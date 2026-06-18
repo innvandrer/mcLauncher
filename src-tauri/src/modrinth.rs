@@ -87,13 +87,22 @@ pub struct Dependency {
     pub dependency_type: String,
 }
 
+/// A dependency that was auto-installed alongside a mod.
+#[derive(Debug, Clone, Serialize)]
+pub struct InstalledDep {
+    pub file_name: String,
+    pub project_id: String,
+}
+
 /// Search Modrinth, optionally constrained by loader and game version.
+#[allow(clippy::too_many_arguments)]
 pub async fn search(
     state: &AppState,
     query: &str,
     project_type: &str,
     loader: Option<&str>,
     game_version: Option<&str>,
+    index: &str,
     limit: u32,
     offset: u32,
 ) -> Result<SearchResponse> {
@@ -116,7 +125,7 @@ pub async fn search(
         ("query", query),
         ("limit", &limit_s),
         ("offset", &offset_s),
-        ("index", "relevance"),
+        ("index", index),
         ("facets", &facets_json),
     ];
     let resp = state
@@ -188,20 +197,21 @@ pub async fn project_versions(
 }
 
 /// Download the best matching file of a project into an instance's `mods` folder
-/// and return the installed filename.
+/// and return the installed filename plus any auto-installed dependencies.
 pub async fn install_mod(
     state: &AppState,
     instance_id: &str,
     project_id: &str,
     loader: Option<&str>,
     game_version: Option<&str>,
-) -> Result<String> {
+) -> Result<(String, Vec<InstalledDep>)> {
     install_content(state, instance_id, project_id, "mod", loader, game_version).await
 }
 
 /// Install a Modrinth project (mod / resourcepack / shader) into the correct
-/// sub-directory of the instance and return the installed filename.
-/// For mods, required dependencies are auto-installed (best-effort).
+/// sub-directory of the instance and return the installed filename plus any
+/// auto-installed dependencies. For mods, required dependencies are installed
+/// recursively and constrained to the instance's loader + game version.
 pub async fn install_content(
     state: &AppState,
     instance_id: &str,
@@ -209,24 +219,33 @@ pub async fn install_content(
     content_type: &str,
     loader: Option<&str>,
     game_version: Option<&str>,
-) -> Result<String> {
+) -> Result<(String, Vec<InstalledDep>)> {
     let versions = project_versions(state, project_id, loader, game_version).await?;
     let version = versions
         .into_iter()
         .next()
         .ok_or_else(|| Error::NotFound(format!("compatible version for {project_id}")))?;
 
-    // Auto-install required dependencies for mods (best-effort).
-    if content_type == "mod" {
+    // Install required dependencies first so the primary mod isn't left without
+    // libraries it needs.
+    let installed_deps = if content_type == "mod" {
         let mods_dir = state.dirs.game_dir(instance_id).join("mods");
+        let mut visited = std::collections::HashSet::new();
+        let mut out = Vec::new();
         for dep in &version.dependencies {
             if dep.dependency_type == "required" {
                 if let Some(dep_id) = &dep.project_id {
-                    let _ = install_dependency(state, dep_id, loader, game_version, &mods_dir).await;
+                    out.extend(
+                        install_dependency(state, dep_id, loader, game_version, &mods_dir, &mut visited)
+                            .await,
+                    );
                 }
             }
         }
-    }
+        out
+    } else {
+        Vec::new()
+    };
 
     let file = version
         .files
@@ -250,49 +269,92 @@ pub async fn install_content(
     )
     .await?;
 
-    Ok(file.filename)
+    Ok((file.filename, installed_deps))
 }
 
-/// Install a single required dependency into the mods folder. Returns the
-/// installed filename, or `None` if it was skipped (already present) or failed.
-async fn install_dependency(
-    state: &AppState,
-    project_id: &str,
-    loader: Option<&str>,
-    game_version: Option<&str>,
-    mods_dir: &std::path::Path,
-) -> Option<String> {
-    let versions = project_versions(state, project_id, loader, game_version).await.ok()?;
-    let version = versions.into_iter().next()?;
-    let file = version
-        .files
-        .iter()
-        .find(|f| f.primary)
-        .or_else(|| version.files.first())?
-        .clone();
-    let target = mods_dir.join(&file.filename);
-    let target_dis = mods_dir.join(format!("{}.disabled", file.filename));
-    if target.exists() || target_dis.exists() {
-        return None;
-    }
-    net::download_one(
-        &state.http,
-        &DownloadItem::new(file.url.clone(), target, file.hashes.sha1.clone()),
-    )
-    .await
-    .ok()?;
-    Some(file.filename)
+/// Recursively install a single required dependency into the mods folder.
+/// `visited` prevents circular dependencies. Returns every dependency file that
+/// was newly installed (including transitive ones), constrained to the given
+/// loader and game version.
+fn install_dependency<'a>(
+    state: &'a AppState,
+    project_id: &'a str,
+    loader: Option<&'a str>,
+    game_version: Option<&'a str>,
+    mods_dir: &'a std::path::Path,
+    visited: &'a mut std::collections::HashSet<String>,
+) -> std::pin::Pin<Box<dyn std::future::Future<Output = Vec<InstalledDep>> + Send + 'a>> {
+    Box::pin(async move {
+        if !visited.insert(project_id.to_string()) {
+            return Vec::new();
+        }
+
+        let versions = match project_versions(state, project_id, loader, game_version).await {
+            Ok(v) => v,
+            Err(_) => return Vec::new(),
+        };
+        let version = match versions.into_iter().next() {
+            Some(v) => v,
+            None => return Vec::new(),
+        };
+        let file = match version
+            .files
+            .iter()
+            .find(|f| f.primary)
+            .or_else(|| version.files.first())
+        {
+            Some(f) => f.clone(),
+            None => return Vec::new(),
+        };
+
+        let target = mods_dir.join(&file.filename);
+        let target_dis = mods_dir.join(format!("{}.disabled", file.filename));
+        if target.exists() || target_dis.exists() {
+            return Vec::new();
+        }
+
+        if net::download_one(
+            &state.http,
+            &DownloadItem::new(file.url.clone(), target, file.hashes.sha1.clone()),
+        )
+        .await
+        .is_err()
+        {
+            return Vec::new();
+        }
+
+        let mut out = vec![InstalledDep {
+            file_name: file.filename,
+            project_id: project_id.to_string(),
+        }];
+
+        // Recurse into this dependency's own required dependencies.
+        for dep in &version.dependencies {
+            if dep.dependency_type == "required" {
+                if let Some(dep_id) = &dep.project_id {
+                    out.extend(
+                        install_dependency(state, dep_id.as_str(), loader, game_version, mods_dir, visited)
+                            .await,
+                    );
+                }
+            }
+        }
+
+        out
+    })
 }
 
 /// Install a specific Modrinth version by its version ID directly. Returns the
-/// installed filename plus the filenames of any required dependencies that were
-/// auto-installed alongside it (for mods).
+/// installed filename plus the dependencies that were auto-installed alongside
+/// it (for mods).
 pub async fn install_version(
     state: &AppState,
     instance_id: &str,
     version_id: &str,
     content_type: &str,
-) -> Result<(String, Vec<String>)> {
+    loader: Option<&str>,
+    game_version: Option<&str>,
+) -> Result<(String, Vec<InstalledDep>)> {
     let version: ProjectVersion = state
         .http
         .get(format!("{API}/version/{version_id}"))
@@ -302,22 +364,26 @@ pub async fn install_version(
         .json()
         .await?;
 
-    // Auto-install required dependencies for mods, collecting what we added so
-    // the UI can report it.
-    let mut installed_deps = Vec::new();
-    if content_type == "mod" {
+    // Auto-install required dependencies for mods, constrained to the same
+    // loader + game version as the selected version.
+    let installed_deps = if content_type == "mod" {
         let mods_dir = state.dirs.game_dir(instance_id).join("mods");
+        let mut visited = std::collections::HashSet::new();
+        let mut out = Vec::new();
         for dep in &version.dependencies {
             if dep.dependency_type == "required" {
                 if let Some(dep_id) = &dep.project_id {
-                    if let Some(name) = install_dependency(state, dep_id, None, None, &mods_dir).await
-                    {
-                        installed_deps.push(name);
-                    }
+                    out.extend(
+                        install_dependency(state, dep_id, loader, game_version, &mods_dir, &mut visited)
+                            .await,
+                    );
                 }
             }
         }
-    }
+        out
+    } else {
+        Vec::new()
+    };
 
     let file = version
         .files
