@@ -1,6 +1,6 @@
 {
   "version": "v0.2.1",
-  "notes": "Fikset auto-installering av mod-avhengigheter og byttet til offisielt Fabric-ikon.\n\n🧩 Modrinth: avhengigheter installeres nå korrekt med riktig loader/MC-versjon\n🧩 CurseForge: påkrevde avhengigheter installeres automatisk\n📝 Alle auto-installerte avhengigheter lagres i beacon_index.json\n🎨 Offisielt Fabric-ikon fra fabricmc.net\n🐛 Fikset ikon-rendering på forsiden",
+  "notes": "Dependency auto-installation fixes and UI polish.\n\n## What's new\n- **Modrinth dependency resolution**: required dependencies are now installed recursively and constrained to the instance's loader and Minecraft version.\n- **CurseForge dependency resolution**: required dependencies and bundled libraries are now auto-installed.\n- **Dependency tracking**: every auto-installed dependency is recorded in `beacon_index.json` so it appears as a known, tracked mod.\n- **Install feedback**: the UI now reports how many dependencies were installed alongside a mod for both Modrinth and CurseForge.\n- **Fabric branding**: the launcher now uses Fabric's official pixel-art spool icon.\n- **Home page icons**: fixed icon rendering on the recently-played list so it matches the rest of the app.\n\n## Fixes\n- Fixed the Modrinth version picker installing dependencies without filtering by loader/game version.\n- Fixed CurseForge mods not installing any dependencies at all.",
   "pub_date": "2026-06-18T17:19:41Z",
   "platforms": {
     "windows-x86_64": {
