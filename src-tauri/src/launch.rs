@@ -88,12 +88,29 @@ pub async fn launch(
     let instance = instances::get_instance(state, instance_id)?;
     let settings = instances::load_settings(state);
 
-    // --- Account (refresh Microsoft token if expired) ------------------------
+    // --- Account (refresh Microsoft token when expired or about to expire) ----
     let mut account = instances::active_account(state)
         .ok_or_else(|| Error::Auth("No account selected. Add an account first.".into()))?;
-    if account.kind == "microsoft" && account.expires_at <= chrono::Utc::now().timestamp() {
-        if let Some(rt) = account.refresh_token.clone() {
-            account = auth::refresh(state, &rt).await?;
+    if account.kind == "microsoft" {
+        let now = chrono::Utc::now().timestamp();
+        // Refresh five minutes before expiry so we don't race the clock at launch.
+        let needs_refresh = account.expires_at <= now + 300;
+        if needs_refresh {
+            let rt = account
+                .refresh_token
+                .clone()
+                .filter(|t| !t.trim().is_empty())
+                .ok_or_else(|| {
+                    Error::Auth(
+                        "Your Microsoft sign-in has expired. Sign in again on the Accounts page."
+                            .into(),
+                    )
+                })?;
+            account = auth::refresh(state, &rt).await.map_err(|e| {
+                Error::Auth(format!(
+                    "Could not refresh your Microsoft sign-in ({e}). Sign in again on the Accounts page."
+                ))
+            })?;
             instances::upsert_account(state, account.clone())?;
         }
     }
@@ -304,6 +321,18 @@ pub async fn launch(
         cmd.creation_flags(CREATE_NO_WINDOW);
     }
 
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        cmd.pre_exec(|| {
+            // Own process group so `stop` can signal the whole tree on Unix.
+            unsafe {
+                libc::setsid();
+            }
+            Ok(())
+        });
+    }
+
     // Pre-launch hook (blocking).
     if let Some(pre) = instance.pre_launch.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
         let _ = app.emit(
@@ -332,6 +361,7 @@ pub async fn launch(
         .lock()
         .unwrap()
         .insert(instance.id.clone(), pid);
+    crate::running::mark_running(&state.dirs, &state.running, &instance.id, pid);
     let _ = app.emit(
         "instance://state",
         InstanceState {
@@ -382,6 +412,7 @@ pub async fn launch(
         if let Ok(mut m) = running_map.lock() {
             m.remove(&inst_id);
         }
+        crate::running::mark_stopped(&dirs, &running_map, &inst_id);
         let code = status.ok().and_then(|s| s.code());
         if close_on_launch {
             if let Some(win) = app2.get_webview_window("main") {
@@ -426,9 +457,12 @@ pub fn stop(state: &AppState, instance_id: &str) -> Result<()> {
     }
     #[cfg(not(windows))]
     {
-        let _ = std::process::Command::new("kill")
-            .arg(pid.to_string())
-            .output();
+        // Negative pid targets the process group created by setsid() at spawn.
+        let pgid = -(pid as i32);
+        let sent = unsafe { libc::kill(pgid, libc::SIGTERM) == 0 };
+        if !sent {
+            let _ = unsafe { libc::kill(pid as i32, libc::SIGTERM) };
+        }
     }
     Ok(())
 }

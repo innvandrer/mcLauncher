@@ -184,7 +184,7 @@ pub fn delete_instance(state: &AppState, id: &str) -> Result<()> {
 
 pub fn duplicate_instance(state: &AppState, id: &str) -> Result<Instance> {
     let src = get_instance(state, id)?;
-    let new = create_instance(
+    let mut new = create_instance(
         state,
         &format!("{} (copy)", src.name),
         &src.mc_version,
@@ -192,8 +192,29 @@ pub fn duplicate_instance(state: &AppState, id: &str) -> Result<Instance> {
         src.loader_version.clone(),
         src.icon.clone(),
     )?;
+    // Carry over per-instance settings and modpack metadata the create path resets.
+    new.group = src.group.clone();
+    new.accent = src.accent.clone();
+    new.memory_mb = src.memory_mb;
+    new.java_path = src.java_path.clone();
+    new.jvm_args = src.jvm_args.clone();
+    new.window_width = src.window_width;
+    new.window_height = src.window_height;
+    new.env_vars = src.env_vars.clone();
+    new.pre_launch = src.pre_launch.clone();
+    new.post_exit = src.post_exit.clone();
+    new.pack_source = src.pack_source.clone();
+    save_instance(state, &new)?;
+
     // Copy the game directory contents (mods, configs, saves, ...).
     copy_dir(&state.dirs.game_dir(id), &state.dirs.game_dir(&new.id))?;
+
+    // Preserve the content index so update checks and install tracking keep working.
+    let index_src = index_path(state, id);
+    if index_src.exists() {
+        std::fs::copy(&index_src, index_path(state, &new.id))?;
+    }
+
     Ok(new)
 }
 
@@ -393,6 +414,27 @@ fn load_index(state: &AppState, id: &str) -> ContentIndex {
     read_json_or_default(&index_path(state, id))
 }
 
+/// A mod tracked in `beacon_index.json` for update checks.
+#[derive(Debug, Clone)]
+pub struct IndexedMod {
+    pub file_name: String,
+    pub project_id: String,
+    pub provider: String,
+}
+
+/// List indexed installs for an instance (used by CurseForge update checks).
+pub fn list_indexed_mods(state: &AppState, instance_id: &str) -> Vec<IndexedMod> {
+    load_index(state, instance_id)
+        .items
+        .into_iter()
+        .map(|(file_name, item)| IndexedMod {
+            file_name,
+            project_id: item.project_id,
+            provider: item.provider,
+        })
+        .collect()
+}
+
 /// Record that `file_name` in this instance came from `project_id` on `provider`.
 pub fn record_install(state: &AppState, id: &str, file_name: &str, project_id: &str, provider: &str) {
     let mut idx = load_index(state, id);
@@ -404,6 +446,18 @@ pub fn record_install(state: &AppState, id: &str, file_name: &str, project_id: &
         },
     );
     let _ = write_json(&index_path(state, id), &idx);
+}
+
+/// Move a tracked install to a new file name (e.g. after a mod update renames the jar).
+pub fn rename_install(state: &AppState, id: &str, old_name: &str, new_name: &str) {
+    if old_name == new_name {
+        return;
+    }
+    let mut idx = load_index(state, id);
+    if let Some(item) = idx.items.remove(old_name) {
+        idx.items.insert(new_name.to_string(), item);
+        let _ = write_json(&index_path(state, id), &idx);
+    }
 }
 
 /// Drop a file from the content index (called on delete).
@@ -427,7 +481,7 @@ pub struct ModEntry {
     pub project_id: Option<String>,
 }
 
-const DISABLED_SUFFIX: &str = ".disabled";
+pub const DISABLED_SUFFIX: &str = ".disabled";
 
 pub fn list_mods(state: &AppState, instance_id: &str) -> Vec<ModEntry> {
     let dir = state.dirs.game_dir(instance_id).join("mods");

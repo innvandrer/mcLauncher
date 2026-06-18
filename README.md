@@ -31,8 +31,9 @@ the background, so you always run the latest version.
   shows up in the sidebar and accounts list.
 - **Java** — detects installed JDK/JREs and **auto-downloads** the correct
   Temurin runtime per Minecraft version when needed.
-- **Smart downloads** — parallel, resumable, SHA-1 verified; shared asset and
-  library cache across instances (just like Prism/MultiMC).
+- **Smart downloads** — parallel, SHA-1 verified downloads with a shared asset and
+  library cache across instances (just like Prism/MultiMC). Interrupted files are
+  retried from scratch; matching hashes are skipped on the next run.
 - **Self-update** — checks for new releases on launch and updates itself with a
   one-click prompt (signed updates verified against an embedded public key).
 - **Modern UI** — custom frameless window, light/dark themes, accent colors,
@@ -142,7 +143,8 @@ Everything is stored under the OS app-data directory:
 ├── java\                    # auto-downloaded Java runtimes
 ├── natives\                 # extracted native libs (per launch)
 ├── settings.json
-└── accounts.json
+├── accounts.json
+└── running.json             # persisted game PIDs (survives Beacon restarts)
 ```
 
 ---
@@ -174,7 +176,7 @@ beacon-launcher/
 
 ## Roadmap
 - Cross-platform builds (macOS / Linux)
-- Per-instance JVM args & memory tuning in the UI
+- Upgrade instance in place (bump Minecraft / loader version)
 
 ---
 

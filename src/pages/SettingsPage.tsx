@@ -22,11 +22,19 @@ export function SettingsPage() {
   const [detecting, setDetecting] = useState(false);
   const [totalRamMb, setTotalRamMb] = useState(0);
   const [version, setVersion] = useState("");
+  const [memoryMb, setMemoryMb] = useState(0);
+  const [concurrency, setConcurrency] = useState(8);
 
   useEffect(() => {
     api.systemMemoryMb().then(setTotalRamMb).catch(() => setTotalRamMb(0));
     getVersion().then(setVersion).catch(() => setVersion(""));
   }, []);
+
+  useEffect(() => {
+    if (!settings) return;
+    setMemoryMb(settings.memoryMb);
+    setConcurrency(settings.maxConcurrentDownloads);
+  }, [settings]);
 
   if (!settings) return null;
 
@@ -90,14 +98,16 @@ export function SettingsPage() {
 
       {/* Game / Java */}
       <Section icon={<Cpu className="h-4 w-4" />} title="Java & performance">
-        <Field label={`Memory: ${(settings.memoryMb / 1024).toFixed(1)} GB`}>
+        <Field label={`Memory: ${(memoryMb / 1024).toFixed(1)} GB`}>
           <input
             type="range"
             min={1024}
             max={16384}
             step={512}
-            value={settings.memoryMb}
-            onChange={(e) => patch({ memoryMb: Number(e.target.value) })}
+            value={memoryMb}
+            onChange={(e) => setMemoryMb(Number(e.target.value))}
+            onMouseUp={() => patch({ memoryMb })}
+            onTouchEnd={() => patch({ memoryMb })}
             className="w-full accent-[hsl(var(--accent))]"
           />
           {recommended > 0 && (
@@ -108,9 +118,12 @@ export function SettingsPage() {
                   {(recommended / 1024).toFixed(1)} GB
                 </span>
               </span>
-              {settings.memoryMb !== recommended && (
+              {memoryMb !== recommended && (
                 <button
-                  onClick={() => patch({ memoryMb: recommended })}
+                  onClick={() => {
+                    setMemoryMb(recommended);
+                    patch({ memoryMb: recommended });
+                  }}
                   className="inline-flex items-center gap-1 rounded-md bg-accent/15 px-2 py-1 font-medium text-accent transition hover:bg-accent/25 btn-focus"
                 >
                   <Wand2 className="h-3 w-3" /> Use recommended
@@ -160,14 +173,16 @@ export function SettingsPage() {
 
       {/* Behavior */}
       <Section icon={<MonitorCog className="h-4 w-4" />} title="Behavior">
-        <Field label={`Concurrent downloads: ${settings.maxConcurrentDownloads}`}>
+        <Field label={`Concurrent downloads: ${concurrency}`}>
           <input
             type="range"
             min={1}
             max={32}
             step={1}
-            value={settings.maxConcurrentDownloads}
-            onChange={(e) => patch({ maxConcurrentDownloads: Number(e.target.value) })}
+            value={concurrency}
+            onChange={(e) => setConcurrency(Number(e.target.value))}
+            onMouseUp={() => patch({ maxConcurrentDownloads: concurrency })}
+            onTouchEnd={() => patch({ maxConcurrentDownloads: concurrency })}
             className="w-full accent-[hsl(var(--accent))]"
           />
         </Field>

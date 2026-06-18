@@ -1,7 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type {
-  AuthPrompt,
   Instance,
   InstanceStateEvent,
   JavaInstall,
@@ -299,8 +298,6 @@ export const events = {
     listen<Instance>("instance://created", (e) => cb(e.payload)),
   onInstanceRemoved: (cb: (id: string) => void): Promise<UnlistenFn> =>
     listen<string>("instance://removed", (e) => cb(e.payload)),
-  onAuthPrompt: (cb: (p: AuthPrompt) => void): Promise<UnlistenFn> =>
-    listen<AuthPrompt>("auth://prompt", (e) => cb(e.payload)),
 };
 
 export function errMessage(e: unknown): string {

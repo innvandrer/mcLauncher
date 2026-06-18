@@ -16,6 +16,7 @@ import {
   RefreshCw,
   Save,
   ScrollText,
+  Search,
   Settings2,
   Sparkles,
   Square,
@@ -39,6 +40,7 @@ import type {
   DiskUsage,
   InstallOutcome,
   Instance,
+  JavaInstall,
   ModConflict,
   ModEntry,
   ModHit,
@@ -1933,10 +1935,21 @@ function SettingsTab({ instance }: { instance: Instance }) {
   const [saving, setSaving] = useState(false);
   const [exportingPack, setExportingPack] = useState(false);
   const [usage, setUsage] = useState<DiskUsage | null>(null);
+  const [javaList, setJavaList] = useState<JavaInstall[] | null>(null);
+  const [detectingJava, setDetectingJava] = useState(false);
 
   useEffect(() => {
     api.instanceDiskUsage(instance.id).then(setUsage).catch(() => {});
   }, [instance.id]);
+
+  const detectJava = async () => {
+    setDetectingJava(true);
+    try {
+      setJavaList(await api.detectJava());
+    } finally {
+      setDetectingJava(false);
+    }
+  };
 
   const exportPack = async () => {
     try {
@@ -2062,11 +2075,39 @@ function SettingsTab({ instance }: { instance: Instance }) {
         />
       </Field>
       <Field label="Java path override" hint="Leave empty to auto-detect / use the global setting.">
-        <Input
-          value={javaPath}
-          onChange={(e) => setJavaPath(e.target.value)}
-          placeholder="C:\\path\\to\\java.exe"
-        />
+        <div className="flex gap-2">
+          <Input
+            value={javaPath}
+            onChange={(e) => setJavaPath(e.target.value)}
+            placeholder="C:\\path\\to\\java.exe"
+            className="font-mono text-xs"
+          />
+          <Button variant="secondary" onClick={detectJava} loading={detectingJava}>
+            <Search className="h-4 w-4" /> Detect
+          </Button>
+        </div>
+        {javaList && (
+          <div className="mt-2 space-y-1.5">
+            {javaList.length === 0 && (
+              <p className="text-sm text-muted-foreground">
+                No Java found. One will be downloaded automatically when you launch.
+              </p>
+            )}
+            {javaList.map((j) => (
+              <button
+                key={j.path}
+                type="button"
+                onClick={() => setJavaPath(j.path)}
+                className="flex w-full items-center justify-between rounded-lg border bg-card/60 px-3 py-2 text-left text-sm transition hover:bg-muted btn-focus"
+              >
+                <span className="truncate font-mono text-xs">{j.path}</span>
+                <span className="ml-2 shrink-0 rounded-full bg-muted px-2 py-0.5 text-xs">
+                  Java {j.major}
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
       </Field>
       <Field label="Extra JVM arguments override">
         <div className="mb-2 flex flex-wrap items-center gap-1.5">

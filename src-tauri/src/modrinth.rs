@@ -783,6 +783,13 @@ pub struct ModUpdate {
     pub url: String,
     pub sha1: Option<String>,
     pub enabled: bool,
+    /// "modrinth" (default) or "curseforge".
+    #[serde(default = "default_mod_provider")]
+    pub provider: String,
+}
+
+fn default_mod_provider() -> String {
+    "modrinth".to_string()
 }
 
 /// Check installed mods against Modrinth and return those with a newer version
@@ -889,6 +896,12 @@ pub async fn apply_update(state: &AppState, instance_id: &str, update: ModUpdate
                 std::fs::remove_file(&cand)?;
             }
         }
+        crate::instances::rename_install(
+            state,
+            instance_id,
+            &update.old_file_name,
+            &update.new_file_name,
+        );
     }
     Ok(())
 }

@@ -750,3 +750,152 @@ pub async fn install_modpack(
 
     Ok(instance)
 }
+
+// ---------------------------------------------------------------------------
+// Mod updates (for indexed CurseForge installs)
+// ---------------------------------------------------------------------------
+
+fn cf_file_sha1(file: &CfFile) -> Option<String> {
+    file.hashes.iter().find(|h| h.algo == 1).map(|h| h.value.clone())
+}
+
+/// Fetch the newest file compatible with the instance's loader + game version.
+async fn latest_compatible_file(
+    state: &AppState,
+    mod_id: u32,
+    loader: Option<&str>,
+    game_version: Option<&str>,
+) -> Result<Option<CfFile>> {
+    let key = api_key(state)?;
+    let mut params: Vec<(&str, String)> = vec![("pageSize", "50".to_string())];
+    if let Some(v) = game_version {
+        if !v.is_empty() {
+            params.push(("gameVersion", v.to_string()));
+        }
+    }
+    if let Some(lt) = loader_type(loader) {
+        params.push(("modLoaderType", lt.to_string()));
+    }
+
+    let resp: CfFilesResponse = state
+        .http
+        .get(format!("{API}/mods/{mod_id}/files"))
+        .header("x-api-key", &key)
+        .header("Accept", "application/json")
+        .query(&params)
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+
+    let mut files = resp.data;
+    files.sort_by(|a, b| b.file_date.cmp(&a.file_date));
+    Ok(files.into_iter().next())
+}
+
+/// Check indexed CurseForge mods for a newer compatible release.
+pub async fn check_mod_updates(
+    state: &AppState,
+    instance_id: &str,
+    loader: Option<&str>,
+    game_version: Option<&str>,
+) -> Result<Vec<crate::modrinth::ModUpdate>> {
+    let _ = api_key(state)?;
+    let mods_dir = state.dirs.game_dir(instance_id).join("mods");
+    let indexed = crate::instances::list_indexed_mods(state, instance_id);
+    let mut updates = Vec::new();
+
+    for entry in indexed {
+        if entry.provider != "curseforge" {
+            continue;
+        }
+        let mod_id: u32 = match entry.project_id.parse() {
+            Ok(id) => id,
+            Err(_) => continue,
+        };
+
+        let enabled_path = mods_dir.join(&entry.file_name);
+        let disabled_path = mods_dir.join(format!("{}{}", entry.file_name, crate::instances::DISABLED_SUFFIX));
+        let (path, enabled) = if enabled_path.exists() {
+            (enabled_path, true)
+        } else if disabled_path.exists() {
+            (disabled_path, false)
+        } else {
+            continue;
+        };
+
+        let installed_sha1 = net::file_sha1(&path).await.ok();
+        let Some(latest) = latest_compatible_file(state, mod_id, loader, game_version).await? else {
+            continue;
+        };
+        let latest_sha1 = cf_file_sha1(&latest);
+        if latest_sha1.is_some() && latest_sha1 == installed_sha1 {
+            continue;
+        }
+        if latest.file_name == entry.file_name && latest_sha1 == installed_sha1 {
+            continue;
+        }
+
+        let url = latest
+            .download_url
+            .clone()
+            .unwrap_or_else(|| fallback_url(latest.id, &latest.file_name));
+        updates.push(crate::modrinth::ModUpdate {
+            old_file_name: entry.file_name,
+            new_file_name: latest.file_name.clone(),
+            version_number: if latest.display_name.is_empty() {
+                latest.file_name
+            } else {
+                latest.display_name
+            },
+            url,
+            sha1: latest_sha1,
+            enabled,
+            provider: "curseforge".to_string(),
+        });
+    }
+
+    Ok(updates)
+}
+
+/// Apply a CurseForge mod update (same shape as Modrinth updates).
+pub async fn apply_mod_update(
+    state: &AppState,
+    instance_id: &str,
+    update: crate::modrinth::ModUpdate,
+) -> Result<()> {
+    let mods_dir = state.dirs.game_dir(instance_id).join("mods");
+    let target_name = if update.enabled {
+        update.new_file_name.clone()
+    } else {
+        format!("{}{}", update.new_file_name, crate::instances::DISABLED_SUFFIX)
+    };
+    net::download_one(
+        &state.http,
+        &DownloadItem::new(update.url.clone(), mods_dir.join(&target_name), update.sha1.clone()),
+    )
+    .await?;
+
+    if update.old_file_name != update.new_file_name {
+        for cand in [
+            mods_dir.join(&update.old_file_name),
+            mods_dir.join(format!(
+                "{}{}",
+                update.old_file_name,
+                crate::instances::DISABLED_SUFFIX
+            )),
+        ] {
+            if cand.exists() {
+                std::fs::remove_file(&cand)?;
+            }
+        }
+        crate::instances::rename_install(
+            state,
+            instance_id,
+            &update.old_file_name,
+            &update.new_file_name,
+        );
+    }
+    Ok(())
+}

@@ -4,7 +4,6 @@ import { relaunch } from "@tauri-apps/plugin-process";
 import { api, errMessage, events } from "@/lib/api";
 import { applyTheme, isImageIcon } from "@/lib/utils";
 import type {
-  AuthPrompt,
   Instance,
   LogLine,
   PublicAccount,
@@ -38,7 +37,6 @@ interface State {
   taskStarted: Record<string, number>;
   logs: Record<string, LogLine[]>;
   toasts: Toast[];
-  authPrompt: AuthPrompt | null;
   busy: boolean;
 
   update: { version: string; notes: string } | null;
@@ -72,7 +70,6 @@ interface State {
   addOffline: (username: string) => Promise<void>;
   setActiveAccount: (id: string) => Promise<void>;
   removeAccount: (id: string) => Promise<void>;
-  dismissAuthPrompt: () => void;
 
   saveSettings: (settings: Settings) => Promise<void>;
 
@@ -102,7 +99,6 @@ export const useStore = create<State>((set, get) => ({
   taskStarted: {},
   logs: {},
   toasts: [],
-  authPrompt: null,
   busy: false,
 
   update: null,
@@ -214,7 +210,6 @@ export const useStore = create<State>((set, get) => ({
           get().refreshInstances();
         }
       });
-      events.onAuthPrompt((p) => set({ authPrompt: p }));
     }
 
     // Check for a newer release in the background; never blocks startup.
@@ -323,12 +318,12 @@ export const useStore = create<State>((set, get) => ({
     set({ busy: true });
     try {
       const accounts = await api.loginMicrosoft();
-      set({ accounts, authPrompt: null });
+      set({ accounts });
       get().toast("success", "Signed in to Microsoft account");
     } catch (e) {
       get().toast("error", errMessage(e));
     } finally {
-      set({ busy: false, authPrompt: null });
+      set({ busy: false });
     }
   },
 
@@ -348,8 +343,6 @@ export const useStore = create<State>((set, get) => ({
   removeAccount: async (id) => {
     set({ accounts: await api.removeAccount(id) });
   },
-
-  dismissAuthPrompt: () => set({ authPrompt: null }),
 
   saveSettings: async (settings) => {
     await api.saveSettings(settings);

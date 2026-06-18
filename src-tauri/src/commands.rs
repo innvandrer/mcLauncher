@@ -226,6 +226,7 @@ pub async fn update_instance(state: State<'_, AppState>, instance: Instance) -> 
 
 #[tauri::command]
 pub async fn delete_instance(state: State<'_, AppState>, id: String) -> Result<()> {
+    crate::running::ensure_not_running(&state.inner().running, &id)?;
     instances::delete_instance(state.inner(), &id)
 }
 
@@ -641,13 +642,25 @@ pub async fn check_mod_updates(
     loader: Option<String>,
     game_version: Option<String>,
 ) -> Result<Vec<modrinth::ModUpdate>> {
-    modrinth::check_updates(
-        state.inner(),
+    let inner = state.inner();
+    let mut updates = modrinth::check_updates(
+        inner,
+        &instance_id,
+        loader.as_deref(),
+        game_version.as_deref(),
+    )
+    .await?;
+    if let Ok(cf) = curseforge::check_mod_updates(
+        inner,
         &instance_id,
         loader.as_deref(),
         game_version.as_deref(),
     )
     .await
+    {
+        updates.extend(cf);
+    }
+    Ok(updates)
 }
 
 #[tauri::command]
@@ -656,7 +669,11 @@ pub async fn apply_mod_update(
     instance_id: String,
     update: modrinth::ModUpdate,
 ) -> Result<()> {
-    modrinth::apply_update(state.inner(), &instance_id, update).await
+    if update.provider == "curseforge" {
+        curseforge::apply_mod_update(state.inner(), &instance_id, update).await
+    } else {
+        modrinth::apply_update(state.inner(), &instance_id, update).await
+    }
 }
 
 // ---------------------------------------------------------------------------

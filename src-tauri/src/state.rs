@@ -132,10 +132,12 @@ impl AppState {
             eprintln!("warning: could not create data directories: {e}");
         }
 
+        let running = Arc::new(Mutex::new(crate::running::load_reconciled(&dirs)));
+
         Self {
             http,
             dirs,
-            running: Arc::new(Mutex::new(HashMap::new())),
+            running,
             discord: DiscordPresence::new(),
             cancels: Arc::new(Mutex::new(HashMap::new())),
         }
