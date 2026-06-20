@@ -43,7 +43,7 @@
   "bundle": {
     "active": true,
     "targets": "all",
-    "createUpdaterArtifacts": true,
+    "createUpdaterArtifacts": false,
     "category": "Game",
     "shortDescription": "EZMapa — a modern Minecraft launcher",
     "longDescription": "EZMapa is a modern Minecraft launcher: manage isolated instances, install mods and modpacks from Modrinth and CurseForge, sign in with your Microsoft account, and launch the game with the right Java version automatically.",
