@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Beacon",
-  "version": "0.2.1",
-  "identifier": "com.beacon.launcher",
+  "productName": "EZMapa",
+  "version": "0.2.2",
+  "identifier": "com.ezmapa.launcher",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
@@ -14,7 +14,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "Beacon",
+        "title": "EZMapa",
         "width": 1240,
         "height": 820,
         "minWidth": 960,
@@ -45,8 +45,8 @@
     "targets": "all",
     "createUpdaterArtifacts": true,
     "category": "Game",
-    "shortDescription": "A modern, open-source Minecraft launcher",
-    "longDescription": "Beacon is a modern, open-source Minecraft launcher: manage isolated instances, install mods and modpacks from Modrinth, sign in with your Microsoft account, and launch the [...]",
+    "shortDescription": "EZMapa — a modern Minecraft launcher",
+    "longDescription": "EZMapa is a modern Minecraft launcher: manage isolated instances, install mods and modpacks from Modrinth and CurseForge, sign in with your Microsoft account, and launch the game with the right Java version automatically.",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

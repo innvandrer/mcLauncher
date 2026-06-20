@@ -16,6 +16,7 @@ import {
   RefreshCw,
   Save,
   ScrollText,
+  Search,
   Settings2,
   Sparkles,
   Square,
@@ -115,9 +116,9 @@ export function InstanceDetailPage({ id }: { id: string }) {
   ];
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="app-page">
       {/* Header */}
-      <header className="px-8 pt-6">
+      <header className="app-gutter shrink-0 pt-6">
         <button
           onClick={close}
           className="mb-4 inline-flex items-center gap-1.5 text-sm text-muted-foreground transition hover:text-foreground btn-focus"
@@ -125,11 +126,11 @@ export function InstanceDetailPage({ id }: { id: string }) {
           <ArrowLeft className="h-4 w-4" /> All instances
         </button>
 
-        <div className="flex items-center gap-4">
-          <InstanceIcon instance={instance} size="detail" className="border border-white/5" />
+        <div className="flex flex-wrap items-start gap-4">
+          <InstanceIcon instance={instance} size="detail" className="shrink-0 border border-white/5" />
           <div className="min-w-0 flex-1">
             <h1 className="truncate text-2xl font-bold tracking-tight">{instance.name}</h1>
-            <div className="mt-0.5 flex items-center gap-2 text-sm text-muted-foreground">
+            <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-sm text-muted-foreground">
               <span>{instance.mcVersion}</span>
               {instance.loader !== "vanilla" && (
                 <>
@@ -140,7 +141,7 @@ export function InstanceDetailPage({ id }: { id: string }) {
               )}
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:justify-end">
             <Button variant="secondary" onClick={exportInstance} loading={exporting} title="Export as .zip">
               <Upload className="h-4 w-4" /> Export
             </Button>
@@ -160,7 +161,7 @@ export function InstanceDetailPage({ id }: { id: string }) {
         </div>
 
         {/* Tabs */}
-        <nav className="mt-6 flex gap-1 border-b border-border">
+        <nav className="mt-6 flex gap-1 overflow-x-auto border-b border-border">
           {tabs.map((t) => {
             const Icon = t.icon;
             const active = tab === t.id;
@@ -169,7 +170,7 @@ export function InstanceDetailPage({ id }: { id: string }) {
                 key={t.id}
                 onClick={() => setTab(t.id)}
                 className={cn(
-                  "relative flex items-center gap-2 px-4 py-2.5 text-sm font-medium transition btn-focus",
+                  "relative flex shrink-0 items-center gap-2 px-4 py-2.5 text-sm font-medium transition btn-focus",
                   active ? "text-foreground" : "text-muted-foreground hover:text-foreground",
                 )}
               >
@@ -184,11 +185,11 @@ export function InstanceDetailPage({ id }: { id: string }) {
         </nav>
       </header>
 
-      <div className="px-8">
+      <div className="app-gutter shrink-0">
         <ModpackUpdateBanner instance={instance} />
       </div>
 
-      <div className="scroll-area flex-1 px-8 py-5">
+      <div className="app-scroll app-gutter py-5">
         {tab === "content" && <ContentTab instance={instance} />}
         {tab === "servers" && <ServersTab instance={instance} />}
         {tab === "logs" && (
@@ -250,7 +251,7 @@ function ModpackUpdateBanner({ instance }: { instance: Instance }) {
 
   return (
     <div className="mt-4 rounded-xl border border-accent/40 bg-accent/10 p-3">
-      <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center gap-3">
         <Download className="h-4 w-4 shrink-0 text-accent" />
         <div className="min-w-0 flex-1">
           <p className="text-sm font-semibold">
@@ -505,6 +506,19 @@ function InstalledIcon({
   );
 }
 
+function matchesInstalledQuery(query: string, fileName: string, projectId?: string | null): boolean {
+  const q = query.trim().toLowerCase();
+  if (!q) return true;
+
+  const baseName = fileName.replace(/\.jar$/, "").toLowerCase();
+
+  return (
+    fileName.toLowerCase().includes(q) ||
+    baseName.includes(q) ||
+    (projectId?.toLowerCase().includes(q) ?? false)
+  );
+}
+
 // --------------------------------------------------------------------------
 // Mods panel (has enable/disable toggle)
 // --------------------------------------------------------------------------
@@ -513,6 +527,7 @@ function ModsPanel({ instance }: { instance: Instance }) {
   const toast = useStore((s) => s.toast);
   const refreshInstances = useStore((s) => s.refreshInstances);
   const [installed, setInstalled] = useState<ModEntry[]>([]);
+  const [installedQuery, setInstalledQuery] = useState("");
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<ModHit[]>([]);
   const [searching, setSearching] = useState(false);
@@ -548,6 +563,7 @@ function ModsPanel({ instance }: { instance: Instance }) {
     }
   };
   useEffect(() => {
+    setInstalledQuery("");
     refresh();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [instance.id]);
@@ -578,6 +594,11 @@ function ModsPanel({ instance }: { instance: Instance }) {
   // appear in the search show their real icon.
   const iconByProjectId = new Map(
     results.filter((r) => r.icon_url).map((r) => [r.project_id, r.icon_url!]),
+  );
+
+  const filteredInstalled = useMemo(
+    () => installed.filter((m) => matchesInstalledQuery(installedQuery, m.fileName, m.projectId)),
+    [installed, installedQuery],
   );
 
   const [versionPickTarget, setVersionPickTarget] = useState<ModHit | null>(null);
@@ -675,22 +696,35 @@ function ModsPanel({ instance }: { instance: Instance }) {
   return (
     <div className="grid grid-cols-1 gap-6 lg:grid-cols-[300px_minmax(0,1fr)]">
       {/* Installed */}
-      <section>
-        <div className="mb-3 flex items-center justify-between">
+      <section className="min-w-0">
+        <div className="mb-3 flex items-center justify-between gap-2">
           <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            Installed ({installed.length})
+            Installed ({filteredInstalled.length}
+            {installedQuery.trim() ? ` / ${installed.length}` : ""})
           </h2>
           {installed.length > 0 && (
             <button
               onClick={checkUpdates}
               disabled={checking}
-              className="inline-flex items-center gap-1 text-xs text-muted-foreground transition hover:text-foreground btn-focus disabled:opacity-50"
+              className="inline-flex shrink-0 items-center gap-1 text-xs text-muted-foreground transition hover:text-foreground btn-focus disabled:opacity-50"
             >
               <RefreshCw className={cn("h-3 w-3", checking && "animate-spin")} />
               {checking ? "Checking…" : "Updates"}
             </button>
           )}
         </div>
+
+        {installed.length > 0 && (
+          <div className="relative mb-3">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={installedQuery}
+              onChange={(e) => setInstalledQuery(e.target.value)}
+              placeholder="Search installed mods…"
+              className="pl-9"
+            />
+          </div>
+        )}
 
         {conflicts.length > 0 && (
           <div className="mb-3 rounded-lg border border-amber-500/40 bg-amber-500/10 p-3">
@@ -750,9 +784,13 @@ function ModsPanel({ instance }: { instance: Instance }) {
           <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
             No mods yet. Search on the right to add some.
           </p>
+        ) : filteredInstalled.length === 0 ? (
+          <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+            No installed mods match &ldquo;{installedQuery.trim()}&rdquo;.
+          </p>
         ) : (
           <div className="space-y-1.5">
-            {installed.map((m) => (
+            {filteredInstalled.map((m) => (
               <div
                 key={m.fileName}
                 className="flex items-center gap-2 rounded-lg border bg-card/60 p-2.5"
@@ -867,6 +905,7 @@ function ContentBrowserPanel({
   const [installed, setInstalled] = useState<
     { fileName: string; size: number; projectId?: string | null }[]
   >([]);
+  const [installedQuery, setInstalledQuery] = useState("");
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<ModHit[]>([]);
   const [searching, setSearching] = useState(false);
@@ -877,6 +916,7 @@ function ContentBrowserPanel({
 
   const refresh = () => listItems().then(setInstalled).catch(() => {});
   useEffect(() => {
+    setInstalledQuery("");
     refresh();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [instance.id, contentType]);
@@ -906,6 +946,11 @@ function ContentBrowserPanel({
   // Map projectId → icon from the current results for installed items.
   const iconByProjectId = new Map(
     results.filter((r) => r.icon_url).map((r) => [r.project_id, r.icon_url!]),
+  );
+
+  const filteredInstalled = useMemo(
+    () => installed.filter((item) => matchesInstalledQuery(installedQuery, item.fileName, item.projectId)),
+    [installed, installedQuery],
   );
 
   const install = async (hit: ModHit) => {
@@ -948,17 +993,33 @@ function ContentBrowserPanel({
   return (
     <div className="grid grid-cols-1 gap-6 lg:grid-cols-[300px_minmax(0,1fr)]">
       {/* Installed */}
-      <section>
+      <section className="min-w-0">
         <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-          Installed ({installed.length})
+          Installed ({filteredInstalled.length}
+          {installedQuery.trim() ? ` / ${installed.length}` : ""})
         </h2>
+        {installed.length > 0 && (
+          <div className="relative mb-3">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={installedQuery}
+              onChange={(e) => setInstalledQuery(e.target.value)}
+              placeholder={`Search installed ${emptyLabel}…`}
+              className="pl-9"
+            />
+          </div>
+        )}
         {installed.length === 0 ? (
           <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
             No {emptyLabel} yet. Search on the right to add some.
           </p>
+        ) : filteredInstalled.length === 0 ? (
+          <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+            No installed {emptyLabel} match &ldquo;{installedQuery.trim()}&rdquo;.
+          </p>
         ) : (
           <div className="space-y-1.5">
-            {installed.map((item) => (
+            {filteredInstalled.map((item) => (
               <div
                 key={item.fileName}
                 className="flex items-center gap-2 rounded-lg border bg-card/60 p-2.5"
@@ -1842,7 +1903,7 @@ function LogsTab({
   };
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex min-h-0 flex-col">
       {finding && (
         <div className="mb-3 rounded-xl border border-amber-500/40 bg-amber-500/10 p-3">
           <div className="flex items-start gap-2.5">
@@ -1864,9 +1925,9 @@ function LogsTab({
           </div>
         </div>
       )}
-      <div className="mb-2 flex items-center justify-between">
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
         <span className="text-sm text-muted-foreground">{logs.length} lines</span>
-        <div className="flex items-center gap-1">
+        <div className="flex flex-wrap items-center gap-1">
           <Button size="sm" variant="ghost" onClick={copyLog} disabled={logs.length === 0}>
             <Copy className="h-3.5 w-3.5" /> Copy
           </Button>
@@ -1885,7 +1946,7 @@ function LogsTab({
           </Button>
         </div>
       </div>
-      <div className="scroll-area flex-1 rounded-xl border bg-[hsl(240_12%_4%)] p-3 font-mono text-xs leading-relaxed">
+      <div className="app-scroll min-h-[240px] max-h-[min(70vh,640px)] rounded-xl border bg-[hsl(240_12%_4%)] p-3 font-mono text-xs leading-relaxed">
         {logs.length === 0 ? (
           <p className="text-muted-foreground">
             No output yet. Press Play to launch and the game log will stream here.

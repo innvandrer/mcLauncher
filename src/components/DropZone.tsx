@@ -5,7 +5,7 @@ import { Download } from "lucide-react";
 import { useStore } from "@/store/useStore";
 
 /**
- * Full-window drop target: drag a Beacon instance `.zip` onto the launcher to
+ * Full-window drop target: drag an EZMapa instance `.zip` onto the launcher to
  * import it. Listens to Tauri's native drag-drop events so it works with files
  * dragged from the OS file manager.
  */
@@ -27,7 +27,7 @@ export function DropZone() {
           setOver(false);
           const zips = p.paths.filter((path) => path.toLowerCase().endsWith(".zip"));
           if (zips.length === 0) {
-            toast("error", "Drop a Beacon instance .zip to import it.");
+            toast("error", "Drop an EZMapa instance .zip to import it.");
             return;
           }
           // Import sequentially so multiple drops don't race the refresh.
@@ -59,7 +59,7 @@ export function DropZone() {
             <Download className="h-10 w-10 text-accent" />
             <p className="text-lg font-semibold">Drop to import</p>
             <p className="text-sm text-muted-foreground">
-              Release a Beacon instance <span className="font-mono">.zip</span> to add it.
+              Release an EZMapa instance <span className="font-mono">.zip</span> to add it.
             </p>
           </div>
         </motion.div>

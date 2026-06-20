@@ -54,14 +54,14 @@ export function ModpacksPage() {
   }
 
   return (
-    <div className="flex h-full flex-col">
-      <header className="px-8 pt-6">
+    <div className="app-page">
+      <header className="app-gutter pt-6">
         <h1 className="text-2xl font-bold tracking-tight">Modpacks</h1>
         <p className="mt-0.5 text-sm text-muted-foreground">
           Browse and install complete modpacks. Each one becomes a new instance.
         </p>
-        <div className="mt-4 flex items-center gap-2">
-          <div className="relative flex-1">
+        <div className="mt-4 flex flex-wrap items-center gap-2">
+          <div className="relative min-w-0 flex-1 basis-full sm:basis-auto">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
               value={query}
@@ -89,7 +89,7 @@ export function ModpacksPage() {
         </div>
       </header>
 
-      <div className="scroll-area flex-1 px-8 py-5">
+      <div className="app-scroll app-gutter py-5">
         {searching && results.length === 0 ? (
           <div className="flex justify-center py-16">
             <Spinner />
@@ -217,10 +217,10 @@ function PackDetailView({
   };
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="app-page">
       {/* Sticky top bar */}
-      <div className="shrink-0 px-8 pt-5">
-        <div className="mb-4 flex items-center justify-between">
+      <div className="app-gutter shrink-0 pt-5">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
           <button
             onClick={onBack}
             className="inline-flex items-center gap-1.5 text-sm text-muted-foreground transition hover:text-foreground btn-focus"
@@ -238,7 +238,7 @@ function PackDetailView({
         </div>
 
         {/* Pack header */}
-        <div className="flex items-start gap-4">
+        <div className="flex flex-wrap items-start gap-4">
           {hit.icon_url ? (
             <img
               src={hit.icon_url}
@@ -296,7 +296,7 @@ function PackDetailView({
       </div>
 
       {/* Scrollable description */}
-      <div className="scroll-area flex-1 px-8 py-5">
+      <div className="app-scroll app-gutter py-5">
         {loadingBody ? (
           <div className="flex justify-center py-10">
             <Spinner />

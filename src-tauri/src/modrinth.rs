@@ -525,7 +525,7 @@ async fn fetch_mrpack_archive(
         .ok_or_else(|| Error::NotFound("mrpack file".into()))?;
 
     let tmp_path = std::env::temp_dir()
-        .join(format!("beacon_{}.mrpack", &version.id[..version.id.len().min(8)]));
+        .join(format!("ezmapa_{}.mrpack", &version.id[..version.id.len().min(8)]));
     net::download_one(
         &state.http,
         &DownloadItem::new(mrpack_file.url.clone(), tmp_path.clone(), mrpack_file.hashes.sha1.clone()),

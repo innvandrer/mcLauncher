@@ -203,7 +203,7 @@ async fn run_installer(
         .bytes()
         .await?;
 
-    let temp_base = std::env::temp_dir().join(format!("beacon-{task_id}"));
+    let temp_base = std::env::temp_dir().join(format!("ezmapa-{task_id}"));
     let _ = std::fs::remove_dir_all(&temp_base); // clear any stale partial install
     std::fs::create_dir_all(&temp_base)?;
     let installer_path = temp_base.join("installer.jar");

@@ -128,7 +128,10 @@ export const useStore = create<State>((set, get) => ({
       // One-time: drop legacy auto-assigned emoji icons so existing instances
       // fall back to their mod-loader logo. The icon picker still works for
       // deliberate choices made after this runs.
-      if (!localStorage.getItem("beacon:iconMigration")) {
+      if (
+        !localStorage.getItem("ezmapa:iconMigration") &&
+        !localStorage.getItem("beacon:iconMigration")
+      ) {
         const legacy = instances.filter((i) => i.icon && !isImageIcon(i.icon));
         if (legacy.length) {
           await Promise.all(
@@ -136,7 +139,7 @@ export const useStore = create<State>((set, get) => ({
           );
           set({ instances: await api.listInstances() });
         }
-        localStorage.setItem("beacon:iconMigration", "1");
+        localStorage.setItem("ezmapa:iconMigration", "1");
       }
     } catch (e) {
       set({ ready: true });

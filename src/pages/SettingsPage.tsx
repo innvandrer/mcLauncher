@@ -44,8 +44,8 @@ export function SettingsPage() {
   };
 
   return (
-    <div className="scroll-area h-full">
-      <div className="mx-auto max-w-2xl px-8 py-6 pb-12">
+    <div className="app-scroll h-full min-h-0">
+      <div className="mx-auto max-w-2xl app-gutter py-6 pb-12">
         <h1 className="text-2xl font-bold tracking-tight">Settings</h1>
 
       {/* Appearance */}
@@ -175,7 +175,7 @@ export function SettingsPage() {
           <div>
             <div className="text-sm font-medium">Hide launcher while playing</div>
             <div className="text-xs text-muted-foreground">
-              Minimizes Beacon when the game starts, restores it on exit.
+              Minimizes EZMapa when the game starts, restores it on exit.
             </div>
           </div>
           <input
@@ -191,7 +191,7 @@ export function SettingsPage() {
       <Section icon={<Package className="h-4 w-4" />} title="Content providers">
         <Field
           label="CurseForge API key"
-          hint="Required to browse/install from CurseForge. Get a free key at console.curseforge.com → API Keys. Can also be set via the BEACON_CF_API_KEY env var."
+          hint="Required to browse/install from CurseForge. Get a free key at console.curseforge.com → API Keys. Can also be set via the EZMAPA_CF_API_KEY env var."
         >
           <Input
             type="password"
@@ -205,7 +205,7 @@ export function SettingsPage() {
 
       <div className="mt-8 flex items-center gap-2 text-xs text-muted-foreground">
         <Sparkles className="h-3.5 w-3.5" />
-        Beacon{version ? ` v${version}` : ""} — a modern, open-source Minecraft launcher.
+        EZMapa{version ? ` v${version}` : ""} — a modern Minecraft launcher.
       </div>
       </div>
     </div>

@@ -55,6 +55,9 @@ html,
 body,
 #root {
   height: 100%;
+  width: 100%;
+  min-height: 0;
+  min-width: 0;
 }
 
 body {
@@ -81,6 +84,8 @@ body {
 /* ------------------------------------------------------------------ */
 .scroll-area {
   overflow-y: auto;
+  min-height: 0;
+  min-width: 0;
   scrollbar-width: thin;
   scrollbar-color: hsl(var(--muted-foreground) / 0.3) transparent;
 }
@@ -102,6 +107,18 @@ body {
 /* Helpers                                                             */
 /* ------------------------------------------------------------------ */
 @layer components {
+  .app-page {
+    @apply flex h-full min-h-0 min-w-0 flex-col;
+  }
+
+  .app-scroll {
+    @apply scroll-area min-h-0 min-w-0 flex-1;
+  }
+
+  .app-gutter {
+    @apply px-4 sm:px-6 lg:px-8;
+  }
+
   .glass {
     background-color: hsl(var(--surface) / 0.7);
     backdrop-filter: blur(16px);

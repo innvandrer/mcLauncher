@@ -18,7 +18,8 @@ export function AccountsPage() {
 
   return (
     <>
-    <div className="mx-auto max-w-2xl px-8 py-6">
+    <div className="app-scroll">
+    <div className="mx-auto max-w-2xl app-gutter py-6">
       <div className="flex items-center gap-3">
         <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-accent/15 text-accent">
           <Users className="h-5 w-5" />
@@ -119,6 +120,7 @@ export function AccountsPage() {
           </Field>
         </div>
       </div>
+    </div>
     </div>
     <SkinModal
       open={skinAccountId !== null}

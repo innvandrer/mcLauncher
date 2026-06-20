@@ -1,10 +1,9 @@
-# Beacon
+# EZMapa
 
-A modern, open-source Minecraft launcher inspired by Prism Launcher — but with a
-cleaner, faster UI. Manage isolated instances, install mods and modpacks from
-**Modrinth** and **CurseForge**, sign in with your Microsoft account, and launch
-the game with the right Java version automatically. Beacon **updates itself** in
-the background, so you always run the latest version.
+A modern Minecraft launcher for the EZMapa community. Manage isolated instances,
+install mods and modpacks from **Modrinth** and **CurseForge**, sign in with your
+Microsoft account, and launch the game with the right Java version automatically.
+EZMapa **updates itself** in the background, so you always run the latest version.
 
 > Built with **Tauri 2** (Rust backend) + **React + TypeScript + Tailwind CSS**.
 
@@ -50,7 +49,7 @@ the background, so you always run the latest version.
   Rust backend on Windows.
 - **WebView2 Runtime** — preinstalled on Windows 11.
 
-> Just want to use Beacon? Grab the latest installer from the
+> Just want to use EZMapa? Grab the latest installer from the
 > [**Releases**](https://github.com/innvandrer/mcLauncher/releases) page and run
 > it — the app keeps itself up to date after that.
 
@@ -63,10 +62,10 @@ the background, so you always run the latest version.
 npm install
 
 # 2. Run in development (opens the app with hot-reload)
-npm run tauri dev
+npm run tauri:dev
 
 # 3. Build a distributable installer
-npm run tauri build
+npm run tauri:build
 ```
 
 The first `tauri dev` / `cargo build` compiles all Rust dependencies and can
@@ -77,7 +76,7 @@ take several minutes. Subsequent builds are incremental and fast.
 ## Signing in
 
 Click **Add Microsoft account** on the Accounts page and complete the login in
-the window that opens — no configuration needed. Beacon requires a valid
+the window that opens — no configuration needed. EZMapa requires a valid
 Minecraft account to play online.
 
 Prefer not to sign in? **Offline accounts** let you create instances, install
@@ -91,7 +90,7 @@ Modrinth works out of the box. To also search and install from **CurseForge**,
 you need a free CurseForge **Core API key**:
 
 - Set it in **Settings → Content providers**, or
-- Provide it via the `BEACON_CF_API_KEY` environment variable before launching.
+- Provide it via the `EZMAPA_CF_API_KEY` environment variable before launching.
 
 Without a key, Modrinth remains fully available.
 
@@ -99,7 +98,7 @@ Without a key, Modrinth remains fully available.
 
 ## Releasing & self-update
 
-Beacon ships signed updater artifacts and checks
+EZMapa ships signed updater artifacts and checks
 `https://github.com/innvandrer/mcLauncher/releases/latest/download/latest.json`
 on launch. To cut a new release:
 
@@ -107,9 +106,9 @@ on launch. To cut a new release:
 2. Build with the signing key available:
 
    ```powershell
-   $env:TAURI_SIGNING_PRIVATE_KEY = Get-Content <path-to>\beacon.key -Raw
+   $env:TAURI_SIGNING_PRIVATE_KEY = Get-Content <path-to>\ezmapa.key -Raw
    $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = "<key password>"
-   npm run tauri build
+   npm run tauri:build
    ```
 
 3. Generate `latest.json` (signature = contents of the `*-setup.exe.sig`, url =
@@ -131,10 +130,10 @@ updates that existing installs will accept.
 Everything is stored under the OS app-data directory:
 
 ```
-%APPDATA%\com.beacon.launcher\
+%APPDATA%\com.ezmapa.launcher\
 ├── instances\<id>\
 │   ├── instance.json        # instance metadata
-│   ├── beacon_index.json    # installed-content index (file → project/provider)
+│   ├── ezmapa_index.json    # installed-content index (file → project/provider)
 │   └── minecraft\           # the game directory (mods, saves, config, ...)
 ├── libraries\               # shared maven libraries
 ├── assets\                  # shared asset objects + indexes
@@ -145,12 +144,15 @@ Everything is stored under the OS app-data directory:
 └── accounts.json
 ```
 
+If you previously used the Beacon build, your data is migrated automatically from
+`%APPDATA%\com.beacon.launcher\` on first launch.
+
 ---
 
 ## Project structure
 
 ```
-beacon-launcher/
+ezmapa-launcher/
 ├── src/                     # React + TypeScript frontend
 │   ├── components/          # UI primitives, title bar, sidebar, modals, cards
 │   ├── pages/               # Instances, instance detail, modpacks, accounts, settings
@@ -180,7 +182,7 @@ beacon-launcher/
 
 ## Legal
 
-Beacon uses official, public APIs (Microsoft sign-in, Mojang/`piston-meta`,
+EZMapa uses official, public APIs (Microsoft sign-in, Mojang/`piston-meta`,
 Modrinth, CurseForge, Adoptium) and requires a valid Minecraft account to play
-online. "Minecraft" is a trademark of Mojang Synergies AB; Beacon is not
+online. "Minecraft" is a trademark of Mojang Synergies AB; EZMapa is not
 affiliated with or endorsed by Mojang or Microsoft.

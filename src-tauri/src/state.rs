@@ -120,9 +120,9 @@ impl AppState {
     pub fn new(root: PathBuf) -> Self {
         let http = reqwest::Client::builder()
             .user_agent(concat!(
-                "beacon-launcher/",
+                "ezmapa-launcher/",
                 env!("CARGO_PKG_VERSION"),
-                " (https://github.com/your-name/beacon-launcher)"
+                " (https://github.com/innvandrer/mcLauncher)"
             ))
             .build()
             .expect("failed to build HTTP client");

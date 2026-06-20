@@ -35,8 +35,8 @@ fn loader_type(loader: Option<&str>) -> Option<u8> {
     }
 }
 
-/// Resolve the API key from settings, falling back to the `BEACON_CF_API_KEY`
-/// env var. Returns a friendly error when neither is set.
+/// Resolve the API key from settings, falling back to `EZMAPA_CF_API_KEY` or
+/// legacy `BEACON_CF_API_KEY`. Returns a friendly error when neither is set.
 fn api_key(state: &AppState) -> Result<String> {
     if let Some(k) = crate::instances::load_settings(state)
         .curseforge_api_key
@@ -44,13 +44,15 @@ fn api_key(state: &AppState) -> Result<String> {
     {
         return Ok(k);
     }
-    if let Ok(k) = std::env::var("BEACON_CF_API_KEY") {
-        if !k.trim().is_empty() {
-            return Ok(k);
+    for var in ["EZMAPA_CF_API_KEY", "BEACON_CF_API_KEY"] {
+        if let Ok(k) = std::env::var(var) {
+            if !k.trim().is_empty() {
+                return Ok(k);
+            }
         }
     }
     Err(Error::Other(
-        "No CurseForge API key set. Add one in Settings or set BEACON_CF_API_KEY.".into(),
+        "No CurseForge API key set. Add one in Settings or set EZMAPA_CF_API_KEY.".into(),
     ))
 }
 
@@ -637,7 +639,7 @@ pub async fn install_modpack(
         .download_url
         .clone()
         .unwrap_or_else(|| fallback_url(pack_file.id, &pack_file.file_name));
-    let tmp_path = std::env::temp_dir().join(format!("beacon_cf_{}.zip", pack_file.id));
+    let tmp_path = std::env::temp_dir().join(format!("ezmapa_cf_{}.zip", pack_file.id));
     net::download_one(&state.http, &DownloadItem::new(pack_url, tmp_path.clone(), None)).await?;
 
     // Parse manifest.json from the archive.

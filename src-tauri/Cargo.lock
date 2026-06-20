@@ -235,33 +235,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
 
 [[package]]
-name = "beacon-launcher"
-version = "0.2.0"
-dependencies = [
- "chrono",
- "dirs 5.0.1",
- "discord-rich-presence",
- "futures",
- "hex",
- "md-5",
- "reqwest 0.12.28",
- "serde",
- "serde_json",
- "sha1",
- "sha2",
- "tauri",
- "tauri-build",
- "tauri-plugin-dialog",
- "tauri-plugin-opener",
- "tauri-plugin-process",
- "tauri-plugin-updater",
- "thiserror 2.0.18",
- "tokio",
- "uuid 1.23.3",
- "zip 2.4.2",
-]
-
-[[package]]
 name = "bit-set"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1029,6 +1002,33 @@ checksum = "8be9f3dfaaffdae2972880079a491a1a8bb7cbed0b8dd7a347f668b4150a3b93"
 dependencies = [
  "event-listener",
  "pin-project-lite",
+]
+
+[[package]]
+name = "ezmapa-launcher"
+version = "0.2.0"
+dependencies = [
+ "chrono",
+ "dirs 5.0.1",
+ "discord-rich-presence",
+ "futures",
+ "hex",
+ "md-5",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "sha1",
+ "sha2",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-dialog",
+ "tauri-plugin-opener",
+ "tauri-plugin-process",
+ "tauri-plugin-updater",
+ "thiserror 2.0.18",
+ "tokio",
+ "uuid 1.23.3",
+ "zip 2.4.2",
 ]
 
 [[package]]

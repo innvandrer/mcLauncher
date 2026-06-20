@@ -332,7 +332,7 @@ pub fn import_instance(state: &AppState, src: &Path) -> Result<Instance> {
     let mut manifest: Instance = {
         let mut mf = archive
             .by_name("instance.json")
-            .map_err(|_| Error::Other("not a Beacon instance export (no instance.json)".into()))?;
+            .map_err(|_| Error::Other("not an EZMapa instance export (no instance.json)".into()))?;
         let mut buf = Vec::new();
         std::io::Read::read_to_end(&mut mf, &mut buf)?;
         serde_json::from_slice(&buf)?
@@ -386,11 +386,19 @@ struct IndexItem {
 }
 
 fn index_path(state: &AppState, id: &str) -> std::path::PathBuf {
+    state.dirs.instance_dir(id).join("ezmapa_index.json")
+}
+
+fn legacy_index_path(state: &AppState, id: &str) -> std::path::PathBuf {
     state.dirs.instance_dir(id).join("beacon_index.json")
 }
 
 fn load_index(state: &AppState, id: &str) -> ContentIndex {
-    read_json_or_default(&index_path(state, id))
+    let path = index_path(state, id);
+    if path.exists() {
+        return read_json_or_default(&path);
+    }
+    read_json_or_default(&legacy_index_path(state, id))
 }
 
 /// Record that `file_name` in this instance came from `project_id` on `provider`.

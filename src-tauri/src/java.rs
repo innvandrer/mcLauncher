@@ -85,7 +85,7 @@ fn push_java_dir(set: &mut BTreeSet<PathBuf>, dir: &Path) {
 }
 
 /// Discover Java installations from JAVA_HOME, PATH, common install locations
-/// and Beacon's own managed runtimes.
+/// and EZMapa's own managed runtimes.
 pub fn detect(state: &AppState) -> Vec<JavaInstall> {
     let mut candidates: BTreeSet<PathBuf> = BTreeSet::new();
 
@@ -122,7 +122,7 @@ pub fn detect(state: &AppState) -> Vec<JavaInstall> {
         }
     }
 
-    // Beacon-managed runtimes.
+    // EZMapa-managed runtimes.
     if let Ok(rd) = std::fs::read_dir(state.dirs.java()) {
         for e in rd.flatten() {
             push_java_dir(&mut candidates, &e.path());

@@ -23,7 +23,7 @@ const SPLASHES = [
   "Punch a tree, get wood.",
   "Mine your own business.",
   "100% open source!",
-  "Beacon-shaped.",
+  "Map-shaped.",
 ];
 
 function HeroBanner({
@@ -53,26 +53,30 @@ function HeroBanner({
             "radial-gradient(80% 140% at 0% 0%, hsl(var(--accent) / 0.30), transparent 60%), radial-gradient(70% 130% at 100% 0%, hsl(var(--accent) / 0.16), transparent 55%)",
         }}
       />
-      <div className="relative flex items-center gap-6 p-7">
+      <div className="relative flex flex-col gap-6 p-4 sm:flex-row sm:items-center sm:p-7">
         <div className="min-w-0 flex-1">
           <p className="text-xs font-semibold uppercase tracking-wider text-accent">Welcome back</p>
-          <h1 className="mt-1 truncate text-3xl font-bold tracking-tight">
-            {active ? active.username : "to Beacon"}
+          <h1 className="mt-1 truncate text-2xl font-bold tracking-tight sm:text-3xl">
+            {active ? active.username : "to EZMapa"}
           </h1>
           <p className="mt-1.5 text-sm text-muted-foreground">
             {formatDuration(totalSeconds)} played · {instanceCount}{" "}
             {instanceCount === 1 ? "instance" : "instances"}
-            <span className="ml-2 select-none italic text-amber-400/90">{splash}</span>
+            <span className="ml-0 mt-1 block select-none italic text-amber-400/90 sm:ml-2 sm:mt-0 sm:inline">
+              {splash}
+            </span>
           </p>
           {instance && (
             <div className="mt-5 flex flex-wrap items-center gap-3">
               <button
                 onClick={onPlay}
                 disabled={running}
-                className="inline-flex h-11 items-center gap-2 rounded-xl bg-accent px-5 text-sm font-semibold text-accent-foreground shadow-lg shadow-accent/30 transition hover:brightness-110 active:scale-[0.98] disabled:opacity-60 btn-focus"
+                className="inline-flex h-11 max-w-full items-center gap-2 rounded-xl bg-accent px-5 text-sm font-semibold text-accent-foreground shadow-lg shadow-accent/30 transition hover:brightness-110 active:scale-[0.98] disabled:opacity-60 btn-focus"
               >
-                <Play className="h-4 w-4 fill-current" />
-                {running ? `${instance.name} running` : `Continue — ${instance.name}`}
+                <Play className="h-4 w-4 shrink-0 fill-current" />
+                <span className="truncate">
+                  {running ? `${instance.name} running` : `Continue — ${instance.name}`}
+                </span>
               </button>
               <button
                 onClick={onOpen}
@@ -169,7 +173,7 @@ export function HomePage() {
 
   if (instances.length === 0) {
     return (
-      <div className="flex h-full flex-col">
+      <div className="app-page">
         <Header />
         <div className="flex flex-1 flex-col items-center justify-center gap-4 text-center text-muted-foreground">
           <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-muted/60">
@@ -191,8 +195,8 @@ export function HomePage() {
   }
 
   return (
-    <div className="flex h-full flex-col">
-      <div className="scroll-area flex-1 px-8 pb-8 pt-6">
+    <div className="app-page">
+      <div className="app-scroll app-gutter pb-8 pt-6">
         <HeroBanner
           active={active}
           instance={stats.mostPlayed}
@@ -309,10 +313,10 @@ function Header() {
   const active = accounts.find((a) => a.active);
   const splash = useMemo(() => SPLASHES[Math.floor(Math.random() * SPLASHES.length)], []);
   return (
-    <header className="px-8 pb-4 pt-6">
-      <div className="flex items-center gap-3">
+    <header className="app-gutter pb-4 pt-6">
+      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
         <h1 className="text-2xl font-bold tracking-tight">
-          {active ? `Welcome back, ${active.username}` : "Welcome to Beacon"}
+          {active ? `Welcome back, ${active.username}` : "Welcome to EZMapa"}
         </h1>
         <span className="-rotate-6 select-none text-sm font-semibold italic text-amber-400">
           {splash}
@@ -333,17 +337,17 @@ function ActivityChart({
   total: number;
 }) {
   return (
-    <section className="card-surface p-5">
-      <h2 className="mb-4 flex items-center gap-2 text-sm font-semibold">
-        <Activity className="h-4 w-4 text-accent" />
+    <section className="card-surface min-w-0 overflow-hidden p-5">
+      <h2 className="mb-4 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm font-semibold">
+        <Activity className="h-4 w-4 shrink-0 text-accent" />
         Play activity
-        <span className="ml-auto text-xs font-normal text-muted-foreground">
+        <span className="text-xs font-normal text-muted-foreground sm:ml-auto">
           {formatDuration(total)} · last 14 days
         </span>
       </h2>
-      <div className="flex h-28 items-end gap-1.5">
+      <div className="flex h-28 min-w-0 items-end gap-1 sm:gap-1.5">
         {buckets.map((b) => (
-          <div key={b.key} className="flex h-full flex-1 items-end" title={`${b.full}: ${b.seconds > 0 ? formatDuration(b.seconds) : "no play"}`}>
+          <div key={b.key} className="flex h-full min-w-0 flex-1 items-end" title={`${b.full}: ${b.seconds > 0 ? formatDuration(b.seconds) : "no play"}`}>
             <motion.div
               initial={{ height: 0 }}
               animate={{ height: `${(b.seconds / max) * 100}%` }}
@@ -354,9 +358,9 @@ function ActivityChart({
           </div>
         ))}
       </div>
-      <div className="mt-1 flex gap-1.5">
+      <div className="mt-1 flex min-w-0 gap-1 sm:gap-1.5">
         {buckets.map((b, i) => (
-          <span key={b.key} className="flex-1 text-center text-[10px] text-muted-foreground">
+          <span key={b.key} className="min-w-0 flex-1 truncate text-center text-[10px] text-muted-foreground">
             {i % 2 === 0 ? b.tick : ""}
           </span>
         ))}

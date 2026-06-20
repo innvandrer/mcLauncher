@@ -24,7 +24,7 @@ export function UpdateModal() {
       {update && (
         <div className="space-y-4">
           <p className="text-sm text-muted-foreground">
-            Beacon <span className="font-medium text-foreground">{update.version}</span> is
+            EZMapa <span className="font-medium text-foreground">{update.version}</span> is
             available.{" "}
             {updating
               ? "Downloading and installing… the app will restart automatically."

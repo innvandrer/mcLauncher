@@ -175,7 +175,7 @@ pub async fn launch(
     );
     vars.insert("version_type", "release".to_string());
     vars.insert("natives_directory", natives_dir.to_string_lossy().to_string());
-    vars.insert("launcher_name", "beacon".to_string());
+    vars.insert("launcher_name", "ezmapa".to_string());
     vars.insert("launcher_version", env!("CARGO_PKG_VERSION").to_string());
     vars.insert("classpath", classpath.clone());
     vars.insert("classpath_separator", sep.to_string());
@@ -192,7 +192,7 @@ pub async fn launch(
             "instance://log",
             LogLine {
                 instance_id: instance.id.clone(),
-                line: "[Beacon] Kjører Forge-prosessorer (patcher spillet)...".into(),
+                line: "[EZMapa] Kjører Forge-prosessorer (patcher spillet)...".into(),
                 is_err: false,
             },
         );
@@ -310,7 +310,7 @@ pub async fn launch(
             "instance://log",
             LogLine {
                 instance_id: instance.id.clone(),
-                line: format!("[Beacon] Running pre-launch command: {pre}"),
+                line: format!("[EZMapa] Running pre-launch command: {pre}"),
                 is_err: false,
             },
         );
@@ -344,7 +344,7 @@ pub async fn launch(
         "instance://log",
         LogLine {
             instance_id: instance.id.clone(),
-            line: format!("[Beacon] Launching {} ({})", instance.name, resolved.id),
+            line: format!("[EZMapa] Launching {} ({})", instance.name, resolved.id),
             is_err: false,
         },
     );
@@ -393,7 +393,7 @@ pub async fn launch(
             "instance://log",
             LogLine {
                 instance_id: inst_id.clone(),
-                line: format!("[Beacon] Process exited with code {code:?}"),
+                line: format!("[EZMapa] Process exited with code {code:?}"),
                 is_err: code.unwrap_or(0) != 0,
             },
         );

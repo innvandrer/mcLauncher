@@ -26,9 +26,9 @@ const REDIRECT_URI: &str = "https://login.live.com/oauth20_desktop.srf";
 const SCOPE: &str = "service::user.auth.xboxlive.com::MBI_SSL";
 
 fn client_id() -> String {
-    std::env::var("BEACON_CLIENT_ID")
-        .ok()
-        .filter(|k| !k.trim().is_empty())
+    ["EZMAPA_CLIENT_ID", "BEACON_CLIENT_ID"]
+        .into_iter()
+        .find_map(|var| std::env::var(var).ok().filter(|k| !k.trim().is_empty()))
         .unwrap_or_else(|| BUNDLED_CLIENT_ID.to_string())
 }
 

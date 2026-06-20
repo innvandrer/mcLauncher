@@ -122,8 +122,8 @@ pub struct Settings {
     pub max_concurrent_downloads: usize,
     #[serde(default)]
     pub close_on_launch: bool,
-    /// Optional CurseForge Core API key. Falls back to the `BEACON_CF_API_KEY`
-    /// env var when empty. Required for CurseForge search/installs.
+    /// Optional CurseForge Core API key. Falls back to `EZMAPA_CF_API_KEY` (or
+    /// legacy `BEACON_CF_API_KEY`) when empty. Required for CurseForge search/installs.
     #[serde(default)]
     pub curseforge_api_key: Option<String>,
 }

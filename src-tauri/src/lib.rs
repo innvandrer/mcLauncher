@@ -21,6 +21,39 @@ mod tools;
 use state::AppState;
 use tauri::Manager;
 
+/// Move data from the old Beacon app identifier on first launch after rebrand.
+fn migrate_legacy_data_dir(data_dir: &std::path::Path) {
+    if data_dir.exists() {
+        return;
+    }
+    let Some(roaming) = dirs::data_dir() else {
+        return;
+    };
+    let legacy = roaming.join("com.beacon.launcher");
+    if !legacy.is_dir() {
+        return;
+    }
+    if std::fs::rename(&legacy, data_dir).is_ok() {
+        return;
+    }
+    // Fall back to a recursive copy when rename fails (e.g. cross-volume).
+    let _ = copy_dir_all(&legacy, data_dir);
+}
+
+fn copy_dir_all(from: &std::path::Path, to: &std::path::Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(to)?;
+    for entry in std::fs::read_dir(from)? {
+        let entry = entry?;
+        let dest = to.join(entry.file_name());
+        if entry.file_type()?.is_dir() {
+            copy_dir_all(&entry.path(), &dest)?;
+        } else {
+            std::fs::copy(entry.path(), dest)?;
+        }
+    }
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let mut builder = tauri::Builder::default()
@@ -37,6 +70,7 @@ pub fn run() {
     builder
         .setup(|app| {
             let data_dir = app.path().app_data_dir()?;
+            migrate_legacy_data_dir(&data_dir);
             std::fs::create_dir_all(&data_dir).ok();
             app.manage(AppState::new(data_dir));
 
@@ -127,7 +161,7 @@ pub fn run() {
             commands::upload_log,
         ])
         .run(tauri::generate_context!())
-        .expect("error while running Beacon");
+        .expect("error while running EZMapa");
 }
 
 #[cfg(desktop)]
@@ -135,14 +169,14 @@ fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
     use tauri::menu::{Menu, MenuItem};
 
-    let show = MenuItem::with_id(app, "show", "Open Beacon", true, None::<&str>)?;
+    let show = MenuItem::with_id(app, "show", "Open EZMapa", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&show, &quit])?;
 
     TrayIconBuilder::new()
         .icon(app.default_window_icon().unwrap().clone())
         .menu(&menu)
-        .tooltip("Beacon Launcher")
+        .tooltip("EZMapa Launcher")
         .on_menu_event(|app, event| match event.id.as_ref() {
             "show" => {
                 if let Some(win) = app.get_webview_window("main") {

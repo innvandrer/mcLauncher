@@ -3,13 +3,11 @@ import { Minus, Square, X } from "lucide-react";
 
 const appWindow = getCurrentWindow();
 
-export function BeaconLogo({ className }: { className?: string }) {
-  // Use the actual app icon (same artwork as the Windows taskbar / installer
-  // icon) so the in-app brand matches the OS icon exactly.
+export function EzmapaLogo({ className }: { className?: string }) {
   return (
     <img
-      src="/beacon-icon.png"
-      alt="Beacon"
+      src="/ezmapa-icon.png"
+      alt="EZMapa"
       draggable={false}
       className={className}
     />
@@ -23,9 +21,9 @@ export function TitleBar() {
       className="flex h-10 shrink-0 select-none items-center justify-between border-b border-border/60 bg-surface/40 pl-3 glass"
     >
       <div data-tauri-drag-region className="flex items-center gap-2">
-        <BeaconLogo className="h-5 w-5" />
+        <EzmapaLogo className="h-5 w-5" />
         <span data-tauri-drag-region className="text-sm font-semibold tracking-tight">
-          Beacon
+          EZMapa
         </span>
       </div>
 

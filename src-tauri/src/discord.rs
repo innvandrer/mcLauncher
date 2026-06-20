@@ -1,7 +1,6 @@
 //! Discord Rich Presence: shows what instance is playing in Discord.
-//! Uses the official Beacon app client ID. Reconnects on demand, so it works
-//! even if Discord is opened after Beacon. Silently no-ops if Discord isn't
-//! running or the IPC pipe isn't available.
+//! Reconnects on demand, so it works even if Discord is opened after EZMapa.
+//! Silently no-ops if Discord isn't running or the IPC pipe isn't available.
 
 use discord_rich_presence::{activity, DiscordIpc, DiscordIpcClient};
 use std::sync::{Arc, Mutex};
@@ -9,7 +8,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 const CLIENT_ID: &str = "1382889592032276520";
 const LARGE_IMAGE: &str = "beacon_logo";
-const LARGE_TEXT: &str = "Beacon Launcher";
+const LARGE_TEXT: &str = "EZMapa Launcher";
 
 /// Shared presence handle. Wraps the IPC client so launch/stop threads can
 /// update it without holding the whole AppState lock.

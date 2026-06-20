@@ -1,9 +1,9 @@
 {
-  "name": "beacon-launcher",
+  "name": "ezmapa-launcher",
   "private": true,
-  "version": "0.2.1",
+  "version": "0.2.2",
   "type": "module",
-  "description": "A modern, open-source Minecraft launcher",
+  "description": "EZMapa — a modern Minecraft launcher",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",

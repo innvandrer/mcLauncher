@@ -2,7 +2,7 @@ name: Release
 
 # Builds and publishes a signed release whenever a version tag (v*) is pushed.
 # Requires two repository secrets:
-#   TAURI_SIGNING_PRIVATE_KEY          - contents of ~/.beacon-signing/beacon.key
+#   TAURI_SIGNING_PRIVATE_KEY          - contents of signing key
 #   TAURI_SIGNING_PRIVATE_KEY_PASSWORD - the key password
 on:
   push:
@@ -43,7 +43,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           tagName: ${{ github.ref_name }}
-          releaseName: "Beacon ${{ github.ref_name }}"
+          releaseName: "EZMapa ${{ github.ref_name }}"
           releaseBody: "Download the installer below. Existing installs update automatically."
           releaseDraft: false
           prerelease: false

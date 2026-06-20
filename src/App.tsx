@@ -33,15 +33,15 @@ export default function App() {
   const screenKey = selectedInstanceId ? `inst:${selectedInstanceId}` : view;
 
   return (
-    <div className="flex h-screen w-screen flex-col overflow-hidden">
+    <div className="flex h-full w-full min-h-0 flex-col overflow-hidden">
       <TitleBar />
-      <div className="flex flex-1 overflow-hidden">
+      <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
         <Sidebar />
-        <main className="relative flex-1 overflow-hidden">
+        <main className="relative min-h-0 min-w-0 flex-1 overflow-hidden">
           {!ready ? (
             <div className="flex h-full flex-col items-center justify-center gap-3 text-muted-foreground">
               <Spinner className="h-6 w-6" />
-              <span className="text-sm">Loading Beacon…</span>
+              <span className="text-sm">Loading EZMapa…</span>
             </div>
           ) : (
             <motion.div
@@ -49,7 +49,7 @@ export default function App() {
               initial={{ opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.18, ease: "easeOut" }}
-              className="h-full"
+              className="h-full min-h-0 min-w-0"
             >
               <ErrorBoundary>
                 {selectedInstanceId ? (

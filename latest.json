@@ -1,11 +1,11 @@
 {
-  "version": "v0.2.1",
-  "notes": "Dependency auto-installation fixes and UI polish.\n\n## What's new\n- **Modrinth dependency resolution**: required dependencies are now installed recursively and constrained to the instance's loader and Minecraft version.\n- **CurseForge dependency resolution**: required dependencies and bundled libraries are now auto-installed.\n- **Dependency tracking**: every auto-installed dependency is recorded in `beacon_index.json` so it appears as a known, tracked mod.\n- **Install feedback**: the UI now reports how many dependencies were installed alongside a mod for both Modrinth and CurseForge.\n- **Fabric branding**: the launcher now uses Fabric's official pixel-art spool icon.\n- **Home page icons**: fixed icon rendering on the recently-played list so it matches the rest of the app.\n\n## Fixes\n- Fixed the Modrinth version picker installing dependencies without filtering by loader/game version.\n- Fixed CurseForge mods not installing any dependencies at all.",
-  "pub_date": "2026-06-18T17:19:41Z",
+  "version": "v0.2.2",
+  "notes": "EZMapa rebrand — the launcher is now fully branded as EZMapa.\n\n## What's new\n- **EZMapa branding** across the UI, installer, and app identity (`com.ezmapa.launcher`).\n- **Automatic data migration** from the old Beacon app-data folder on first launch.\n- **Installed mods search** on the instance detail page.\n- **Responsive layout fixes** for the Pelican-style panel and launcher pages.\n\n## Compatibility\n- Existing instances, accounts, and settings migrate from `%APPDATA%\\com.beacon.launcher\\`.\n- Legacy env vars (`BEACON_CF_API_KEY`, `BEACON_CLIENT_ID`) still work.\n- Mod index files (`beacon_index.json`) are still read; new writes use `ezmapa_index.json`.",
+  "pub_date": "2026-06-20T12:00:00Z",
   "platforms": {
     "windows-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUaWJJeGNySmg2R01sdWlvZHh4bnRVVTJMVE92ZWgrQkMzcjRPYi9EVllEWmE2VEpJUThDNFZmWlhGZUprRkFEYVBDOHRyUG9IbldERVN6VXZDNEQ5ams5bkpIcVBLUnd3PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzgxODAzMTUxCWZpbGU6QmVhY29uXzAuMi4xX3g2NC1zZXR1cC5leGUKWU5hd3lPdndxN0hRaTlBQklOVXpsRVd1eitSNko2dk9jTXp5bWhRdWFLbTV3emRsOW80L1I4UXplRXVvejliYjZFbHgzcmppUDZpblpQTkxuTFVhRGc9PQo=",
-      "url": "https://github.com/innvandrer/mcLauncher/releases/download/v0.2.1/Beacon_0.2.1_x64-setup.exe"
+      "signature": "",
+      "url": "https://github.com/innvandrer/mcLauncher/releases/download/v0.2.2/EZMapa_0.2.2_x64-setup.exe"
     }
   }
 }

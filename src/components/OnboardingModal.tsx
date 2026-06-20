@@ -3,7 +3,8 @@ import { Boxes, Package, Server, Sparkles, Users } from "lucide-react";
 import { Button, Modal } from "@/components/ui";
 import { useStore } from "@/store/useStore";
 
-const SEEN_KEY = "beacon:onboarded";
+const SEEN_KEY = "ezmapa:onboarded";
+const LEGACY_SEEN_KEY = "beacon:onboarded";
 
 const FEATURES = [
   {
@@ -35,7 +36,8 @@ export function OnboardingModal() {
   const [open, setOpen] = useState(false);
 
   useEffect(() => {
-    if (ready && !localStorage.getItem(SEEN_KEY)) setOpen(true);
+    if (ready && !localStorage.getItem(SEEN_KEY) && !localStorage.getItem(LEGACY_SEEN_KEY))
+      setOpen(true);
   }, [ready]);
 
   const finish = (go?: "instances" | "accounts") => {
@@ -50,7 +52,7 @@ export function OnboardingModal() {
       onClose={() => finish()}
       title={
         <span className="flex items-center gap-2">
-          <Sparkles className="h-4 w-4 text-accent" /> Welcome to Beacon
+          <Sparkles className="h-4 w-4 text-accent" /> Welcome to EZMapa
         </span>
       }
       footer={
