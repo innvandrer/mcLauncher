@@ -1,7 +1,7 @@
 {
   "version": "v0.2.2",
-  "notes": "EZMapa rebrand — the launcher is now fully branded as EZMapa.\n\n## What's new\n- **EZMapa branding** across the UI, installer, and app identity (`com.ezmapa.launcher`).\n- **Automatic data migration** from the old Beacon app-data folder on first launch.\n- **Installed mods search** on the instance detail page.\n- **Responsive layout fixes** for the Pelican-style panel and launcher pages.\n\n## Compatibility\n- Existing instances, accounts, and settings migrate from `%APPDATA%\\com.beacon.launcher\\`.\n- Legacy env vars (`BEACON_CF_API_KEY`, `BEACON_CLIENT_ID`) still work.\n- Mod index files (`beacon_index.json`) are still read; new writes use `ezmapa_index.json`.",
-  "pub_date": "2026-06-20T12:00:00Z",
+  "notes": "EZMapa rebrand — the launcher is now fully branded as EZMapa.\n\n## What's new\n- **EZMapa branding**: UI, installer, title bar, and app identity (`com.ezmapa.launcher`) are all renamed from Beacon.\n- **Automatic data migration**: existing instances, accounts, and settings move from `%APPDATA%\\com.beacon.launcher\\` on first launch.\n- **Installed mods search**: filter mods already on an instance from the instance detail page.\n- **Responsive layout**: pages resize cleanly without overlapping panels or a double title bar.\n- **Legacy compatibility**: `BEACON_CF_API_KEY`, `BEACON_CLIENT_ID`, and `beacon_index.json` still work; new writes use `ezmapa_index.json`.\n\n## Fixes\n- Fixed layout breaking when resizing the launcher window.\n- Fixed duplicate title bar in the frameless window build.",
+  "pub_date": "2026-06-20T22:51:07Z",
   "platforms": {
     "windows-x86_64": {
       "signature": "",
