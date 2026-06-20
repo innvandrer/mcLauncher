@@ -244,7 +244,12 @@ export const useStore = create<State>((set, get) => ({
       await pendingUpdate.downloadAndInstall();
       await relaunch();
     } catch (e) {
-      get().toast("error", errMessage(e));
+      const msg = errMessage(e);
+      const hint =
+        msg.toLowerCase().includes("minisign") || msg.toLowerCase().includes("signature")
+          ? " Auto-update is temporarily unavailable — download the latest installer from GitHub Releases instead."
+          : "";
+      get().toast("error", msg + hint);
       set({ updating: false });
     }
   },

@@ -2,8 +2,8 @@ name: Release
 
 # Builds and publishes a signed release whenever a version tag (v*) is pushed.
 # Requires two repository secrets:
-#   TAURI_SIGNING_PRIVATE_KEY          - contents of signing key
-#   TAURI_SIGNING_PRIVATE_KEY_PASSWORD - the key password
+#   TAURI_SIGNING_PRIVATE_KEY          - full contents of ~/.beacon-signing/beacon.key (one base64 line)
+#   TAURI_SIGNING_PRIVATE_KEY_PASSWORD - the key password (leave empty if none)
 on:
   push:
     tags:
