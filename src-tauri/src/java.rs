@@ -1,7 +1,7 @@
 //! Java runtime detection and (when missing) automatic download from Adoptium.
 
 use crate::error::{Error, Result};
-use crate::state::AppState;
+use crate::state::{AppDirs, AppState};
 use serde::Serialize;
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -85,8 +85,9 @@ fn push_java_dir(set: &mut BTreeSet<PathBuf>, dir: &Path) {
 }
 
 /// Discover Java installations from JAVA_HOME, PATH, common install locations
-/// and EZMapa's own managed runtimes.
-pub fn detect(state: &AppState) -> Vec<JavaInstall> {
+/// and the launcher's own managed runtimes. Takes only the directory layout so
+/// it can run inside `spawn_blocking` without borrowing the whole `AppState`.
+pub fn detect_in(dirs: &AppDirs) -> Vec<JavaInstall> {
     let mut candidates: BTreeSet<PathBuf> = BTreeSet::new();
 
     if let Ok(java_home) = std::env::var("JAVA_HOME") {
@@ -122,8 +123,8 @@ pub fn detect(state: &AppState) -> Vec<JavaInstall> {
         }
     }
 
-    // EZMapa-managed runtimes.
-    if let Ok(rd) = std::fs::read_dir(state.dirs.java()) {
+    // Launcher-managed runtimes.
+    if let Ok(rd) = std::fs::read_dir(dirs.java()) {
         for e in rd.flatten() {
             push_java_dir(&mut candidates, &e.path());
             // One level deeper (Adoptium archives contain a top-level folder).
@@ -163,12 +164,18 @@ fn adoptium_arch() -> &'static str {
 
 /// Return a Java executable matching `major`, downloading a runtime if needed.
 pub async fn ensure(state: &AppState, major: u32) -> Result<String> {
-    if let Some(found) = detect(state).into_iter().find(|j| j.major == major) {
-        return Ok(found.path);
-    }
-    // Also accept a newer runtime if one is already present (best effort).
-    if let Some(found) = detect(state).into_iter().find(|j| j.major >= major) {
-        return Ok(found.path);
+    // Detection scans the filesystem and may exec `java -version`; run it once,
+    // off the async runtime (the previous code scanned the disk twice on the
+    // launch hot path and blocked the executor with subprocesses).
+    let dirs = state.dirs.clone();
+    let installs = tokio::task::spawn_blocking(move || detect_in(&dirs)).await?;
+    if let Some(found) = installs
+        .iter()
+        .find(|j| j.major == major)
+        // Also accept a newer runtime if one is already present (best effort).
+        .or_else(|| installs.iter().find(|j| j.major >= major))
+    {
+        return Ok(found.path.clone());
     }
 
     download(state, major).await

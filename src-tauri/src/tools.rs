@@ -43,20 +43,30 @@ fn dir_size(path: &Path) -> u64 {
 
 pub fn instance_disk_usage(state: &AppState, instance_id: &str) -> DiskUsage {
     let game = state.dirs.game_dir(instance_id);
-    let mods = dir_size(&game.join("mods"));
-    let saves = dir_size(&game.join("saves"));
-    let resourcepacks = dir_size(&game.join("resourcepacks"));
-    let shaders = dir_size(&game.join("shaderpacks"));
-    let total = dir_size(&game);
-    let known = mods + saves + resourcepacks + shaders;
-    DiskUsage {
-        total,
-        mods,
-        saves,
-        resourcepacks,
-        shaders,
-        other: total.saturating_sub(known),
+    // Walk the game directory once: size each top-level entry, attribute the
+    // known content folders, and fold everything else into `other`. (The old
+    // version walked mods/saves/resourcepacks/shaders and then the whole tree
+    // again for the total.)
+    let mut usage = DiskUsage::default();
+    if let Ok(rd) = std::fs::read_dir(&game) {
+        for entry in rd.flatten() {
+            let path = entry.path();
+            let size = if path.is_dir() {
+                dir_size(&path)
+            } else {
+                entry.metadata().map(|m| m.len()).unwrap_or(0)
+            };
+            usage.total += size;
+            match entry.file_name().to_string_lossy().as_ref() {
+                "mods" => usage.mods = size,
+                "saves" => usage.saves = size,
+                "resourcepacks" => usage.resourcepacks = size,
+                "shaderpacks" => usage.shaders = size,
+                _ => usage.other += size,
+            }
+        }
     }
+    usage
 }
 
 // ---------------------------------------------------------------------------

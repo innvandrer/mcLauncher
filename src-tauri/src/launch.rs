@@ -5,10 +5,12 @@ use crate::error::{Error, Result};
 use crate::models::{InstanceState, LogLine};
 use crate::mojang::{self, ArgValue, Argument};
 use crate::state::AppState;
-use crate::{auth, instances, java, modloader};
+use crate::{auth, instances, java, modloader, modrinth};
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Read};
 use std::process::Stdio;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use tauri::{AppHandle, Emitter, Manager};
 
 #[cfg(windows)]
@@ -50,6 +52,7 @@ fn spawn_reader<R: Read + Send + 'static>(
     instance_id: String,
     stream: Option<R>,
     is_err: bool,
+    shader_guard: Arc<AtomicBool>,
 ) {
     let Some(stream) = stream else { return };
     std::thread::spawn(move || {
@@ -57,6 +60,7 @@ fn spawn_reader<R: Read + Send + 'static>(
         for line in reader.lines() {
             match line {
                 Ok(line) => {
+                    maybe_autoinstall_shader(&app, &instance_id, &line, &shader_guard);
                     let _ = app.emit(
                         "instance://log",
                         LogLine {
@@ -67,6 +71,99 @@ fn spawn_reader<R: Read + Send + 'static>(
                     );
                 }
                 Err(_) => break,
+            }
+        }
+    });
+}
+
+/// Parse the Complementary version token (e.g. `r5.7.1`) out of a EuphoriaPatcher
+/// log line such as `Required: ComplementaryShaders r5.7.1`.
+fn parse_complementary_version(line: &str) -> Option<String> {
+    if !line.to_lowercase().contains("complementary") {
+        return None;
+    }
+    for raw in line.split_whitespace() {
+        let tok = raw.trim_matches(|c: char| !c.is_ascii_alphanumeric() && c != '.');
+        let mut chars = tok.chars();
+        if matches!(chars.next(), Some('r') | Some('R'))
+            && matches!(chars.next(), Some(d) if d.is_ascii_digit())
+            && tok.contains('.')
+        {
+            return Some(tok.to_string());
+        }
+    }
+    None
+}
+
+/// When EuphoriaPatcher reports that its required base Complementary shader is
+/// missing, download it from Modrinth into the instance automatically. Fires at
+/// most once per launch (guarded by `shader_guard`); the user just needs to
+/// relaunch for the patcher to pick it up.
+fn maybe_autoinstall_shader(
+    app: &AppHandle,
+    instance_id: &str,
+    line: &str,
+    shader_guard: &Arc<AtomicBool>,
+) {
+    let lower = line.to_lowercase();
+    if !(lower.contains("euphoriapatcher") || lower.contains("shader not found")) {
+        return;
+    }
+    let Some(version) = parse_complementary_version(line) else {
+        return;
+    };
+    // Only fire once per launch.
+    if shader_guard.swap(true, Ordering::SeqCst) {
+        return;
+    }
+
+    let app = app.clone();
+    let instance_id = instance_id.to_string();
+    tauri::async_runtime::spawn(async move {
+        let _ = app.emit(
+            "instance://log",
+            LogLine {
+                instance_id: instance_id.clone(),
+                line: format!(
+                    "[EZMapa] EuphoriaPatcher needs Complementary {version} — downloading it from Modrinth..."
+                ),
+                is_err: false,
+            },
+        );
+        let state = app.state::<AppState>();
+        match modrinth::ensure_complementary_shader(&state, &instance_id, &version).await {
+            Ok(Some(file_name)) => {
+                let _ = app.emit(
+                    "instance://log",
+                    LogLine {
+                        instance_id: instance_id.clone(),
+                        line: format!(
+                            "[EZMapa] Installed {file_name}. Relaunch to enable EuphoriaPatcher shaders."
+                        ),
+                        is_err: false,
+                    },
+                );
+                let _ = app.emit(
+                    "instance://shader-installed",
+                    serde_json::json!({
+                        "instanceId": instance_id,
+                        "fileName": file_name,
+                        "version": version,
+                    }),
+                );
+            }
+            Ok(None) => {}
+            Err(e) => {
+                let _ = app.emit(
+                    "instance://log",
+                    LogLine {
+                        instance_id: instance_id.clone(),
+                        line: format!(
+                            "[EZMapa] Could not auto-install Complementary {version}: {e}"
+                        ),
+                        is_err: true,
+                    },
+                );
             }
         }
     });
@@ -87,6 +184,24 @@ pub async fn launch(
 
     let instance = instances::get_instance(state, instance_id)?;
     let settings = instances::load_settings(state);
+
+    // Drop duplicate mod jars (same mod, two versions) before the game starts.
+    let removed = crate::tools::resolve_mod_conflicts(state, instance_id);
+    if !removed.is_empty() {
+        let _ = app.emit(
+            "instance://log",
+            LogLine {
+                instance_id: instance_id.to_string(),
+                line: format!(
+                    "[EZMapa] Removed {} duplicate mod {} before launch: {}",
+                    removed.len(),
+                    if removed.len() == 1 { "file" } else { "files" },
+                    removed.join(", ")
+                ),
+                is_err: false,
+            },
+        );
+    }
 
     // --- Account (refresh Microsoft token if expired) ------------------------
     let mut account = instances::active_account(state)
@@ -132,13 +247,39 @@ pub async fn launch(
         .iter()
         .map(|p| p.to_string_lossy().to_string())
         .collect();
-    cp.push(
-        state
-            .dirs
-            .version_jar(&resolved.client_id)
-            .to_string_lossy()
-            .to_string(),
-    );
+
+    // The vanilla Minecraft client jar is downloaded under its base version id
+    // (e.g. `versions/1.21.1/1.21.1.jar`). Module-based loaders (Forge/NeoForge
+    // BootstrapLauncher) pass `-DignoreList=client-extra,${version_name}.jar` so
+    // they can skip the raw client jar when building their transforming module
+    // layer and use their own patched `minecraft` module instead. `version_name`
+    // resolves to the launched version id, so the client jar on the classpath
+    // must be named after that launched id (not the base version) — otherwise
+    // the jar slips past the ignore list, gets loaded as an automatic module
+    // (e.g. `_1._21._1`), and clashes with NeoForge's `minecraft` module:
+    //   "Modules <id> and minecraft both export package ... to module ...".
+    let client_src = state.dirs.version_jar(&resolved.client_id);
+    let client_cp = if resolved.id != resolved.client_id {
+        let dest = state.dirs.version_jar(&resolved.id);
+        if client_src.exists() {
+            if let Some(parent) = dest.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            // Re-copy only when missing or out of date so we don't pay the cost
+            // on every launch.
+            let needs_copy = match (std::fs::metadata(&dest), std::fs::metadata(&client_src)) {
+                (Ok(d), Ok(s)) => d.len() != s.len(),
+                _ => true,
+            };
+            if needs_copy {
+                let _ = std::fs::copy(&client_src, &dest);
+            }
+        }
+        dest
+    } else {
+        client_src
+    };
+    cp.push(client_cp.to_string_lossy().to_string());
     let sep = if cfg!(windows) { ";" } else { ":" };
     let classpath = cp.join(sep);
 
@@ -324,8 +465,21 @@ pub async fn launch(
     })?;
     let pid = child.id();
 
-    spawn_reader(app.clone(), instance.id.clone(), child.stdout.take(), false);
-    spawn_reader(app.clone(), instance.id.clone(), child.stderr.take(), true);
+    let shader_guard = Arc::new(AtomicBool::new(false));
+    spawn_reader(
+        app.clone(),
+        instance.id.clone(),
+        child.stdout.take(),
+        false,
+        shader_guard.clone(),
+    );
+    spawn_reader(
+        app.clone(),
+        instance.id.clone(),
+        child.stderr.take(),
+        true,
+        shader_guard,
+    );
 
     state
         .running

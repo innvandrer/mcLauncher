@@ -255,11 +255,7 @@ pub async fn install_content(
         .cloned()
         .ok_or_else(|| Error::NotFound("download file".into()))?;
 
-    let folder = match content_type {
-        "resourcepack" => "resourcepacks",
-        "shader" => "shaderpacks",
-        _ => "mods",
-    };
+    let folder = crate::instances::content_subdir(content_type);
 
     let dest_dir = state.dirs.game_dir(instance_id).join(folder);
     let target = dest_dir.join(&file.filename);
@@ -270,6 +266,73 @@ pub async fn install_content(
     .await?;
 
     Ok((file.filename, installed_deps))
+}
+
+/// EuphoriaPatcher (bundled by many modpacks, e.g. All the Mods 10) patches a
+/// base Complementary shader at runtime, but it does NOT ship that base pack —
+/// it expects the user to drop e.g. `ComplementaryShaders r5.7.1` into the
+/// `shaderpacks` folder, otherwise it prints a "SHADER NOT FOUND" warning and
+/// no shaders are available. This downloads the exact required Complementary
+/// pack from Modrinth into the instance so the patcher just works.
+///
+/// `required_version` is the version token EuphoriaPatcher logs (e.g. `r5.7.1`).
+/// EuphoriaPatcher accepts either Complementary Reimagined or Unbound as the
+/// base, so we try Reimagined first (the more common default) then Unbound.
+/// Returns the installed filename, or `None` if a matching pack is already
+/// present.
+pub async fn ensure_complementary_shader(
+    state: &AppState,
+    instance_id: &str,
+    required_version: &str,
+) -> Result<Option<String>> {
+    let want = required_version.trim().trim_start_matches('v').to_lowercase();
+    let dir = state.dirs.game_dir(instance_id).join("shaderpacks");
+    std::fs::create_dir_all(&dir).ok();
+
+    // Already have a matching Complementary pack? Then there's nothing to do.
+    if let Ok(rd) = std::fs::read_dir(&dir) {
+        for entry in rd.flatten() {
+            let name = entry.file_name().to_string_lossy().to_lowercase();
+            if name.contains("complementary") && name.contains(&want) {
+                return Ok(None);
+            }
+        }
+    }
+
+    // Shader packs aren't tied to a mod loader, so don't filter by the
+    // instance's loader (Complementary lists `iris`/`optifine`, never the
+    // modpack's loader) — match purely on the version number.
+    for slug in ["complementary-reimagined", "complementary-unbound"] {
+        let versions = match project_versions(state, slug, None, None).await {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+        let Some(version) = versions.iter().find(|v| {
+            let vn = v.version_number.to_lowercase();
+            vn == want || vn.trim_start_matches('r') == want.trim_start_matches('r')
+        }) else {
+            continue;
+        };
+        let Some(file) = version
+            .files
+            .iter()
+            .find(|f| f.primary)
+            .or_else(|| version.files.first())
+        else {
+            continue;
+        };
+        let target = dir.join(&file.filename);
+        net::download_one(
+            &state.http,
+            &DownloadItem::new(file.url.clone(), target, file.hashes.sha1.clone()),
+        )
+        .await?;
+        return Ok(Some(file.filename.clone()));
+    }
+
+    Err(Error::NotFound(format!(
+        "Complementary shader {required_version} on Modrinth"
+    )))
 }
 
 /// Recursively install a single required dependency into the mods folder.
@@ -393,11 +456,7 @@ pub async fn install_version(
         .cloned()
         .ok_or_else(|| Error::NotFound("download file".into()))?;
 
-    let folder = match content_type {
-        "resourcepack" => "resourcepacks",
-        "shader" => "shaderpacks",
-        _ => "mods",
-    };
+    let folder = crate::instances::content_subdir(content_type);
     let dest_dir = state.dirs.game_dir(instance_id).join(folder);
     net::download_one(
         &state.http,
@@ -777,6 +836,8 @@ pub async fn apply_modpack_update(
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ModUpdate {
+    #[serde(default = "default_content_type")]
+    pub content_type: String,
     pub old_file_name: String,
     pub new_file_name: String,
     pub version_number: String,
@@ -785,19 +846,23 @@ pub struct ModUpdate {
     pub enabled: bool,
 }
 
-/// Check installed mods against Modrinth and return those with a newer version
-/// available for the instance's loader + game version.
-pub async fn check_updates(
+fn default_content_type() -> String {
+    "mod".into()
+}
+
+fn content_dir(game_dir: &std::path::Path, content_type: &str) -> std::path::PathBuf {
+    game_dir.join(crate::instances::content_subdir(content_type))
+}
+
+/// Map sha1 -> (content type, on-disk name, enabled).
+async fn collect_updatable_hashes(
     state: &AppState,
     instance_id: &str,
-    loader: Option<&str>,
-    game_version: Option<&str>,
-) -> Result<Vec<ModUpdate>> {
-    let mods_dir = state.dirs.game_dir(instance_id).join("mods");
+) -> Result<HashMap<String, (String, String, bool)>> {
+    let game = state.dirs.game_dir(instance_id);
+    let mut by_hash: HashMap<String, (String, String, bool)> = HashMap::new();
 
-    // Map sha1 -> (display jar name, enabled).
-    let mut by_hash: HashMap<String, (String, bool)> = HashMap::new();
-    if let Ok(rd) = std::fs::read_dir(&mods_dir) {
+    if let Ok(rd) = std::fs::read_dir(game.join("mods")) {
         for e in rd.flatten() {
             let name = e.file_name().to_string_lossy().to_string();
             let (enabled, jar) = if let Some(s) = name.strip_suffix(".disabled") {
@@ -808,10 +873,37 @@ pub async fn check_updates(
                 continue;
             };
             if let Ok(h) = net::file_sha1(&e.path()).await {
-                by_hash.insert(h, (jar, enabled));
+                by_hash.insert(h, ("mod".into(), jar, enabled));
             }
         }
     }
+
+    for (content_type, subdir) in [("resourcepack", "resourcepacks"), ("shader", "shaderpacks")] {
+        if let Ok(rd) = std::fs::read_dir(game.join(subdir)) {
+            for e in rd.flatten() {
+                let name = e.file_name().to_string_lossy().to_string();
+                if !name.ends_with(".zip") {
+                    continue;
+                }
+                if let Ok(h) = net::file_sha1(&e.path()).await {
+                    by_hash.insert(h, (content_type.into(), name, true));
+                }
+            }
+        }
+    }
+
+    Ok(by_hash)
+}
+
+/// Check installed mods, resource packs, and shaders against Modrinth and return
+/// those with a newer version available for the instance's loader + game version.
+pub async fn check_updates(
+    state: &AppState,
+    instance_id: &str,
+    loader: Option<&str>,
+    game_version: Option<&str>,
+) -> Result<Vec<ModUpdate>> {
+    let by_hash = collect_updatable_hashes(state, instance_id).await?;
     if by_hash.is_empty() {
         return Ok(Vec::new());
     }
@@ -841,18 +933,18 @@ pub async fn check_updates(
 
     let mut updates = Vec::new();
     for (old_hash, version) in resp {
-        let Some((old_name, enabled)) = by_hash.get(&old_hash) else {
+        let Some((content_type, old_name, enabled)) = by_hash.get(&old_hash) else {
             continue;
         };
         let Some(file) = version.files.iter().find(|f| f.primary).or_else(|| version.files.first())
         else {
             continue;
         };
-        // Already up to date if the returned file is the same one we have.
         if file.hashes.sha1.as_deref() == Some(old_hash.as_str()) || &file.filename == old_name {
             continue;
         }
         updates.push(ModUpdate {
+            content_type: content_type.clone(),
             old_file_name: old_name.clone(),
             new_file_name: file.filename.clone(),
             version_number: version.version_number.clone(),
@@ -864,33 +956,61 @@ pub async fn check_updates(
     Ok(updates)
 }
 
-/// Apply a single mod update: download the new jar (preserving enabled state)
-/// and remove the old one.
+/// Apply a single content update (mod / resource pack / shader).
 pub async fn apply_update(state: &AppState, instance_id: &str, update: ModUpdate) -> Result<()> {
-    let mods_dir = state.dirs.game_dir(instance_id).join("mods");
-    let target_name = if update.enabled {
-        update.new_file_name.clone()
-    } else {
+    let dir = content_dir(&state.dirs.game_dir(instance_id), &update.content_type);
+    let target_name = if update.content_type == "mod" && !update.enabled {
         format!("{}.disabled", update.new_file_name)
+    } else {
+        update.new_file_name.clone()
     };
     net::download_one(
         &state.http,
-        &DownloadItem::new(update.url.clone(), mods_dir.join(&target_name), update.sha1.clone()),
+        &DownloadItem::new(update.url.clone(), dir.join(&target_name), update.sha1.clone()),
     )
     .await?;
 
-    // Remove the old jar (unless it shares the new name).
     if update.old_file_name != update.new_file_name {
-        for cand in [
-            mods_dir.join(&update.old_file_name),
-            mods_dir.join(format!("{}.disabled", update.old_file_name)),
-        ] {
+        let old_paths: Vec<std::path::PathBuf> = if update.content_type == "mod" {
+            vec![
+                dir.join(&update.old_file_name),
+                dir.join(format!("{}.disabled", update.old_file_name)),
+            ]
+        } else {
+            vec![dir.join(&update.old_file_name)]
+        };
+        for cand in old_paths {
             if cand.exists() {
                 std::fs::remove_file(&cand)?;
             }
         }
     }
+
+    // Keep the content index in sync when the file name changes.
+    crate::instances::migrate_index_entry(state, instance_id, &update.old_file_name, &update.new_file_name);
+
     Ok(())
+}
+
+/// Check for updates and apply them all. Returns how many items were updated.
+pub async fn auto_update_all(
+    state: &AppState,
+    instance_id: &str,
+    loader: Option<&str>,
+    game_version: Option<&str>,
+) -> Result<u32> {
+    let instance = crate::instances::get_instance(state, instance_id)?;
+    // Modpack instances are pinned to a tested set — per-mod updates break them.
+    if instance.pack_source.is_some() {
+        return Ok(0);
+    }
+
+    let updates = check_updates(state, instance_id, loader, game_version).await?;
+    let count = updates.len() as u32;
+    for update in updates {
+        apply_update(state, instance_id, update).await?;
+    }
+    Ok(count)
 }
 
 /// Install a Modrinth modpack as a *new* instance: parse the pack's

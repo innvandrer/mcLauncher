@@ -19,12 +19,25 @@ fn read_json_or_default<T: DeserializeOwned + Default>(path: &Path) -> T {
         .unwrap_or_default()
 }
 
-fn write_json<T: Serialize>(path: &Path, value: &T) -> Result<()> {
+/// Write `data` to `path` atomically: stream it into a sibling temp file and
+/// rename over the destination. A crash mid-write then leaves either the old
+/// file or the new one — never a truncated, unparseable JSON document.
+fn atomic_write(path: &Path, data: &[u8]) -> std::io::Result<()> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
+    // Append ".tmp" to the full file name (not `with_extension`) so the temp
+    // path can never collide with a real sibling file.
+    let mut tmp = path.as_os_str().to_os_string();
+    tmp.push(".tmp");
+    let tmp = std::path::PathBuf::from(tmp);
+    std::fs::write(&tmp, data)?;
+    std::fs::rename(&tmp, path)
+}
+
+fn write_json<T: Serialize>(path: &Path, value: &T) -> Result<()> {
     let data = serde_json::to_vec_pretty(value)?;
-    std::fs::write(path, data)?;
+    atomic_write(path, &data)?;
     Ok(())
 }
 
@@ -52,16 +65,32 @@ pub fn save_accounts(state: &AppState, store: &AccountStore) -> Result<()> {
     write_json(&state.dirs.accounts_file(), store)
 }
 
-pub fn upsert_account(state: &AppState, account: Account) -> Result<AccountStore> {
+/// Apply `f` to the account store under a lock, persisting the result. This is
+/// the only safe way to mutate accounts: the load → modify → save sequence runs
+/// while holding `accounts_lock`, so concurrent callers can't lose each other's
+/// writes (the classic read-modify-write race).
+pub fn mutate_accounts<R>(
+    state: &AppState,
+    f: impl FnOnce(&mut AccountStore) -> R,
+) -> Result<R> {
+    let _guard = state.accounts_lock.lock().unwrap();
     let mut store = load_accounts(state);
-    if let Some(existing) = store.accounts.iter_mut().find(|a| a.id == account.id) {
-        *existing = account.clone();
-    } else {
-        store.accounts.push(account.clone());
-    }
-    store.active = Some(account.id);
+    let result = f(&mut store);
     save_accounts(state, &store)?;
-    Ok(store)
+    Ok(result)
+}
+
+pub fn upsert_account(state: &AppState, account: Account) -> Result<AccountStore> {
+    mutate_accounts(state, move |store| {
+        let id = account.id.clone();
+        if let Some(existing) = store.accounts.iter_mut().find(|a| a.id == account.id) {
+            *existing = account;
+        } else {
+            store.accounts.push(account);
+        }
+        store.active = Some(id);
+        store.clone()
+    })
 }
 
 pub fn active_account(state: &AppState) -> Option<Account> {
@@ -232,7 +261,7 @@ pub fn record_play_dirs(dirs: &crate::state::AppDirs, id: &str, seconds: u64) {
             inst.last_played = Some(chrono::Utc::now().timestamp());
             inst.total_play_seconds += seconds;
             if let Ok(data) = serde_json::to_vec_pretty(&inst) {
-                let _ = std::fs::write(&manifest, data);
+                let _ = atomic_write(&manifest, &data);
             }
         }
     }
@@ -276,7 +305,7 @@ pub fn record_session_dirs(dirs: &crate::state::AppDirs, id: &str, started: i64,
         sessions.drain(0..len - 2000);
     }
     if let Ok(data) = serde_json::to_vec_pretty(&sessions) {
-        let _ = std::fs::write(&path, data);
+        let _ = atomic_write(&path, &data);
     }
 }
 
@@ -366,6 +395,16 @@ pub fn import_instance(state: &AppState, src: &Path) -> Result<Instance> {
     Ok(manifest)
 }
 
+/// The game sub-directory a given content type installs into. Single source of
+/// truth shared by the Modrinth and CurseForge installers.
+pub fn content_subdir(content_type: &str) -> &'static str {
+    match content_type {
+        "resourcepack" => "resourcepacks",
+        "shader" => "shaderpacks",
+        _ => "mods",
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Content index: maps an installed file name to the project it came from, so
 // the UI can tell which search results are already installed.
@@ -393,6 +432,15 @@ fn legacy_index_path(state: &AppState, id: &str) -> std::path::PathBuf {
     state.dirs.instance_dir(id).join("beacon_index.json")
 }
 
+/// Move a tracked content entry when a file is renamed during an update.
+pub fn migrate_index_entry(state: &AppState, id: &str, old_name: &str, new_name: &str) {
+    let mut idx = load_index(state, id);
+    if let Some(item) = idx.items.remove(old_name) {
+        idx.items.insert(new_name.to_string(), item);
+        let _ = write_json(&index_path(state, id), &idx);
+    }
+}
+
 fn load_index(state: &AppState, id: &str) -> ContentIndex {
     let path = index_path(state, id);
     if path.exists() {
@@ -401,16 +449,24 @@ fn load_index(state: &AppState, id: &str) -> ContentIndex {
     read_json_or_default(&legacy_index_path(state, id))
 }
 
-/// Record that `file_name` in this instance came from `project_id` on `provider`.
-pub fn record_install(state: &AppState, id: &str, file_name: &str, project_id: &str, provider: &str) {
+/// Record that several `(file_name, project_id)` pairs in this instance came
+/// from `provider`, in a single read-modify-write of the content index. Callers
+/// installing a mod plus its dependencies previously rewrote the whole index
+/// file once per entry; this collapses that to one write.
+pub fn record_installs(state: &AppState, id: &str, items: &[(String, String)], provider: &str) {
+    if items.is_empty() {
+        return;
+    }
     let mut idx = load_index(state, id);
-    idx.items.insert(
-        file_name.to_string(),
-        IndexItem {
-            project_id: project_id.to_string(),
-            provider: provider.to_string(),
-        },
-    );
+    for (file_name, project_id) in items {
+        idx.items.insert(
+            file_name.clone(),
+            IndexItem {
+                project_id: project_id.clone(),
+                provider: provider.to_string(),
+            },
+        );
+    }
     let _ = write_json(&index_path(state, id), &idx);
 }
 

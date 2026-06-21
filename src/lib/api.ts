@@ -170,6 +170,11 @@ export const api = {
   }) => invoke<ModUpdate[]>("check_mod_updates", args),
   applyModUpdate: (instanceId: string, update: ModUpdate) =>
     invoke<void>("apply_mod_update", { instanceId, update }),
+  autoUpdateInstanceContent: (args: {
+    instanceId: string;
+    loader?: string | null;
+    gameVersion?: string | null;
+  }) => invoke<number>("auto_update_instance_content", args),
 
   // Export / import
   exportInstance: (id: string, dest: string) =>
@@ -301,6 +306,13 @@ export const events = {
     listen<string>("instance://removed", (e) => cb(e.payload)),
   onAuthPrompt: (cb: (p: AuthPrompt) => void): Promise<UnlistenFn> =>
     listen<AuthPrompt>("auth://prompt", (e) => cb(e.payload)),
+  onShaderInstalled: (
+    cb: (p: { instanceId: string; fileName: string; version: string }) => void,
+  ): Promise<UnlistenFn> =>
+    listen<{ instanceId: string; fileName: string; version: string }>(
+      "instance://shader-installed",
+      (e) => cb(e.payload),
+    ),
 };
 
 export function errMessage(e: unknown): string {

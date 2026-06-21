@@ -28,9 +28,9 @@ pub struct VersionList {
 pub async fn list_minecraft_versions(state: State<'_, AppState>) -> Result<VersionList> {
     let manifest = mojang::fetch_manifest(state.inner()).await?;
     Ok(VersionList {
-        latest_release: manifest.latest.release,
-        latest_snapshot: manifest.latest.snapshot,
-        versions: manifest.versions,
+        latest_release: manifest.latest.release.clone(),
+        latest_snapshot: manifest.latest.snapshot.clone(),
+        versions: manifest.versions.clone(),
     })
 }
 
@@ -171,24 +171,24 @@ pub async fn set_active_account(
     state: State<'_, AppState>,
     id: String,
 ) -> Result<Vec<PublicAccount>> {
-    let state = state.inner();
-    let mut store = instances::load_accounts(state);
-    if store.accounts.iter().any(|a| a.id == id) {
-        store.active = Some(id);
-        instances::save_accounts(state, &store)?;
-    }
+    let store = instances::mutate_accounts(state.inner(), |store| {
+        if store.accounts.iter().any(|a| a.id == id) {
+            store.active = Some(id.clone());
+        }
+        store.clone()
+    })?;
     Ok(public_accounts(&store))
 }
 
 #[tauri::command]
 pub async fn remove_account(state: State<'_, AppState>, id: String) -> Result<Vec<PublicAccount>> {
-    let state = state.inner();
-    let mut store = instances::load_accounts(state);
-    store.accounts.retain(|a| a.id != id);
-    if store.active.as_deref() == Some(id.as_str()) {
-        store.active = store.accounts.first().map(|a| a.id.clone());
-    }
-    instances::save_accounts(state, &store)?;
+    let store = instances::mutate_accounts(state.inner(), |store| {
+        store.accounts.retain(|a| a.id != id);
+        if store.active.as_deref() == Some(id.as_str()) {
+            store.active = store.accounts.first().map(|a| a.id.clone());
+        }
+        store.clone()
+    })?;
     Ok(public_accounts(&store))
 }
 
@@ -334,9 +334,11 @@ pub async fn install_mod(
         game_version.as_deref(),
     )
     .await?;
-    for dep in &deps {
-        instances::record_install(state.inner(), &instance_id, &dep.file_name, &dep.project_id, "modrinth");
-    }
+    let deps_idx: Vec<(String, String)> = deps
+        .iter()
+        .map(|d| (d.file_name.clone(), d.project_id.clone()))
+        .collect();
+    instances::record_installs(state.inner(), &instance_id, &deps_idx, "modrinth");
     Ok(InstallOutcome {
         file,
         dependencies: deps.into_iter().map(|d| d.file_name).collect(),
@@ -416,10 +418,9 @@ pub async fn install_curseforge_content(
         game_version.as_deref(),
     )
     .await?;
-    instances::record_install(state.inner(), &instance_id, &file, &project_id, "curseforge");
-    for dep in &deps {
-        instances::record_install(state.inner(), &instance_id, &dep.file_name, &dep.project_id, "curseforge");
-    }
+    let mut idx = vec![(file.clone(), project_id.clone())];
+    idx.extend(deps.iter().map(|d| (d.file_name.clone(), d.project_id.clone())));
+    instances::record_installs(state.inner(), &instance_id, &idx, "curseforge");
     Ok(InstallOutcome {
         file,
         dependencies: deps.into_iter().map(|d| d.file_name).collect(),
@@ -472,10 +473,9 @@ pub async fn install_content(
         game_version.as_deref(),
     )
     .await?;
-    instances::record_install(state.inner(), &instance_id, &file, &project_id, "modrinth");
-    for dep in &deps {
-        instances::record_install(state.inner(), &instance_id, &dep.file_name, &dep.project_id, "modrinth");
-    }
+    let mut idx = vec![(file.clone(), project_id.clone())];
+    idx.extend(deps.iter().map(|d| (d.file_name.clone(), d.project_id.clone())));
+    instances::record_installs(state.inner(), &instance_id, &idx, "modrinth");
     Ok(InstallOutcome {
         file,
         dependencies: deps.into_iter().map(|d| d.file_name).collect(),
@@ -659,6 +659,22 @@ pub async fn apply_mod_update(
     modrinth::apply_update(state.inner(), &instance_id, update).await
 }
 
+#[tauri::command]
+pub async fn auto_update_instance_content(
+    state: State<'_, AppState>,
+    instance_id: String,
+    loader: Option<String>,
+    game_version: Option<String>,
+) -> Result<u32> {
+    modrinth::auto_update_all(
+        state.inner(),
+        &instance_id,
+        loader.as_deref(),
+        game_version.as_deref(),
+    )
+    .await
+}
+
 // ---------------------------------------------------------------------------
 // Export / import
 // ---------------------------------------------------------------------------
@@ -737,10 +753,9 @@ pub async fn install_content_version(
         game_version.as_deref(),
     )
     .await?;
-    instances::record_install(state.inner(), &instance_id, &file, &project_id, "modrinth");
-    for dep in &deps {
-        instances::record_install(state.inner(), &instance_id, &dep.file_name, &dep.project_id, "modrinth");
-    }
+    let mut idx = vec![(file.clone(), project_id.clone())];
+    idx.extend(deps.iter().map(|d| (d.file_name.clone(), d.project_id.clone())));
+    instances::record_installs(state.inner(), &instance_id, &idx, "modrinth");
     Ok(InstallOutcome {
         file,
         dependencies: deps.into_iter().map(|d| d.file_name).collect(),
@@ -769,10 +784,9 @@ pub async fn install_curseforge_file(
         game_version.as_deref(),
     )
     .await?;
-    instances::record_install(state.inner(), &instance_id, &file, &project_id, "curseforge");
-    for dep in &deps {
-        instances::record_install(state.inner(), &instance_id, &dep.file_name, &dep.project_id, "curseforge");
-    }
+    let mut idx = vec![(file.clone(), project_id.clone())];
+    idx.extend(deps.iter().map(|d| (d.file_name.clone(), d.project_id.clone())));
+    instances::record_installs(state.inner(), &instance_id, &idx, "curseforge");
     Ok(InstallOutcome {
         file,
         dependencies: deps.into_iter().map(|d| d.file_name).collect(),
@@ -921,7 +935,8 @@ pub async fn apply_modpack_update(
 
 #[tauri::command]
 pub async fn detect_java(state: State<'_, AppState>) -> Result<Vec<java::JavaInstall>> {
-    Ok(java::detect(state.inner()))
+    let dirs = state.dirs.clone();
+    Ok(tokio::task::spawn_blocking(move || java::detect_in(&dirs)).await?)
 }
 
 // ---------------------------------------------------------------------------

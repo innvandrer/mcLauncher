@@ -122,6 +122,10 @@ pub struct Settings {
     pub max_concurrent_downloads: usize,
     #[serde(default)]
     pub close_on_launch: bool,
+    /// When enabled, check Modrinth for newer mods/resource packs/shaders before
+    /// launch and when opening an instance.
+    #[serde(default)]
+    pub auto_update_content: bool,
     /// Optional CurseForge Core API key. Falls back to `EZMAPA_CF_API_KEY` (or
     /// legacy `BEACON_CF_API_KEY`) when empty. Required for CurseForge search/installs.
     #[serde(default)]
@@ -138,6 +142,7 @@ impl Default for Settings {
             accent: default_accent(),
             max_concurrent_downloads: default_concurrency(),
             close_on_launch: false,
+            auto_update_content: false,
             curseforge_api_key: None,
         }
     }

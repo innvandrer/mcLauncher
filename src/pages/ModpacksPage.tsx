@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { ArrowLeft, Boxes, Download, ExternalLink, Search } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import DOMPurify from "dompurify";
 import { Button, Input, Select, Spinner } from "@/components/ui";
 import { useStore } from "@/store/useStore";
 import { api, errMessage } from "@/lib/api";
@@ -303,9 +304,13 @@ function PackDetailView({
           </div>
         ) : body ? (
           provider === "curseforge" ? (
+            // CurseForge descriptions are author-controlled HTML; sanitize before
+            // injecting so a malicious mod page can't run scripts.
             <div
               className="cf-body text-sm text-muted-foreground"
-              dangerouslySetInnerHTML={{ __html: body }}
+              dangerouslySetInnerHTML={{
+                __html: DOMPurify.sanitize(body, { USE_PROFILES: { html: true } }),
+              }}
             />
           ) : (
             <div className="md-body">

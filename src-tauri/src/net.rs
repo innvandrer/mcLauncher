@@ -26,15 +26,21 @@ impl DownloadItem {
     }
 }
 
-pub fn sha1_hex(bytes: &[u8]) -> String {
-    let mut h = Sha1::new();
-    h.update(bytes);
-    hex::encode(h.finalize())
-}
-
 pub async fn file_sha1(path: &Path) -> Result<String> {
-    let bytes = tokio::fs::read(path).await?;
-    Ok(sha1_hex(&bytes))
+    use tokio::io::AsyncReadExt;
+    // Stream the file through the hasher in fixed-size chunks rather than
+    // reading the whole (potentially hundreds-of-MB) file into memory at once.
+    let mut file = tokio::fs::File::open(path).await?;
+    let mut hasher = Sha1::new();
+    let mut buf = vec![0u8; 64 * 1024];
+    loop {
+        let n = file.read(&mut buf).await?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buf[..n]);
+    }
+    Ok(hex::encode(hasher.finalize()))
 }
 
 /// True when the file already exists and (if a hash is given) matches it.

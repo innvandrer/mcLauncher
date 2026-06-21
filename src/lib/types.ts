@@ -24,6 +24,7 @@ export interface Instance {
   preLaunch?: string | null;
   postExit?: string | null;
   modCount?: number;
+  packSource?: { provider: string; projectId: string; versionId?: string | null; versionName?: string | null } | null;
 }
 
 export interface Settings {
@@ -34,6 +35,7 @@ export interface Settings {
   accent: string;
   maxConcurrentDownloads: number;
   closeOnLaunch: boolean;
+  autoUpdateContent: boolean;
   curseforgeApiKey?: string | null;
 }
 
@@ -161,6 +163,7 @@ export interface ContentVersion {
 }
 
 export interface ModUpdate {
+  contentType: string;
   oldFileName: string;
   newFileName: string;
   versionNumber: string;

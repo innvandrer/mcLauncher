@@ -38,6 +38,12 @@ const RULES: Rule[] = [
       "A mod is missing a required library (e.g. Fabric API, a core lib, or a specific version). Check the lines below for the named mod and install it.",
   },
   {
+    test: /export package|ResolutionException|split package|modules .* export package/i,
+    title: "Mod Java package conflict",
+    detail:
+      "Two mods bundle the same internal Java package (e.g. com.mojang.blaze3d). Update or remove the mod named in the log. On modpacks, avoid updating individual mods — use the pack's own update instead.",
+  },
+  {
     test: /found a duplicate mod|Duplicate mods|Found duplicate mods/i,
     title: "Duplicate mods",
     detail:

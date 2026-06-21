@@ -345,11 +345,7 @@ async fn install_cf_file(
         .find(|h| h.algo == 1)
         .map(|h| h.value.clone());
 
-    let folder = match content_type {
-        "resourcepack" => "resourcepacks",
-        "shader" => "shaderpacks",
-        _ => "mods",
-    };
+    let folder = crate::instances::content_subdir(content_type);
 
     // Install required dependencies first so the primary file isn't left without
     // libraries it needs.

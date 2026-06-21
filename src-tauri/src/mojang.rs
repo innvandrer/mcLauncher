@@ -42,8 +42,24 @@ pub struct VersionStub {
     pub sha1: String,
 }
 
-pub async fn fetch_manifest(state: &AppState) -> Result<VersionManifest> {
-    net::get_json(&state.http, VERSION_MANIFEST).await
+/// Fetch the Mojang version manifest, reusing the in-memory copy when it was
+/// fetched within the TTL. The manifest only changes when Mojang ships a new
+/// version, so this avoids re-downloading a multi-megabyte document on every
+/// launch and every open of the create-instance dialog.
+pub async fn fetch_manifest(state: &AppState) -> Result<std::sync::Arc<VersionManifest>> {
+    use std::time::{Duration, Instant};
+    const TTL: Duration = Duration::from_secs(600);
+
+    if let Some((fetched_at, cached)) = state.manifest.read().await.as_ref() {
+        if fetched_at.elapsed() < TTL {
+            return Ok(cached.clone());
+        }
+    }
+
+    let fresh: VersionManifest = net::get_json(&state.http, VERSION_MANIFEST).await?;
+    let arc = std::sync::Arc::new(fresh);
+    *state.manifest.write().await = Some((Instant::now(), arc.clone()));
+    Ok(arc)
 }
 
 // ---------------------------------------------------------------------------

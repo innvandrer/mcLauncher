@@ -185,9 +185,23 @@ export function SettingsPage() {
             className="h-5 w-5 accent-[hsl(var(--accent))]"
           />
         </label>
+        <label className="flex cursor-pointer items-center justify-between rounded-lg border bg-card/60 px-4 py-3">
+          <div>
+            <div className="text-sm font-medium">Auto-update content</div>
+            <div className="text-xs text-muted-foreground">
+              Updates Modrinth mods, resource packs, and shaders to the latest version
+              before launch (skipped for modpack instances — use the pack update banner
+              instead).
+            </div>
+          </div>
+          <input
+            type="checkbox"
+            checked={settings.autoUpdateContent ?? false}
+            onChange={(e) => patch({ autoUpdateContent: e.target.checked })}
+            className="h-5 w-5 accent-[hsl(var(--accent))]"
+          />
+        </label>
       </Section>
-
-      {/* Content providers */}
       <Section icon={<Package className="h-4 w-4" />} title="Content providers">
         <Field
           label="CurseForge API key"

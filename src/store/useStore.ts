@@ -86,6 +86,11 @@ let listenersBound = false;
 // The Update handle from the updater plugin isn't serialisable for the UI, so we
 // keep it module-side and expose only display fields ({version, notes}) in state.
 let pendingUpdate: Update | null = null;
+// Game logs stream in line-by-line and can be very chatty; buffer them and flush
+// on a short timer so the store updates a handful of times per second instead of
+// once per line (which previously cloned the whole log map on every line).
+let pendingLogs: Record<string, LogLine[]> = {};
+let logFlushScheduled = false;
 
 export const useStore = create<State>((set, get) => ({
   ready: false,
@@ -195,12 +200,23 @@ export const useStore = create<State>((set, get) => ({
         }));
       });
       events.onLog((line) => {
-        set((s) => {
-          const prev = s.logs[line.instanceId] ?? [];
-          const next = [...prev, line];
-          if (next.length > LOG_CAP) next.splice(0, next.length - LOG_CAP);
-          return { logs: { ...s.logs, [line.instanceId]: next } };
-        });
+        (pendingLogs[line.instanceId] ??= []).push(line);
+        if (logFlushScheduled) return;
+        logFlushScheduled = true;
+        setTimeout(() => {
+          logFlushScheduled = false;
+          const batch = pendingLogs;
+          pendingLogs = {};
+          set((s) => {
+            const logs = { ...s.logs };
+            for (const id in batch) {
+              const merged = [...(logs[id] ?? []), ...batch[id]];
+              if (merged.length > LOG_CAP) merged.splice(0, merged.length - LOG_CAP);
+              logs[id] = merged;
+            }
+            return { logs };
+          });
+        }, 80);
       });
       events.onInstanceState((st) => {
         set((s) => {
@@ -218,6 +234,13 @@ export const useStore = create<State>((set, get) => ({
         }
       });
       events.onAuthPrompt((p) => set({ authPrompt: p }));
+      events.onShaderInstalled((p) => {
+        get().toast(
+          "success",
+          `Installed ${p.fileName} for EuphoriaPatcher — relaunch to enable shaders`,
+        );
+        if (get().selectedInstanceId === p.instanceId) get().refreshInstances();
+      });
     }
 
     // Check for a newer release in the background; never blocks startup.
@@ -308,6 +331,26 @@ export const useStore = create<State>((set, get) => ({
 
   launch: async (id) => {
     try {
+      const settings = get().settings;
+      const inst = get().instances.find((i) => i.id === id);
+      if (settings?.autoUpdateContent && inst && !inst.packSource) {
+        try {
+          const count = await api.autoUpdateInstanceContent({
+            instanceId: inst.id,
+            loader: inst.loader,
+            gameVersion: inst.mcVersion,
+          });
+          if (count > 0) {
+            get().toast(
+              "success",
+              `Updated ${count} mod${count > 1 ? "s" : ""}/pack${count > 1 ? "s" : ""} before launch`,
+            );
+            await get().refreshInstances();
+          }
+        } catch {
+          /* offline or nothing to update — launch anyway */
+        }
+      }
       set((s) => ({ logs: { ...s.logs, [id]: [] } }));
       await api.launchInstance(id);
     } catch (e) {

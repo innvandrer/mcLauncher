@@ -92,6 +92,14 @@ pub struct AppState {
     /// Cancellation flags for in-flight download tasks, keyed by task id. Set to
     /// `true` to ask `net::download_many` to stop after the current file.
     pub cancels: Arc<Mutex<HashMap<String, Arc<std::sync::atomic::AtomicBool>>>>,
+    /// Serializes read-modify-write access to `accounts.json` so concurrent
+    /// commands (e.g. a token refresh racing a `set_active_account`) can't clobber
+    /// each other's update.
+    pub accounts_lock: Mutex<()>,
+    /// In-memory cache of the Mojang version manifest with the time it was
+    /// fetched, so a launch (or the create-instance dialog) doesn't re-download
+    /// the multi-megabyte manifest on every call. Refreshed past the TTL.
+    pub manifest: tokio::sync::RwLock<Option<(std::time::Instant, Arc<crate::mojang::VersionManifest>)>>,
 }
 
 impl AppState {
@@ -138,6 +146,8 @@ impl AppState {
             running: Arc::new(Mutex::new(HashMap::new())),
             discord: DiscordPresence::new(),
             cancels: Arc::new(Mutex::new(HashMap::new())),
+            accounts_lock: Mutex::new(()),
+            manifest: tokio::sync::RwLock::new(None),
         }
     }
 }

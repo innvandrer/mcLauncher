@@ -72,6 +72,8 @@ function contentUrl(hit: ModHit, provider: Provider): string {
 
 export function InstanceDetailPage({ id }: { id: string }) {
   const instance = useStore((s) => s.instances.find((i) => i.id === id));
+  const settings = useStore((s) => s.settings);
+  const refreshInstances = useStore((s) => s.refreshInstances);
   const running = useStore((s) => s.running.has(id));
   const launch = useStore((s) => s.launch);
   const stop = useStore((s) => s.stop);
@@ -79,6 +81,30 @@ export function InstanceDetailPage({ id }: { id: string }) {
   const toast = useStore((s) => s.toast);
   const [tab, setTab] = useState<Tab>("content");
   const [exporting, setExporting] = useState(false);
+
+  useEffect(() => {
+    if (!settings?.autoUpdateContent || !instance || instance.packSource) return;
+    let cancelled = false;
+    api
+      .autoUpdateInstanceContent({
+        instanceId: instance.id,
+        loader: instance.loader,
+        gameVersion: instance.mcVersion,
+      })
+      .then((count) => {
+        if (!cancelled && count > 0) {
+          toast(
+            "success",
+            `Auto-updated ${count} mod${count > 1 ? "s" : ""}/pack${count > 1 ? "s" : ""}`,
+          );
+          refreshInstances();
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [instance?.id, instance?.loader, instance?.mcVersion, settings?.autoUpdateContent, toast, refreshInstances]);
 
   if (!instance) {
     return (
@@ -451,6 +477,115 @@ function pageCountFor(totalHits: number): number {
   return Math.min(Math.ceil(totalHits / PAGE_SIZE), MAX_PAGES);
 }
 
+function useContentUpdates(
+  instance: Instance,
+  contentType: string | undefined,
+  onUpdated: () => void,
+) {
+  const toast = useStore((s) => s.toast);
+  const [updates, setUpdates] = useState<ModUpdate[]>([]);
+  const [checking, setChecking] = useState(false);
+  const [updatingAll, setUpdatingAll] = useState(false);
+
+  const checkUpdates = async () => {
+    setChecking(true);
+    try {
+      const all = await api.checkModUpdates({
+        instanceId: instance.id,
+        loader: instance.loader,
+        gameVersion: instance.mcVersion,
+      });
+      const filtered = contentType
+        ? all.filter((u) => u.contentType === contentType)
+        : all;
+      setUpdates(filtered);
+      const label =
+        contentType === "resourcepack"
+          ? "resource packs"
+          : contentType === "shader"
+            ? "shaders"
+            : "mods";
+      toast(
+        filtered.length ? "info" : "success",
+        filtered.length
+          ? `${filtered.length} ${label} update${filtered.length > 1 ? "s" : ""} available`
+          : `All ${label} up to date`,
+      );
+    } catch (e) {
+      toast("error", errMessage(e));
+    } finally {
+      setChecking(false);
+    }
+  };
+
+  const applyAllUpdates = async () => {
+    setUpdatingAll(true);
+    try {
+      for (const u of updates) {
+        await api.applyModUpdate(instance.id, u);
+      }
+      toast("success", `Updated ${updates.length} item${updates.length > 1 ? "s" : ""}`);
+      setUpdates([]);
+      onUpdated();
+    } catch (e) {
+      toast("error", errMessage(e));
+    } finally {
+      setUpdatingAll(false);
+    }
+  };
+
+  return { updates, checking, updatingAll, checkUpdates, applyAllUpdates };
+}
+
+function ContentUpdateButton({
+  checking,
+  onClick,
+}: {
+  checking: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={checking}
+      className="inline-flex shrink-0 items-center gap-1 text-xs text-muted-foreground transition hover:text-foreground btn-focus disabled:opacity-50"
+    >
+      <RefreshCw className={cn("h-3 w-3", checking && "animate-spin")} />
+      {checking ? "Checking…" : "Updates"}
+    </button>
+  );
+}
+
+function ContentUpdatesBanner({
+  updates,
+  updatingAll,
+  onApply,
+}: {
+  updates: ModUpdate[];
+  updatingAll: boolean;
+  onApply: () => void;
+}) {
+  if (updates.length === 0) return null;
+  return (
+    <div className="mb-3 rounded-lg border border-accent/40 bg-accent/10 p-3">
+      <p className="text-sm font-medium">
+        {updates.length} update{updates.length > 1 ? "s" : ""} available
+      </p>
+      <ul className="mt-1.5 space-y-0.5 text-xs text-muted-foreground">
+        {updates.slice(0, 4).map((u) => (
+          <li key={u.oldFileName} className="truncate">
+            {u.newFileName.replace(/\.(jar|zip)$/, "")} · v{u.versionNumber}
+          </li>
+        ))}
+        {updates.length > 4 && <li>+{updates.length - 4} more…</li>}
+      </ul>
+      <Button size="sm" variant="primary" className="mt-2 w-full" loading={updatingAll} onClick={onApply}>
+        Update all
+      </Button>
+    </div>
+  );
+}
+
 // Prev / page X of Y / Next controls. Renders nothing for a single page.
 function Pagination({
   page,
@@ -653,45 +788,11 @@ function ModsPanel({ instance }: { instance: Instance }) {
     refresh();
   };
 
-  const [updates, setUpdates] = useState<ModUpdate[]>([]);
-  const [checking, setChecking] = useState(false);
-  const [updatingAll, setUpdatingAll] = useState(false);
-
-  const checkUpdates = async () => {
-    setChecking(true);
-    try {
-      const u = await api.checkModUpdates({
-        instanceId: instance.id,
-        loader: instance.loader,
-        gameVersion: instance.mcVersion,
-      });
-      setUpdates(u);
-      toast(
-        u.length ? "info" : "success",
-        u.length ? `${u.length} update${u.length > 1 ? "s" : ""} available` : "All mods up to date",
-      );
-    } catch (e) {
-      toast("error", errMessage(e));
-    } finally {
-      setChecking(false);
-    }
-  };
-
-  const applyAllUpdates = async () => {
-    setUpdatingAll(true);
-    try {
-      for (const u of updates) {
-        await api.applyModUpdate(instance.id, u);
-      }
-      toast("success", `Updated ${updates.length} mod${updates.length > 1 ? "s" : ""}`);
-      setUpdates([]);
-      refresh();
-    } catch (e) {
-      toast("error", errMessage(e));
-    } finally {
-      setUpdatingAll(false);
-    }
-  };
+  const { updates, checking, updatingAll, checkUpdates, applyAllUpdates } = useContentUpdates(
+    instance,
+    "mod",
+    refresh,
+  );
 
   return (
     <div className="grid grid-cols-1 gap-6 lg:grid-cols-[300px_minmax(0,1fr)]">
@@ -703,14 +804,7 @@ function ModsPanel({ instance }: { instance: Instance }) {
             {installedQuery.trim() ? ` / ${installed.length}` : ""})
           </h2>
           {installed.length > 0 && (
-            <button
-              onClick={checkUpdates}
-              disabled={checking}
-              className="inline-flex shrink-0 items-center gap-1 text-xs text-muted-foreground transition hover:text-foreground btn-focus disabled:opacity-50"
-            >
-              <RefreshCw className={cn("h-3 w-3", checking && "animate-spin")} />
-              {checking ? "Checking…" : "Updates"}
-            </button>
+            <ContentUpdateButton checking={checking} onClick={checkUpdates} />
           )}
         </div>
 
@@ -756,30 +850,11 @@ function ModsPanel({ instance }: { instance: Instance }) {
           </div>
         )}
 
-        {updates.length > 0 && (
-          <div className="mb-3 rounded-lg border border-accent/40 bg-accent/10 p-3">
-            <p className="text-sm font-medium">
-              {updates.length} update{updates.length > 1 ? "s" : ""} available
-            </p>
-            <ul className="mt-1.5 space-y-0.5 text-xs text-muted-foreground">
-              {updates.slice(0, 4).map((u) => (
-                <li key={u.oldFileName} className="truncate">
-                  {u.newFileName.replace(/\.jar$/, "")}
-                </li>
-              ))}
-              {updates.length > 4 && <li>+{updates.length - 4} more…</li>}
-            </ul>
-            <Button
-              size="sm"
-              variant="primary"
-              className="mt-2 w-full"
-              loading={updatingAll}
-              onClick={applyAllUpdates}
-            >
-              Update all
-            </Button>
-          </div>
-        )}
+        <ContentUpdatesBanner
+          updates={updates}
+          updatingAll={updatingAll}
+          onApply={applyAllUpdates}
+        />
         {installed.length === 0 ? (
           <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
             No mods yet. Search on the right to add some.
@@ -983,6 +1058,12 @@ function ContentBrowserPanel({
     refresh();
   };
 
+  const { updates, checking, updatingAll, checkUpdates, applyAllUpdates } = useContentUpdates(
+    instance,
+    modrinthType,
+    refresh,
+  );
+
   const FallbackIcon =
     contentType === "shader" ? (
       <Sparkles className="h-5 w-5 text-muted-foreground" />
@@ -994,10 +1075,15 @@ function ContentBrowserPanel({
     <div className="grid grid-cols-1 gap-6 lg:grid-cols-[300px_minmax(0,1fr)]">
       {/* Installed */}
       <section className="min-w-0">
-        <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-          Installed ({filteredInstalled.length}
-          {installedQuery.trim() ? ` / ${installed.length}` : ""})
-        </h2>
+        <div className="mb-3 flex items-center justify-between gap-2">
+          <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Installed ({filteredInstalled.length}
+            {installedQuery.trim() ? ` / ${installed.length}` : ""})
+          </h2>
+          {installed.length > 0 && (
+            <ContentUpdateButton checking={checking} onClick={checkUpdates} />
+          )}
+        </div>
         {installed.length > 0 && (
           <div className="relative mb-3">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -1009,6 +1095,11 @@ function ContentBrowserPanel({
             />
           </div>
         )}
+        <ContentUpdatesBanner
+          updates={updates}
+          updatingAll={updatingAll}
+          onApply={applyAllUpdates}
+        />
         {installed.length === 0 ? (
           <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
             No {emptyLabel} yet. Search on the right to add some.
@@ -1655,14 +1746,18 @@ function ServersTab({ instance }: { instance: Instance }) {
       <div className="rounded-xl border bg-card/40 p-4">
         <h3 className="mb-2 flex items-center gap-1.5 text-sm font-semibold">
           <Wifi className="h-4 w-4 text-accent" />
-          Ping a server
+          Ping en server
         </h3>
+        <p className="mb-2 text-xs text-muted-foreground">
+          Teksten under serveren i spillets multiplayer-meny kommer fra serverens MOTD (satt i{" "}
+          <code className="rounded bg-muted px-1 py-0.5">server.properties</code>).
+        </p>
         <div className="flex gap-2">
           <Input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && pingManual()}
-            placeholder="play.example.net   or   mc.host.com:25566"
+            placeholder="135.125.201.56   eller   mc.host.com:25566"
           />
           <Button variant="secondary" onClick={pingManual} loading={manualBusy}>
             Ping
@@ -1687,14 +1782,14 @@ function ServersTab({ instance }: { instance: Instance }) {
       <section>
         <div className="mb-3 flex items-center justify-between">
           <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            Saved servers ({servers.length})
+            Lagrede servere ({servers.length})
           </h3>
           {servers.length > 0 && (
             <button
               onClick={() => servers.forEach((s) => ping(s.ip))}
               className="inline-flex items-center gap-1 text-xs text-muted-foreground transition hover:text-foreground btn-focus"
             >
-              <RefreshCw className="h-3 w-3" /> Refresh all
+              <RefreshCw className="h-3 w-3" /> Oppdater alle
             </button>
           )}
         </div>
@@ -1714,8 +1809,8 @@ function ServersTab({ instance }: { instance: Instance }) {
         ) : servers.length === 0 ? (
           <EmptyState
             icon={<Server className="h-7 w-7" />}
-            title="No saved servers"
-            description="Servers you add to the in-game multiplayer list appear here with live status. You can also ping any address above."
+            title="Ingen lagrede servere"
+            description="Servere du legger til i spillets multiplayer-liste vises her med live status. Du kan også ping en adresse over."
           />
         ) : (
           <div className="space-y-2">
@@ -1784,14 +1879,14 @@ function ServerRow({
             />
           )}
         </div>
-        <p className="truncate text-xs text-muted-foreground">{server.ip}</p>
         {status?.motd ? (
-          <p className="mt-1 line-clamp-2 text-xs text-muted-foreground/90">{status.motd}</p>
+          <p className="line-clamp-2 text-xs text-muted-foreground">{status.motd}</p>
         ) : pinging ? (
-          <p className="mt-1 text-xs text-muted-foreground/70">Pinging…</p>
+          <p className="text-xs text-muted-foreground/70">Pinger…</p>
         ) : !online ? (
-          <p className="mt-1 text-xs text-muted-foreground/70">Offline or unreachable</p>
+          <p className="text-xs text-muted-foreground/70">Offline eller utilgjengelig</p>
         ) : null}
+        <p className="truncate text-xs text-muted-foreground/70">{server.ip}</p>
       </div>
 
       <div className="flex shrink-0 flex-col items-end gap-1.5">
@@ -1830,10 +1925,10 @@ function ServerRow({
             variant="secondary"
             onClick={onConnect}
             disabled={running}
-            title="Launch and connect"
+            title="Start og koble til"
           >
             <Play className="h-3.5 w-3.5 fill-current" />
-            Join
+            Koble til
           </Button>
         </div>
       </div>
