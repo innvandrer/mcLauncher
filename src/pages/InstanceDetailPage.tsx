@@ -477,6 +477,20 @@ function pageCountFor(totalHits: number): number {
   return Math.min(Math.ceil(totalHits / PAGE_SIZE), MAX_PAGES);
 }
 
+/** Client-side pagination for installed/local lists (same page size as browse). */
+function useLocalPagination<T>(items: T[], resetKey: string) {
+  const [page, setPage] = useState(0);
+  useEffect(() => {
+    setPage(0);
+  }, [resetKey]);
+  const pageCount = pageCountFor(items.length);
+  const pagedItems = useMemo(
+    () => items.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE),
+    [items, page],
+  );
+  return { page, setPage, pageCount, pagedItems };
+}
+
 function useContentUpdates(
   instance: Instance,
   contentType: string | undefined,
@@ -645,7 +659,7 @@ function matchesInstalledQuery(query: string, fileName: string, projectId?: stri
   const q = query.trim().toLowerCase();
   if (!q) return true;
 
-  const baseName = fileName.replace(/\.jar$/, "").toLowerCase();
+  const baseName = fileName.replace(/\.(jar|zip)$/, "").toLowerCase();
 
   return (
     fileName.toLowerCase().includes(q) ||
@@ -735,6 +749,13 @@ function ModsPanel({ instance }: { instance: Instance }) {
     () => installed.filter((m) => matchesInstalledQuery(installedQuery, m.fileName, m.projectId)),
     [installed, installedQuery],
   );
+
+  const {
+    page: installedPage,
+    setPage: setInstalledPage,
+    pageCount: installedPageCount,
+    pagedItems: pagedInstalled,
+  } = useLocalPagination(filteredInstalled, `${instance.id}:${installedQuery}`);
 
   const [versionPickTarget, setVersionPickTarget] = useState<ModHit | null>(null);
 
@@ -865,7 +886,7 @@ function ModsPanel({ instance }: { instance: Instance }) {
           </p>
         ) : (
           <div className="space-y-1.5">
-            {filteredInstalled.map((m) => (
+            {pagedInstalled.map((m) => (
               <div
                 key={m.fileName}
                 className="flex items-center gap-2 rounded-lg border bg-card/60 p-2.5"
@@ -903,6 +924,11 @@ function ModsPanel({ instance }: { instance: Instance }) {
             ))}
           </div>
         )}
+        <Pagination
+          page={installedPage}
+          pageCount={installedPageCount}
+          onPage={setInstalledPage}
+        />
       </section>
 
       {/* Browse */}
@@ -1028,16 +1054,37 @@ function ContentBrowserPanel({
     [installed, installedQuery],
   );
 
-  const install = async (hit: ModHit) => {
+  const {
+    page: installedPage,
+    setPage: setInstalledPage,
+    pageCount: installedPageCount,
+    pagedItems: pagedInstalled,
+  } = useLocalPagination(filteredInstalled, `${instance.id}:${contentType}:${installedQuery}`);
+
+  const [versionPickTarget, setVersionPickTarget] = useState<ModHit | null>(null);
+
+  const installWithVersion = async (hit: ModHit, versionId: string) => {
     setInstalling(hit.project_id);
+    setVersionPickTarget(null);
     try {
-      const res = await installProvider(provider, {
-        instanceId: instance.id,
-        projectId: hit.project_id,
-        contentType,
-        loader: useLoaderFilter ? instance.loader : undefined,
-        gameVersion: instance.mcVersion,
-      });
+      const res =
+        provider === "curseforge"
+          ? await api.installCurseforgeFile({
+              instanceId: instance.id,
+              projectId: hit.project_id,
+              fileId: versionId,
+              contentType,
+              loader: useLoaderFilter ? instance.loader : undefined,
+              gameVersion: instance.mcVersion,
+            })
+          : await api.installContentVersion({
+              instanceId: instance.id,
+              projectId: hit.project_id,
+              versionId,
+              contentType,
+              loader: useLoaderFilter ? instance.loader : undefined,
+              gameVersion: instance.mcVersion,
+            });
       const n = res.dependencies.length;
       toast(
         "success",
@@ -1110,7 +1157,7 @@ function ContentBrowserPanel({
           </p>
         ) : (
           <div className="space-y-1.5">
-            {filteredInstalled.map((item) => (
+            {pagedInstalled.map((item) => (
               <div
                 key={item.fileName}
                 className="flex items-center gap-2 rounded-lg border bg-card/60 p-2.5"
@@ -1135,6 +1182,11 @@ function ContentBrowserPanel({
             ))}
           </div>
         )}
+        <Pagination
+          page={installedPage}
+          pageCount={installedPageCount}
+          onPage={setInstalledPage}
+        />
       </section>
 
       {/* Browse */}
@@ -1160,7 +1212,7 @@ function ContentBrowserPanel({
           results={results}
           searching={searching}
           installing={installing}
-          onInstall={install}
+          onInstall={(hit) => setVersionPickTarget(hit)}
           provider={provider}
           emptyLabel={emptyLabel}
           fallbackIcon={FallbackIcon}
@@ -1170,6 +1222,15 @@ function ContentBrowserPanel({
         />
         <Pagination page={page} pageCount={pageCountFor(totalHits)} onPage={setPage} />
       </section>
+
+      <VersionPickerModal
+        hit={versionPickTarget}
+        provider={provider}
+        mcVersion={instance.mcVersion}
+        loader={useLoaderFilter ? instance.loader : "vanilla"}
+        onClose={() => setVersionPickTarget(null)}
+        onInstall={installWithVersion}
+      />
     </div>
   );
 }
@@ -1444,15 +1505,30 @@ function WorldsPanel({ instance }: { instance: Instance }) {
   const [worlds, setWorlds] = useState<WorldEntry[]>([]);
   const [snapshots, setSnapshots] = useState<Snapshot[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
 
   const refresh = () => {
     api.listWorlds(instance.id).then(setWorlds).catch(() => {});
     api.listSnapshots(instance.id).then(setSnapshots).catch(() => {});
   };
   useEffect(() => {
+    setQuery("");
     refresh();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [instance.id]);
+
+  const filteredWorlds = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return worlds;
+    return worlds.filter((w) => w.name.toLowerCase().includes(q));
+  }, [worlds, query]);
+
+  const {
+    page: worldsPage,
+    setPage: setWorldsPage,
+    pageCount: worldsPageCount,
+    pagedItems: pagedWorlds,
+  } = useLocalPagination(filteredWorlds, `${instance.id}:${query}`);
 
   const remove = async (name: string) => {
     if (!confirm(`Delete world "${name}"? This cannot be undone.`)) return;
@@ -1509,6 +1585,17 @@ function WorldsPanel({ instance }: { instance: Instance }) {
 
   return (
     <div className="max-w-xl space-y-6">
+      {worlds.length > 0 && (
+        <div className="relative">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search worlds…"
+            className="pl-9"
+          />
+        </div>
+      )}
       <div className="space-y-1.5">
         {worlds.length === 0 ? (
           <EmptyState
@@ -1516,8 +1603,12 @@ function WorldsPanel({ instance }: { instance: Instance }) {
             title="No worlds"
             description="Worlds will appear here once you play and create or load one."
           />
+        ) : filteredWorlds.length === 0 ? (
+          <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+            No worlds match &ldquo;{query.trim()}&rdquo;.
+          </p>
         ) : (
-          worlds.map((w) => (
+          pagedWorlds.map((w) => (
             <div
               key={w.name}
               className="flex items-center gap-3 rounded-lg border bg-card/60 p-3"
@@ -1566,6 +1657,7 @@ function WorldsPanel({ instance }: { instance: Instance }) {
           ))
         )}
       </div>
+      <Pagination page={worldsPage} pageCount={worldsPageCount} onPage={setWorldsPage} />
 
       {snapshots.length > 0 && (
         <section>
@@ -1617,11 +1709,26 @@ function WorldsPanel({ instance }: { instance: Instance }) {
 
 function ScreenshotsPanel({ instance }: { instance: Instance }) {
   const [screenshots, setScreenshots] = useState<ScreenshotEntry[]>([]);
+  const [query, setQuery] = useState("");
 
   useEffect(() => {
+    setQuery("");
     api.listScreenshots(instance.id).then(setScreenshots).catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [instance.id]);
+
+  const filteredScreenshots = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return screenshots;
+    return screenshots.filter((s) => s.fileName.toLowerCase().includes(q));
+  }, [screenshots, query]);
+
+  const {
+    page: shotsPage,
+    setPage: setShotsPage,
+    pageCount: shotsPageCount,
+    pagedItems: pagedScreenshots,
+  } = useLocalPagination(filteredScreenshots, `${instance.id}:${query}`);
 
   if (screenshots.length === 0) {
     return (
@@ -1634,26 +1741,44 @@ function ScreenshotsPanel({ instance }: { instance: Instance }) {
   }
 
   return (
-    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4">
-      {screenshots.map((s) => (
-        <button
-          key={s.fileName}
-          onClick={() => api.openScreenshot(instance.id, s.fileName)}
-          className="group relative flex flex-col rounded-lg border bg-card/60 p-2.5 text-left transition hover:bg-card btn-focus"
-          title="Open in viewer"
-        >
-          <div className="mb-2 flex h-24 items-center justify-center rounded-md bg-muted">
-            <Camera className="h-6 w-6 text-muted-foreground" />
-          </div>
-          <p className="truncate text-xs font-medium" title={s.fileName}>
-            {s.fileName}
-          </p>
-          <p className="text-xs text-muted-foreground">
-            {new Date(s.takenAt * 1000).toLocaleDateString()}
-          </p>
-          <ExternalLink className="absolute right-2 top-2 h-3.5 w-3.5 text-muted-foreground opacity-0 transition group-hover:opacity-100" />
-        </button>
-      ))}
+    <div>
+      <div className="relative mb-4 max-w-md">
+        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+        <Input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search screenshots…"
+          className="pl-9"
+        />
+      </div>
+      {filteredScreenshots.length === 0 ? (
+        <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+          No screenshots match &ldquo;{query.trim()}&rdquo;.
+        </p>
+      ) : (
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4">
+          {pagedScreenshots.map((s) => (
+            <button
+              key={s.fileName}
+              onClick={() => api.openScreenshot(instance.id, s.fileName)}
+              className="group relative flex flex-col rounded-lg border bg-card/60 p-2.5 text-left transition hover:bg-card btn-focus"
+              title="Open in viewer"
+            >
+              <div className="mb-2 flex h-24 items-center justify-center rounded-md bg-muted">
+                <Camera className="h-6 w-6 text-muted-foreground" />
+              </div>
+              <p className="truncate text-xs font-medium" title={s.fileName}>
+                {s.fileName}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                {new Date(s.takenAt * 1000).toLocaleDateString()}
+              </p>
+              <ExternalLink className="absolute right-2 top-2 h-3.5 w-3.5 text-muted-foreground opacity-0 transition group-hover:opacity-100" />
+            </button>
+          ))}
+        </div>
+      )}
+      <Pagination page={shotsPage} pageCount={shotsPageCount} onPage={setShotsPage} />
     </div>
   );
 }
