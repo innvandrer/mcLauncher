@@ -175,8 +175,8 @@ ezmapa-launcher/
 ---
 
 ## Roadmap
-- Cross-platform builds (macOS / Linux)
-- Per-instance JVM args & memory tuning in the UI
+
+See [ROADMAP.md](ROADMAP.md) for the current Now / Next / Later plan.
 
 ---
 
