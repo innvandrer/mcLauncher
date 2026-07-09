@@ -8,11 +8,13 @@ import {
   Play,
   Star,
   Trash2,
+  Upload,
   X,
 } from "lucide-react";
 import type { Instance } from "@/lib/types";
 import { useStore } from "@/store/useStore";
-import { api } from "@/lib/api";
+import { api, errMessage } from "@/lib/api";
+import { exportInstanceMrpack, exportInstanceZip } from "@/lib/export";
 import { ACCENTS, cn, formatPlaytime, loaderLabel, timeAgo } from "@/lib/utils";
 import { InstanceIcon } from "./InstanceIcon";
 
@@ -39,6 +41,26 @@ export function InstanceCard({ instance, onOpen }: { instance: Instance; onOpen:
   const updateInstance = useStore((s) => s.updateInstance);
   const toast = useStore((s) => s.toast);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [exporting, setExporting] = useState(false);
+
+  const runExport = async (format: "zip" | "mrpack") => {
+    setMenuOpen(false);
+    setExporting(true);
+    try {
+      toast("info", format === "zip" ? "Exporting instance…" : "Exporting modpack…");
+      const path =
+        format === "zip"
+          ? await exportInstanceZip(instance.id, instance.name)
+          : await exportInstanceMrpack(instance.id, instance.name);
+      if (path) {
+        toast("success", format === "zip" ? "Instance exported" : "Exported .mrpack");
+      }
+    } catch (e) {
+      toast("error", errMessage(e));
+    } finally {
+      setExporting(false);
+    }
+  };
 
   const toggleFavorite = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -114,6 +136,18 @@ export function InstanceCard({ instance, onOpen }: { instance: Instance; onOpen:
                 icon={<Copy className="h-4 w-4" />}
                 label="Duplicate"
                 onClick={() => duplicate(instance.id)}
+              />
+              <MenuItem
+                icon={exporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+                label="Export as .zip"
+                onClick={() => runExport("zip")}
+                disabled={exporting}
+              />
+              <MenuItem
+                icon={exporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+                label="Export as .mrpack"
+                onClick={() => runExport("mrpack")}
+                disabled={exporting}
               />
               <MenuItem
                 icon={<Trash2 className="h-4 w-4" />}
@@ -222,11 +256,13 @@ function MenuItem({
   label,
   onClick,
   danger,
+  disabled,
 }: {
   icon: React.ReactNode;
   label: string;
   onClick: () => void;
   danger?: boolean;
+  disabled?: boolean;
 }) {
   return (
     <button
@@ -234,8 +270,9 @@ function MenuItem({
         e.stopPropagation();
         onClick();
       }}
+      disabled={disabled}
       className={cn(
-        "flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm transition-colors",
+        "flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm transition-colors disabled:opacity-50",
         danger
           ? "text-destructive hover:bg-destructive/10"
           : "text-foreground hover:bg-muted",

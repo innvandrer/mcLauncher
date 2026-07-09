@@ -182,19 +182,25 @@ pub fn restore_snapshot(state: &AppState, instance_id: &str, file_name: &str) ->
     let mut archive = zip::ZipArchive::new(file)?;
 
     // The first path component is the world folder — wipe it before extracting
-    // so removed files don't linger.
+    // so removed files don't linger. `safe_join` keeps the target inside `saves`
+    // even if the snapshot's first entry is a `..` path, and the non-equal check
+    // stops a `./`-prefixed entry from wiping the whole saves folder.
     if let Some(world) = archive.by_index(0).ok().and_then(|f| {
         f.name().split('/').next().map(|s| s.to_string())
     }) {
-        let target = saves.join(&world);
-        if target.is_dir() {
-            std::fs::remove_dir_all(&target).ok();
+        if let Some(target) = crate::archive::safe_join(&saves, &world) {
+            if target != saves && target.is_dir() {
+                std::fs::remove_dir_all(&target).ok();
+            }
         }
     }
 
     for i in 0..archive.len() {
         let mut entry = archive.by_index(i)?;
-        let out = saves.join(entry.name());
+        // Reject entries whose name would escape the saves dir (zip slip).
+        let Some(out) = crate::archive::safe_join(&saves, entry.name()) else {
+            continue;
+        };
         if entry.is_dir() {
             std::fs::create_dir_all(&out)?;
         } else {

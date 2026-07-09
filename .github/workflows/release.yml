@@ -64,4 +64,6 @@ jobs:
           releaseName: "EZMapa ${{ github.ref_name }}"
           releaseBody: ${{ steps.notes.outputs.body }}
           releaseDraft: false
-          prerelease: false
+          # v0.2.5 is a soak-test prerelease (token-storage migration touches
+          # every saved login) — set back to false for the next stable tag.
+          prerelease: true

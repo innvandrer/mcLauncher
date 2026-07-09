@@ -8,10 +8,12 @@ import {
   Search,
   Settings,
   Square,
+  Upload,
   User,
 } from "lucide-react";
 import { useStore } from "@/store/useStore";
-import { api } from "@/lib/api";
+import { api, errMessage } from "@/lib/api";
+import { exportInstanceMrpack, exportInstanceZip } from "@/lib/export";
 import { cn, isImageIcon } from "@/lib/utils";
 
 interface Command {
@@ -38,6 +40,7 @@ export function CommandPalette() {
   const openInstance = useStore((s) => s.openInstance);
   const launch = useStore((s) => s.launch);
   const stop = useStore((s) => s.stop);
+  const toast = useStore((s) => s.toast);
 
   // Toggle on ⌘K / Ctrl-K from anywhere.
   useEffect(() => {
@@ -95,11 +98,37 @@ export function CommandPalette() {
           keywords: `${inst.name} ${isRunning ? "stop" : "play launch run"}`,
           run: () => (isRunning ? stop(inst.id) : launch(inst.id)),
         },
+        {
+          id: `export-zip:${inst.id}`,
+          label: `Export ${inst.name} as .zip`,
+          icon: <Upload className="h-4 w-4" />,
+          keywords: `${inst.name} export backup zip instance`,
+          run: () => {
+            close();
+            toast("info", "Exporting instance…");
+            exportInstanceZip(inst.id, inst.name)
+              .then((path) => path && toast("success", "Instance exported"))
+              .catch((e) => toast("error", errMessage(e)));
+          },
+        },
+        {
+          id: `export-mrpack:${inst.id}`,
+          label: `Export ${inst.name} as .mrpack`,
+          icon: <Upload className="h-4 w-4" />,
+          keywords: `${inst.name} export modpack mrpack modrinth share`,
+          run: () => {
+            close();
+            toast("info", "Exporting modpack…");
+            exportInstanceMrpack(inst.id, inst.name)
+              .then((path) => path && toast("success", "Exported .mrpack"))
+              .catch((e) => toast("error", errMessage(e)));
+          },
+        },
       ];
     });
 
     return [...views, ...perInstance];
-  }, [instances, running, setView, openInstance, launch, stop]);
+  }, [instances, running, setView, openInstance, launch, stop, toast]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();

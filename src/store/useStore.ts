@@ -367,7 +367,11 @@ export const useStore = create<State>((set, get) => ({
   },
 
   refreshAccounts: async () => {
-    set({ accounts: await api.listAccounts() });
+    try {
+      set({ accounts: await api.listAccounts() });
+    } catch (e) {
+      get().toast("error", errMessage(e));
+    }
   },
 
   loginMicrosoft: async () => {
@@ -393,11 +397,19 @@ export const useStore = create<State>((set, get) => ({
   },
 
   setActiveAccount: async (id) => {
-    set({ accounts: await api.setActiveAccount(id) });
+    try {
+      set({ accounts: await api.setActiveAccount(id) });
+    } catch (e) {
+      get().toast("error", errMessage(e));
+    }
   },
 
   removeAccount: async (id) => {
-    set({ accounts: await api.removeAccount(id) });
+    try {
+      set({ accounts: await api.removeAccount(id) });
+    } catch (e) {
+      get().toast("error", errMessage(e));
+    }
   },
 
   dismissAuthPrompt: () => set({ authPrompt: null }),

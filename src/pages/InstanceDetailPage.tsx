@@ -33,8 +33,9 @@ import { api, errMessage } from "@/lib/api";
 import { ACCENTS, AIKAR_FLAGS, cn, formatBytes, formatNumber, isImageIcon, loaderLabel } from "@/lib/utils";
 import { InstanceIcon } from "@/components/InstanceIcon";
 import { LoaderLogo } from "@/components/LoaderLogo";
+import { ExportMenu } from "@/components/ExportMenu";
 import { analyzeCrash, type CrashFinding } from "@/lib/crash";
-import { save } from "@tauri-apps/plugin-dialog";
+import { exportInstanceMrpack } from "@/lib/export";
 import type {
   ContentVersion,
   DiskUsage,
@@ -72,39 +73,12 @@ function contentUrl(hit: ModHit, provider: Provider): string {
 
 export function InstanceDetailPage({ id }: { id: string }) {
   const instance = useStore((s) => s.instances.find((i) => i.id === id));
-  const settings = useStore((s) => s.settings);
-  const refreshInstances = useStore((s) => s.refreshInstances);
   const running = useStore((s) => s.running.has(id));
   const launch = useStore((s) => s.launch);
   const stop = useStore((s) => s.stop);
   const close = useStore((s) => s.closeInstance);
   const toast = useStore((s) => s.toast);
   const [tab, setTab] = useState<Tab>("content");
-  const [exporting, setExporting] = useState(false);
-
-  useEffect(() => {
-    if (!settings?.autoUpdateContent || !instance || instance.packSource) return;
-    let cancelled = false;
-    api
-      .autoUpdateInstanceContent({
-        instanceId: instance.id,
-        loader: instance.loader,
-        gameVersion: instance.mcVersion,
-      })
-      .then((count) => {
-        if (!cancelled && count > 0) {
-          toast(
-            "success",
-            `Auto-updated ${count} mod${count > 1 ? "s" : ""}/pack${count > 1 ? "s" : ""}`,
-          );
-          refreshInstances();
-        }
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, [instance?.id, instance?.loader, instance?.mcVersion, settings?.autoUpdateContent, toast, refreshInstances]);
 
   if (!instance) {
     return (
@@ -115,24 +89,6 @@ export function InstanceDetailPage({ id }: { id: string }) {
       </div>
     );
   }
-
-  const exportInstance = async () => {
-    try {
-      const path = await save({
-        defaultPath: `${instance.name}.zip`,
-        filters: [{ name: "Zip archive", extensions: ["zip"] }],
-      });
-      if (!path) return;
-      setExporting(true);
-      toast("info", "Exporting instance…");
-      await api.exportInstance(id, path);
-      toast("success", "Instance exported");
-    } catch (e) {
-      toast("error", errMessage(e));
-    } finally {
-      setExporting(false);
-    }
-  };
 
   const tabs: { id: Tab; label: string; icon: typeof Package }[] = [
     { id: "content", label: "Content", icon: Package },
@@ -168,9 +124,7 @@ export function InstanceDetailPage({ id }: { id: string }) {
             </div>
           </div>
           <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:justify-end">
-            <Button variant="secondary" onClick={exportInstance} loading={exporting} title="Export as .zip">
-              <Upload className="h-4 w-4" /> Export
-            </Button>
+            <ExportMenu instanceId={id} instanceName={instance.name} />
             <Button variant="secondary" onClick={() => api.openInstanceFolder(id)}>
               <FolderOpen className="h-4 w-4" /> Folder
             </Button>
@@ -2221,15 +2175,10 @@ function SettingsTab({ instance }: { instance: Instance }) {
 
   const exportPack = async () => {
     try {
-      const path = await save({
-        defaultPath: `${instance.name}.mrpack`,
-        filters: [{ name: "Modrinth modpack", extensions: ["mrpack"] }],
-      });
-      if (!path) return;
       setExportingPack(true);
       toast("info", "Exporting modpack…");
-      await api.exportMrpack(instance.id, path);
-      toast("success", "Exported .mrpack");
+      const path = await exportInstanceMrpack(instance.id, instance.name);
+      if (path) toast("success", "Exported .mrpack");
     } catch (e) {
       toast("error", errMessage(e));
     } finally {
@@ -2488,8 +2437,8 @@ function SettingsTab({ instance }: { instance: Instance }) {
         <h3 className="text-sm font-semibold">Share</h3>
         <p className="mt-1 text-sm text-muted-foreground">
           Export this instance as a Modrinth modpack (.mrpack) others can install.
-          Mods on Modrinth become download links; CurseForge/local mods and configs
-          are bundled in.
+          Modrinth content becomes download links; CurseForge/local files, configs,
+          and folder-based packs are bundled in.
         </p>
         <Button
           variant="secondary"

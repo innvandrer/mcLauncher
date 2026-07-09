@@ -204,8 +204,7 @@ pub async fn launch(
     }
 
     // --- Account (refresh Microsoft token if expired) ------------------------
-    let mut account = instances::active_account(state)
-        .ok_or_else(|| Error::Auth("No account selected. Add an account first.".into()))?;
+    let mut account = instances::active_account(state)?;
     if account.kind == "microsoft" && account.expires_at <= chrono::Utc::now().timestamp() {
         if let Some(rt) = account.refresh_token.clone() {
             account = auth::refresh(state, &rt).await?;

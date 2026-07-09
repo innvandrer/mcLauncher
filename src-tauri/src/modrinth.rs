@@ -620,7 +620,10 @@ fn unpack_mrpack(
             if rest.is_empty() {
                 continue;
             }
-            let dest = game_dir.join(rest);
+            // Reject entries whose name would escape the instance dir (zip slip).
+            let Some(dest) = crate::archive::safe_join(game_dir, rest) else {
+                continue;
+            };
             if zname.ends_with('/') {
                 std::fs::create_dir_all(&dest)?;
             } else {
@@ -1141,9 +1144,67 @@ fn collect_overrides(
     }
 }
 
-/// Export an instance as a `.mrpack`: mods that exist on Modrinth become
-/// download references (resolved by hash), everything else (CurseForge/local
-/// mods + `config/`) is bundled as overrides.
+/// A single file to include in an exported modpack (mods, resource packs, shaders).
+struct ExportableEntry {
+    /// Game sub-directory: `mods`, `resourcepacks`, or `shaderpacks`.
+    subdir: &'static str,
+    filename: String,
+    path: std::path::PathBuf,
+}
+
+/// Collect enabled mods (.jar), resource packs (.zip), and shaders (.zip) for export.
+fn collect_exportable_entries(game_dir: &std::path::Path) -> Vec<ExportableEntry> {
+    let mut out = Vec::new();
+
+    if let Ok(rd) = std::fs::read_dir(game_dir.join("mods")) {
+        for e in rd.flatten() {
+            let name = e.file_name().to_string_lossy().to_string();
+            if name.ends_with(".disabled") || !name.ends_with(".jar") {
+                continue;
+            }
+            out.push(ExportableEntry {
+                subdir: "mods",
+                filename: name,
+                path: e.path(),
+            });
+        }
+    }
+
+    for (subdir, folder) in [("resourcepacks", "resourcepacks"), ("shaderpacks", "shaderpacks")] {
+        if let Ok(rd) = std::fs::read_dir(game_dir.join(folder)) {
+            for e in rd.flatten() {
+                let name = e.file_name().to_string_lossy().to_string();
+                if !name.ends_with(".zip") {
+                    continue;
+                }
+                out.push(ExportableEntry {
+                    subdir,
+                    filename: name,
+                    path: e.path(),
+                });
+            }
+        }
+    }
+
+    out
+}
+
+fn export_version_id(instance: &crate::models::Instance) -> String {
+    if let Some(ps) = &instance.pack_source {
+        if let Some(name) = &ps.version_name {
+            if !name.is_empty() {
+                return name.clone();
+            }
+        }
+    }
+    let date = chrono::Local::now().format("%Y.%m.%d").to_string();
+    let short = uuid::Uuid::new_v4().to_string();
+    format!("{date}-{}", &short[..8])
+}
+
+/// Export an instance as a `.mrpack`: content on Modrinth becomes download
+/// references (resolved by hash); CurseForge/local files and `config/` are
+/// bundled as overrides.
 pub async fn export_mrpack(
     state: &AppState,
     instance_id: &str,
@@ -1152,19 +1213,12 @@ pub async fn export_mrpack(
     use std::io::Write;
     let instance = crate::instances::get_instance(state, instance_id)?;
     let game_dir = state.dirs.game_dir(instance_id);
-    let mods_dir = game_dir.join("mods");
 
-    // Hash every enabled jar (skip .disabled), keyed sha1 -> filename.
-    let mut by_hash: HashMap<String, String> = HashMap::new();
-    if let Ok(rd) = std::fs::read_dir(&mods_dir) {
-        for e in rd.flatten() {
-            let name = e.file_name().to_string_lossy().to_string();
-            if !name.ends_with(".jar") {
-                continue;
-            }
-            if let Ok(h) = net::file_sha1(&e.path()).await {
-                by_hash.insert(h, name);
-            }
+    let entries = collect_exportable_entries(&game_dir);
+    let mut by_hash: HashMap<String, ExportableEntry> = HashMap::new();
+    for entry in entries {
+        if let Ok(h) = net::file_sha1(&entry.path).await {
+            by_hash.insert(h, entry);
         }
     }
 
@@ -1183,8 +1237,9 @@ pub async fn export_mrpack(
     let mut files = Vec::new();
     let mut bundled: Vec<(String, std::path::PathBuf)> = Vec::new();
 
-    for (hash, filename) in &by_hash {
-        let file = resolved.get(hash).and_then(|v| {
+    for (hash, entry) in by_hash {
+        let pack_path = format!("{}/{}", entry.subdir, entry.filename);
+        let file = resolved.get(&hash).and_then(|v| {
             v.files
                 .iter()
                 .find(|f| f.hashes.sha1.as_deref() == Some(hash.as_str()))
@@ -1194,7 +1249,7 @@ pub async fn export_mrpack(
         if let Some(f) = file {
             if let (Some(sha1), Some(sha512)) = (f.hashes.sha1.clone(), f.hashes.sha512.clone()) {
                 files.push(ExportFile {
-                    path: format!("mods/{filename}"),
+                    path: pack_path,
                     hashes: ExportHashes { sha1, sha512 },
                     downloads: vec![f.url.clone()],
                     file_size: f.size,
@@ -1202,11 +1257,21 @@ pub async fn export_mrpack(
                 continue;
             }
         }
-        // Couldn't resolve on Modrinth — bundle the jar directly.
-        bundled.push((format!("overrides/mods/{filename}"), mods_dir.join(filename)));
+        // Couldn't resolve on Modrinth — bundle the file directly.
+        bundled.push((format!("overrides/{pack_path}"), entry.path));
     }
 
-    // Bundle config/ as overrides so the pack is playable out of the box.
+    // Bundle folder-based resource packs / shaders and config/ as overrides.
+    for subdir in ["resourcepacks", "shaderpacks"] {
+        let dir = game_dir.join(subdir);
+        if let Ok(rd) = std::fs::read_dir(&dir) {
+            for e in rd.flatten() {
+                if e.path().is_dir() {
+                    collect_overrides(&e.path(), &game_dir, &mut bundled);
+                }
+            }
+        }
+    }
     let config_dir = game_dir.join("config");
     if config_dir.is_dir() {
         collect_overrides(&config_dir, &game_dir, &mut bundled);
@@ -1228,7 +1293,7 @@ pub async fn export_mrpack(
     let index = ExportIndex {
         format_version: 1,
         game: "minecraft".to_string(),
-        version_id: "1.0.0".to_string(),
+        version_id: export_version_id(&instance),
         name: instance.name.clone(),
         files,
         dependencies: deps,

@@ -1,7 +1,7 @@
 {
   "name": "ezmapa-launcher",
   "private": true,
-  "version": "0.2.4",
+  "version": "0.2.5",
   "type": "module",
   "description": "EZMapa — a modern Minecraft launcher",
   "scripts": {

@@ -182,13 +182,7 @@ pub async fn set_active_account(
 
 #[tauri::command]
 pub async fn remove_account(state: State<'_, AppState>, id: String) -> Result<Vec<PublicAccount>> {
-    let store = instances::mutate_accounts(state.inner(), |store| {
-        store.accounts.retain(|a| a.id != id);
-        if store.active.as_deref() == Some(id.as_str()) {
-            store.active = store.accounts.first().map(|a| a.id.clone());
-        }
-        store.clone()
-    })?;
+    let store = instances::remove_account(state.inner(), &id)?;
     Ok(public_accounts(&store))
 }
 
@@ -797,8 +791,31 @@ pub async fn install_curseforge_file(
 // Open URL in system browser
 // ---------------------------------------------------------------------------
 
+fn validate_http_url(url: &str) -> Result<String> {
+    let trimmed = url.trim();
+    if trimmed.is_empty() {
+        return Err(Error::Other("URL cannot be empty.".into()));
+    }
+    if trimmed.chars().any(|c| c.is_control()) {
+        return Err(Error::Other("URL contains invalid characters.".into()));
+    }
+    let lower = trimmed.to_ascii_lowercase();
+    let rest = if let Some(r) = lower.strip_prefix("https://") {
+        r
+    } else if let Some(r) = lower.strip_prefix("http://") {
+        r
+    } else {
+        return Err(Error::Other("Only http:// and https:// URLs are allowed.".into()));
+    };
+    if rest.is_empty() || rest.starts_with('/') {
+        return Err(Error::Other("Invalid URL.".into()));
+    }
+    Ok(trimmed.to_string())
+}
+
 #[tauri::command]
 pub async fn open_url(url: String) -> Result<()> {
+    let url = validate_http_url(&url)?;
     #[cfg(windows)]
     { let _ = std::process::Command::new("cmd").args(["/C", "start", "", &url]).spawn(); }
     #[cfg(target_os = "macos")]

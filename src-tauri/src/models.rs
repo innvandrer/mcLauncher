@@ -164,17 +164,17 @@ fn default_concurrency() -> usize {
     8
 }
 
-/// A signed-in account. Tokens are persisted locally but never sent to the
-/// frontend (see [`PublicAccount`]).
+fn default_account_type() -> String {
+    "microsoft".to_string()
+}
+
+/// Non-secret account metadata persisted in `accounts.json`. Tokens live in the
+/// OS keyring (see `account_tokens`).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct Account {
+pub struct StoredAccount {
     pub id: String,
     pub username: String,
-    #[serde(default)]
-    pub access_token: String,
-    #[serde(default)]
-    pub refresh_token: Option<String>,
     #[serde(default)]
     pub expires_at: i64,
     #[serde(default)]
@@ -183,8 +183,56 @@ pub struct Account {
     pub kind: String,
 }
 
-fn default_account_type() -> String {
-    "microsoft".to_string()
+/// Full in-memory account including tokens loaded from secure storage. Never
+/// serialized to disk or sent to the frontend (see [`PublicAccount`]).
+#[derive(Debug, Clone)]
+pub struct Account {
+    pub id: String,
+    pub username: String,
+    pub access_token: String,
+    pub refresh_token: Option<String>,
+    pub expires_at: i64,
+    pub xuid: Option<String>,
+    pub kind: String,
+}
+
+impl StoredAccount {
+    pub fn to_public(&self, active: bool) -> PublicAccount {
+        PublicAccount {
+            id: self.id.clone(),
+            username: self.username.clone(),
+            kind: self.kind.clone(),
+            active,
+        }
+    }
+}
+
+impl Account {
+    pub fn from_stored(
+        stored: StoredAccount,
+        access_token: String,
+        refresh_token: Option<String>,
+    ) -> Self {
+        Self {
+            id: stored.id,
+            username: stored.username,
+            access_token,
+            refresh_token,
+            expires_at: stored.expires_at,
+            xuid: stored.xuid,
+            kind: stored.kind,
+        }
+    }
+
+    pub fn into_stored(self) -> StoredAccount {
+        StoredAccount {
+            id: self.id,
+            username: self.username,
+            expires_at: self.expires_at,
+            xuid: self.xuid,
+            kind: self.kind,
+        }
+    }
 }
 
 /// Account info safe to send to the frontend (no tokens).
@@ -197,23 +245,12 @@ pub struct PublicAccount {
     pub active: bool,
 }
 
-impl Account {
-    pub fn to_public(&self, active: bool) -> PublicAccount {
-        PublicAccount {
-            id: self.id.clone(),
-            username: self.username.clone(),
-            kind: self.kind.clone(),
-            active,
-        }
-    }
-}
-
-/// Stored on disk in `accounts.json`.
+/// Stored on disk in `accounts.json` (metadata only — no tokens).
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AccountStore {
     #[serde(default)]
-    pub accounts: Vec<Account>,
+    pub accounts: Vec<StoredAccount>,
     #[serde(default)]
     pub active: Option<String>,
 }

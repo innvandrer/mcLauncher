@@ -68,6 +68,7 @@ struct CfSearchResponse {
 }
 
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct CfPagination {
     #[serde(default)]
     total_count: u64,
@@ -683,7 +684,10 @@ pub async fn install_modpack(
                 if rest.is_empty() {
                     continue;
                 }
-                let dest = game_dir.join(rest);
+                // Reject entries whose name would escape the instance dir (zip slip).
+                let Some(dest) = crate::archive::safe_join(&game_dir, rest) else {
+                    continue;
+                };
                 if zname.ends_with('/') {
                     std::fs::create_dir_all(&dest)?;
                 } else {

@@ -57,8 +57,170 @@ pub fn save_settings(state: &AppState, settings: &Settings) -> Result<()> {
 // Accounts
 // ---------------------------------------------------------------------------
 
+/// On-disk shape before tokens were moved to the OS keyring. Used only for
+/// one-time migration when loading `accounts.json`.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct LegacyAccount {
+    pub id: String,
+    pub username: String,
+    #[serde(default)]
+    pub access_token: String,
+    #[serde(default)]
+    pub refresh_token: Option<String>,
+    #[serde(default)]
+    pub expires_at: i64,
+    #[serde(default)]
+    pub xuid: Option<String>,
+    #[serde(rename = "type", default = "default_legacy_account_type")]
+    pub kind: String,
+}
+
+fn default_legacy_account_type() -> String {
+    "microsoft".to_string()
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct LegacyAccountStore {
+    #[serde(default)]
+    accounts: Vec<LegacyAccount>,
+    #[serde(default)]
+    active: Option<String>,
+}
+
+fn legacy_has_inline_tokens(legacy: &LegacyAccountStore) -> bool {
+    legacy.accounts.iter().any(|a| {
+        !a.access_token.is_empty()
+            || a
+                .refresh_token
+                .as_ref()
+                .is_some_and(|r| !r.is_empty())
+    })
+}
+
+fn legacy_to_stored(leg: &LegacyAccount) -> StoredAccount {
+    StoredAccount {
+        id: leg.id.clone(),
+        username: leg.username.clone(),
+        expires_at: leg.expires_at,
+        xuid: leg.xuid.clone(),
+        kind: leg.kind.clone(),
+    }
+}
+
+fn inline_tokens_from_file(path: &Path, account_id: &str) -> Option<(String, Option<String>)> {
+    let bytes = std::fs::read(path).ok()?;
+    let legacy: LegacyAccountStore = serde_json::from_slice(&bytes).ok()?;
+    let leg = legacy.accounts.iter().find(|a| a.id == account_id)?;
+    let has_tokens = !leg.access_token.is_empty()
+        || leg
+            .refresh_token
+            .as_ref()
+            .is_some_and(|r| !r.is_empty());
+    if !has_tokens {
+        return None;
+    }
+    Some((leg.access_token.clone(), leg.refresh_token.clone()))
+}
+
+fn try_migrate_inline_tokens(path: &Path, legacy: &LegacyAccountStore) -> bool {
+    if !legacy_has_inline_tokens(legacy) {
+        return false;
+    }
+
+    let mut all_migrated = true;
+    for leg in &legacy.accounts {
+        let has_tokens = !leg.access_token.is_empty()
+            || leg
+                .refresh_token
+                .as_ref()
+                .is_some_and(|r| !r.is_empty());
+        if has_tokens && leg.kind == "microsoft" {
+            if let Err(e) = crate::account_tokens::store_tokens(
+                &leg.id,
+                &leg.access_token,
+                leg.refresh_token.as_deref(),
+            ) {
+                eprintln!(
+                    "warning: could not migrate tokens for account {} to secure storage: {e}",
+                    leg.id
+                );
+                all_migrated = false;
+            }
+        }
+    }
+
+    if all_migrated {
+        let store = AccountStore {
+            accounts: legacy.accounts.iter().map(legacy_to_stored).collect(),
+            active: legacy.active.clone(),
+        };
+        if let Err(e) = write_json(path, &store) {
+            eprintln!("warning: could not rewrite accounts.json without tokens: {e}");
+            return false;
+        }
+    }
+    all_migrated
+}
+
+fn read_account_store(path: &Path) -> AccountStore {
+    let bytes = match std::fs::read(path) {
+        Ok(b) => b,
+        Err(_) => return AccountStore::default(),
+    };
+
+    let legacy: LegacyAccountStore = match serde_json::from_slice(&bytes) {
+        Ok(s) => s,
+        Err(_) => return AccountStore::default(),
+    };
+
+    let _ = try_migrate_inline_tokens(path, &legacy);
+
+    AccountStore {
+        accounts: legacy.accounts.iter().map(legacy_to_stored).collect(),
+        active: legacy.active,
+    }
+}
+
+fn hydrate_account(stored: &StoredAccount, accounts_path: &Path) -> Result<Account> {
+    let (mut access_token, mut refresh_token) = if stored.kind == "microsoft" {
+        crate::account_tokens::load_tokens(&stored.id)?
+    } else {
+        (String::new(), None)
+    };
+
+    // Fallback for accounts.json that still has inline tokens (e.g. keyring
+    // migration failed on a previous launch).
+    if stored.kind == "microsoft"
+        && access_token.is_empty()
+        && refresh_token.as_ref().is_none_or(|r| r.is_empty())
+    {
+        if let Some((a, r)) = inline_tokens_from_file(accounts_path, &stored.id) {
+            access_token = a;
+            refresh_token = r;
+            let _ = crate::account_tokens::store_tokens(
+                &stored.id,
+                &access_token,
+                refresh_token.as_deref(),
+            );
+            if let Ok(bytes) = std::fs::read(accounts_path) {
+                if let Ok(legacy) = serde_json::from_slice::<LegacyAccountStore>(&bytes) {
+                    let _ = try_migrate_inline_tokens(accounts_path, &legacy);
+                }
+            }
+        }
+    }
+
+    Ok(Account::from_stored(
+        stored.clone(),
+        access_token,
+        refresh_token,
+    ))
+}
+
 pub fn load_accounts(state: &AppState) -> AccountStore {
-    read_json_or_default(&state.dirs.accounts_file())
+    read_account_store(&state.dirs.accounts_file())
 }
 
 pub fn save_accounts(state: &AppState, store: &AccountStore) -> Result<()> {
@@ -81,22 +243,50 @@ pub fn mutate_accounts<R>(
 }
 
 pub fn upsert_account(state: &AppState, account: Account) -> Result<AccountStore> {
+    if account.kind == "microsoft" {
+        crate::account_tokens::store_tokens(
+            &account.id,
+            &account.access_token,
+            account.refresh_token.as_deref(),
+        )?;
+    }
+    let stored = account.into_stored();
     mutate_accounts(state, move |store| {
-        let id = account.id.clone();
-        if let Some(existing) = store.accounts.iter_mut().find(|a| a.id == account.id) {
-            *existing = account;
+        let id = stored.id.clone();
+        if let Some(existing) = store.accounts.iter_mut().find(|a| a.id == stored.id) {
+            *existing = stored;
         } else {
-            store.accounts.push(account);
+            store.accounts.push(stored);
         }
         store.active = Some(id);
         store.clone()
     })
 }
 
-pub fn active_account(state: &AppState) -> Option<Account> {
+pub fn remove_account(state: &AppState, id: &str) -> Result<AccountStore> {
+    let _ = crate::account_tokens::delete_tokens(id);
+    mutate_accounts(state, |store| {
+        store.accounts.retain(|a| a.id != id);
+        if store.active.as_deref() == Some(id) {
+            store.active = store.accounts.first().map(|a| a.id.clone());
+        }
+        store.clone()
+    })
+}
+
+pub fn active_account(state: &AppState) -> Result<Account> {
+    let path = state.dirs.accounts_file();
     let store = load_accounts(state);
-    let id = store.active.clone()?;
-    store.accounts.into_iter().find(|a| a.id == id)
+    let id = store.active.clone().ok_or_else(|| {
+        crate::error::Error::Auth("No account selected. Add an account first.".into())
+    })?;
+    let stored = store
+        .accounts
+        .iter()
+        .find(|a| a.id == id)
+        .ok_or_else(|| crate::error::Error::Auth("Active account not found.".into()))?
+        .clone();
+    hydrate_account(&stored, &path)
 }
 
 // ---------------------------------------------------------------------------
@@ -708,4 +898,58 @@ pub fn list_screenshots(state: &AppState, instance_id: &str) -> Vec<ScreenshotEn
     }
     out.sort_by(|a, b| b.taken_at.cmp(&a.taken_at));
     out
+}
+
+#[cfg(test)]
+mod account_migration_tests {
+    use super::*;
+
+    #[test]
+    fn detects_inline_tokens_in_legacy_json() {
+        let json = r#"{
+            "accounts":[{
+                "id":"abc",
+                "username":"Steve",
+                "accessToken":"secret",
+                "refreshToken":"refresh",
+                "expiresAt":123,
+                "type":"microsoft"
+            }],
+            "active":"abc"
+        }"#;
+        let legacy: LegacyAccountStore = serde_json::from_str(json).unwrap();
+        assert!(legacy_has_inline_tokens(&legacy));
+    }
+
+    #[test]
+    fn metadata_only_json_has_no_inline_tokens() {
+        let json = r#"{
+            "accounts":[{
+                "id":"abc",
+                "username":"Steve",
+                "expiresAt":123,
+                "type":"microsoft"
+            }],
+            "active":"abc"
+        }"#;
+        let legacy: LegacyAccountStore = serde_json::from_str(json).unwrap();
+        assert!(!legacy_has_inline_tokens(&legacy));
+    }
+
+    #[test]
+    fn legacy_to_stored_omits_secrets() {
+        let leg = LegacyAccount {
+            id: "x".into(),
+            username: "Steve".into(),
+            access_token: "secret".into(),
+            refresh_token: Some("refresh".into()),
+            expires_at: 1,
+            xuid: None,
+            kind: "microsoft".into(),
+        };
+        let stored = legacy_to_stored(&leg);
+        assert_eq!(stored.id, "x");
+        assert_eq!(stored.username, "Steve");
+        assert_eq!(stored.kind, "microsoft");
+    }
 }

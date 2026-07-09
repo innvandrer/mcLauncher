@@ -32,14 +32,18 @@ fn default_variant() -> String {
 }
 
 fn access_token(state: &AppState) -> Result<String> {
-    let account = instances::active_account(state)
-        .ok_or_else(|| Error::Auth("No active account".into()))?;
+    let account = instances::active_account(state)?;
     if account.kind != "microsoft" {
         return Err(Error::Auth(
             "Skin management is only available for Microsoft accounts".into(),
         ));
     }
-    Ok(account.access_token.clone())
+    if account.access_token.is_empty() {
+        return Err(Error::Auth(
+            "Session token missing. Please sign in again.".into(),
+        ));
+    }
+    Ok(account.access_token)
 }
 
 /// Fetch the active skin for the logged-in account.
