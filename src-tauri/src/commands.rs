@@ -1027,6 +1027,17 @@ pub async fn list_sessions(state: State<'_, AppState>) -> Result<Vec<instances::
     Ok(instances::list_sessions(state.inner()))
 }
 
+/// Write PNG bytes to a user-chosen destination (from the save dialog).
+/// Used by the Wrapped share card, which is rendered to a canvas in the UI.
+#[tauri::command]
+pub async fn save_png(dest: String, data: Vec<u8>) -> Result<()> {
+    if !dest.to_lowercase().ends_with(".png") {
+        return Err(Error::Other("Destination must be a .png file.".into()));
+    }
+    std::fs::write(Path::new(&dest), &data)?;
+    Ok(())
+}
+
 // ---------------------------------------------------------------------------
 // Skin wardrobe
 // ---------------------------------------------------------------------------

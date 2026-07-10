@@ -131,6 +131,7 @@ pub fn run() {
             commands::save_loadout,
             commands::apply_loadout,
             commands::delete_loadout,
+            commands::save_png,
             commands::list_resource_packs,
             commands::delete_resource_pack,
             commands::list_shaders,

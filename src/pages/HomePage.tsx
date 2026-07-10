@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
-import { Activity, Boxes, Clock, Package, Play, Trophy, Users } from "lucide-react";
+import { Activity, Boxes, Clock, Package, Play, Sparkles, Trophy, Users } from "lucide-react";
 import { useStore } from "@/store/useStore";
 import { api } from "@/lib/api";
 import { InstanceIcon } from "@/components/InstanceIcon";
+import { WrappedModal } from "@/components/WrappedModal";
 import { cn, formatDuration, loaderLabel, timeAgo } from "@/lib/utils";
 import type { Instance, Loader, Session } from "@/lib/types";
 
@@ -34,6 +35,7 @@ function HeroBanner({
   instanceCount,
   onPlay,
   onOpen,
+  onWrapped,
 }: {
   active?: { id: string; username: string } | null;
   instance: Instance | null;
@@ -42,6 +44,7 @@ function HeroBanner({
   instanceCount: number;
   onPlay: () => void;
   onOpen: () => void;
+  onWrapped?: (() => void) | null;
 }) {
   const splash = useMemo(() => SPLASHES[Math.floor(Math.random() * SPLASHES.length)], []);
   return (
@@ -53,6 +56,16 @@ function HeroBanner({
             "radial-gradient(80% 140% at 0% 0%, hsl(var(--accent) / 0.30), transparent 60%), radial-gradient(70% 130% at 100% 0%, hsl(var(--accent) / 0.16), transparent 55%)",
         }}
       />
+      {onWrapped && (
+        <button
+          onClick={onWrapped}
+          className="absolute right-4 top-4 z-10 inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-medium text-foreground/80 backdrop-blur transition hover:bg-white/10 btn-focus"
+          title="Your year in review"
+        >
+          <Sparkles className="h-3.5 w-3.5 text-accent" />
+          Wrapped {new Date().getFullYear()}
+        </button>
+      )}
       <div className="relative flex flex-col gap-6 p-4 sm:flex-row sm:items-center sm:p-7">
         <div className="min-w-0 flex-1">
           <p className="text-xs font-semibold uppercase tracking-wider text-accent">Welcome back</p>
@@ -110,6 +123,7 @@ export function HomePage() {
   const active = accounts.find((a) => a.active);
 
   const [sessions, setSessions] = useState<Session[]>([]);
+  const [wrappedOpen, setWrappedOpen] = useState(false);
   useEffect(() => {
     api.listSessions().then(setSessions).catch(() => {});
   }, []);
@@ -205,6 +219,12 @@ export function HomePage() {
           instanceCount={instances.length}
           onPlay={() => stats.mostPlayed && launch(stats.mostPlayed.id)}
           onOpen={() => stats.mostPlayed && openInstance(stats.mostPlayed.id)}
+          onWrapped={sessions.length > 0 ? () => setWrappedOpen(true) : null}
+        />
+        <WrappedModal
+          open={wrappedOpen}
+          onClose={() => setWrappedOpen(false)}
+          sessions={sessions}
         />
         {/* Stat cards */}
         <div className="mt-6 grid grid-cols-2 gap-4 lg:grid-cols-4">

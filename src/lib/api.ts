@@ -290,6 +290,7 @@ export const api = {
 
   // Play sessions (activity stats)
   listSessions: () => invoke<Session[]>("list_sessions"),
+  savePng: (dest: string, data: number[]) => invoke<void>("save_png", { dest, data }),
 
   // Skin wardrobe
   listSavedSkins: () => invoke<SavedSkin[]>("list_saved_skins"),
