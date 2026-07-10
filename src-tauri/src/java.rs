@@ -137,7 +137,7 @@ pub fn detect_in(dirs: &AppDirs) -> Vec<JavaInstall> {
     }
 
     let mut installs: Vec<JavaInstall> = candidates.iter().filter_map(|p| probe(p)).collect();
-    installs.sort_by(|a, b| b.major.cmp(&a.major));
+    installs.sort_by_key(|i| std::cmp::Reverse(i.major));
     installs.dedup_by(|a, b| a.path == b.path);
     installs
 }

@@ -182,6 +182,7 @@ export const api = {
   exportMrpack: (id: string, dest: string) =>
     invoke<void>("export_mrpack", { id, dest }),
   importInstance: (src: string) => invoke<Instance>("import_instance", { src }),
+  importMrpack: (src: string) => invoke<Instance>("import_mrpack", { src }),
 
   // Resource packs
   listResourcePacks: (instanceId: string) =>

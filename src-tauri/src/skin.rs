@@ -170,7 +170,7 @@ fn write_saved_skins(state: &AppState, skins: &[SavedSkin]) -> Result<()> {
 /// so the webview can render it without an asset-protocol round trip.
 fn b64_encode(data: &[u8]) -> String {
     const T: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut out = String::with_capacity((data.len() + 2) / 3 * 4);
+    let mut out = String::with_capacity(data.len().div_ceil(3) * 4);
     for chunk in data.chunks(3) {
         let b0 = chunk[0] as u32;
         let b1 = *chunk.get(1).unwrap_or(&0) as u32;
@@ -299,7 +299,7 @@ fn extract_player_query(input: &str) -> String {
         return seg.trim().to_string();
     }
     if s.contains("://") {
-        if let Some(seg) = s.split('/').filter(|p| !p.is_empty()).last() {
+        if let Some(seg) = s.split('/').rfind(|p| !p.is_empty()) {
             return seg.split(['?', '#']).next().unwrap_or(seg).to_string();
         }
     }

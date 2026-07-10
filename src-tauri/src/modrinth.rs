@@ -1027,14 +1027,51 @@ pub async fn install_modpack(
     name_override: Option<&str>,
     icon: Option<String>,
 ) -> Result<crate::models::Instance> {
-    let settings = crate::instances::load_settings(state);
     let (tmp_path, fallback_name) = fetch_mrpack_archive(state, project_id, version_id).await?;
+    let source = Some((project_id.to_string(), version_id.map(|s| s.to_string())));
+    let res =
+        instance_from_mrpack_archive(app, state, &tmp_path, fallback_name, name_override, icon, source)
+            .await;
+    std::fs::remove_file(&tmp_path).ok();
+    res
+}
+
+/// Import a local `.mrpack` file as a new instance. The file itself is left in
+/// place; without a Modrinth project id the instance can't be diff-updated.
+pub async fn import_mrpack_file(
+    app: &AppHandle,
+    state: &AppState,
+    path: &std::path::Path,
+) -> Result<crate::models::Instance> {
+    let fallback_name = path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("Imported pack")
+        .to_string();
+    instance_from_mrpack_archive(app, state, path, fallback_name, None, None, None).await
+}
+
+/// Shared core of modpack install/import: parse the index of an `.mrpack`
+/// already on disk, create the instance, extract overrides, download files.
+/// `source` is the Modrinth (project_id, version_id) when known.
+async fn instance_from_mrpack_archive(
+    app: &AppHandle,
+    state: &AppState,
+    archive_path: &std::path::Path,
+    fallback_name: String,
+    name_override: Option<&str>,
+    icon: Option<String>,
+    source: Option<(String, Option<String>)>,
+) -> Result<crate::models::Instance> {
+    let settings = crate::instances::load_settings(state);
 
     // Parse the index once up front (without a game dir) to read dependencies.
     let meta: MrpackIndex = {
-        let file = std::fs::File::open(&tmp_path)?;
+        let file = std::fs::File::open(archive_path)?;
         let mut archive = zip::ZipArchive::new(file)?;
-        let mut idx = archive.by_name("modrinth.index.json")?;
+        let mut idx = archive.by_name("modrinth.index.json").map_err(|_| {
+            Error::Other("Not a Modrinth modpack: missing modrinth.index.json.".into())
+        })?;
         let mut buf = Vec::new();
         std::io::Read::read_to_end(&mut idx, &mut buf)?;
         serde_json::from_slice(&buf)?
@@ -1054,20 +1091,30 @@ pub async fn install_modpack(
     let mut instance =
         crate::instances::create_instance(state, &pack_name, &mc_version, loader, loader_version, icon)?;
     // Remember where this pack came from so we can offer diff-based updates.
-    instance.pack_source = Some(crate::models::PackSource {
-        provider: "modrinth".into(),
-        project_id: project_id.to_string(),
-        version_id: version_id.map(|s| s.to_string()),
-        version_name: Some(meta.version_id.clone()),
-    });
-    crate::instances::save_instance(state, &instance)?;
+    if let Some((project_id, version_id)) = source {
+        instance.pack_source = Some(crate::models::PackSource {
+            provider: "modrinth".into(),
+            project_id,
+            version_id,
+            version_name: Some(meta.version_id.clone()),
+        });
+        crate::instances::save_instance(state, &instance)?;
+    }
     // Surface the new instance in the grid immediately so it shows an
     // "installing" card while its content downloads.
     let _ = app.emit("instance://created", instance.clone());
 
     let game_dir = state.dirs.game_dir(&instance.id);
-    let (_index, items) = unpack_mrpack(&tmp_path, &game_dir)?;
-    std::fs::remove_file(&tmp_path).ok();
+    let (_index, items) = match unpack_mrpack(archive_path, &game_dir) {
+        Ok(v) => v,
+        Err(e) => {
+            // Roll back the half-created instance so a bad archive doesn't
+            // leave a broken card in the grid.
+            let _ = crate::instances::delete_instance(state, &instance.id);
+            let _ = app.emit("instance://removed", instance.id.clone());
+            return Err(e);
+        }
+    };
 
     let task_id = format!("modpack:{}", instance.id);
     let cancel = state.cancel_flag(&task_id);

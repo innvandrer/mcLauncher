@@ -95,15 +95,11 @@ pub struct VersionJson {
 pub struct AssetIndexRef {
     pub id: String,
     pub sha1: String,
-    #[serde(default)]
-    pub size: u64,
     pub url: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct JavaVersion {
-    #[serde(default)]
-    pub component: String,
     #[serde(rename = "majorVersion")]
     pub major_version: u32,
 }
@@ -222,7 +218,6 @@ pub struct Resolved {
 #[derive(Debug, Clone)]
 pub struct Processor {
     pub main_class: String,
-    pub classpath_jars: Vec<std::path::PathBuf>, // Fullstendige stier til JAR-er
     pub args: Vec<String>, // Argumenter med plassholdere løst
 }
 
@@ -380,7 +375,6 @@ pub async fn resolve_version(state: &AppState, version_id: &str) -> Result<Resol
             legacy_args: v.minecraft_arguments,
             processors: v.processors.into_iter().map(|p| Processor {
                 main_class: p.main,
-                classpath_jars: Vec::new(),
                 args: p.args,
             }).collect(),
         })
@@ -427,7 +421,6 @@ fn merge(parent: Resolved, child: VersionJson) -> Resolved {
         legacy_args: child.minecraft_arguments.or(parent.legacy_args),
         processors: child.processors.into_iter().map(|p| Processor {
             main_class: p.main,
-            classpath_jars: Vec::new(),
             args: p.args,
         }).collect(),
     }
@@ -445,11 +438,6 @@ fn coord_key(name: &str) -> String {
 // ---------------------------------------------------------------------------
 // Classpath + natives computation
 // ---------------------------------------------------------------------------
-
-/// A library artifact that belongs on the JVM classpath.
-pub struct ClasspathEntry {
-    pub path: std::path::PathBuf,
-}
 
 /// Returns the set of classpath jars and the set of native jars to extract,
 /// after applying OS rules.
@@ -516,7 +504,7 @@ pub fn split_libraries(
         } else if let Some(base) = &lib.url {
             // Fabric/Quilt maven-style entry without an explicit download block.
             let rel = maven_to_path(&lib.name);
-            let url = format!("{}{}", base.trim_end_matches('/'), format!("/{rel}"));
+            let url = format!("{}/{rel}", base.trim_end_matches('/'));
             let path = lib_root.join(&rel);
             classpath_paths.push(path.clone());
             classpath_dl.push(DownloadItem::new(url, path, None));

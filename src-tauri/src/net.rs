@@ -174,7 +174,6 @@ pub async fn download_many_cancellable(
         let app = app.clone();
         let task_id = task_id.to_string();
         let label = label.to_string();
-        let start = start;
         let cancel = cancel.clone();
         async move {
             // Short-circuit any not-yet-started file once cancellation is asked.

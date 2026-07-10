@@ -495,6 +495,17 @@ pub async fn install_mrpack(
     .await
 }
 
+/// Import a local .mrpack file as a new instance (derives loader + version
+/// from the pack's index).
+#[tauri::command]
+pub async fn import_mrpack(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    src: String,
+) -> Result<Instance> {
+    modrinth::import_mrpack_file(&app, state.inner(), Path::new(&src)).await
+}
+
 /// List all versions of a Modrinth project (for the version picker).
 #[tauri::command]
 pub async fn list_modrinth_versions(

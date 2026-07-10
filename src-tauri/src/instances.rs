@@ -433,17 +433,9 @@ fn copy_dir(from: &Path, to: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Mark an instance as played now and add to its playtime.
-pub fn record_play(state: &AppState, id: &str, seconds: u64) {
-    if let Ok(mut inst) = get_instance(state, id) {
-        inst.last_played = Some(chrono::Utc::now().timestamp());
-        inst.total_play_seconds += seconds;
-        let _ = save_instance(state, &inst);
-    }
-}
-
-/// Like [`record_play`] but works from a background thread that only has access
-/// to the directory layout (used by the process watcher on game exit).
+/// Mark an instance as played now and add to its playtime. Works from a
+/// background thread that only has access to the directory layout (used by
+/// the process watcher on game exit).
 pub fn record_play_dirs(dirs: &crate::state::AppDirs, id: &str, seconds: u64) {
     let manifest = dirs.instance_manifest(id);
     if let Ok(bytes) = std::fs::read(&manifest) {
@@ -707,7 +699,7 @@ pub fn list_mods(state: &AppState, instance_id: &str) -> Vec<ModEntry> {
             });
         }
     }
-    out.sort_by(|a, b| a.file_name.to_lowercase().cmp(&b.file_name.to_lowercase()));
+    out.sort_by_key(|a| a.file_name.to_lowercase());
     out
 }
 
@@ -766,7 +758,7 @@ pub fn list_resource_packs(state: &AppState, instance_id: &str) -> Vec<ResourceP
             }
         }
     }
-    out.sort_by(|a, b| a.file_name.to_lowercase().cmp(&b.file_name.to_lowercase()));
+    out.sort_by_key(|a| a.file_name.to_lowercase());
     out
 }
 
@@ -808,7 +800,7 @@ pub fn list_shaders(state: &AppState, instance_id: &str) -> Vec<ShaderEntry> {
             }
         }
     }
-    out.sort_by(|a, b| a.file_name.to_lowercase().cmp(&b.file_name.to_lowercase()));
+    out.sort_by_key(|a| a.file_name.to_lowercase());
     out
 }
 
@@ -850,7 +842,7 @@ pub fn list_worlds(state: &AppState, instance_id: &str) -> Vec<WorldEntry> {
             }
         }
     }
-    out.sort_by(|a, b| b.modified.cmp(&a.modified));
+    out.sort_by_key(|w| std::cmp::Reverse(w.modified));
     out
 }
 
@@ -896,7 +888,7 @@ pub fn list_screenshots(state: &AppState, instance_id: &str) -> Vec<ScreenshotEn
             }
         }
     }
-    out.sort_by(|a, b| b.taken_at.cmp(&a.taken_at));
+    out.sort_by_key(|s| std::cmp::Reverse(s.taken_at));
     out
 }
 

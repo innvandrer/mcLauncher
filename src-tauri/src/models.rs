@@ -3,7 +3,9 @@ use serde::{Deserialize, Serialize};
 /// A mod loader supported by the launcher.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
+#[derive(Default)]
 pub enum Loader {
+    #[default]
     Vanilla,
     Fabric,
     Quilt,
@@ -21,17 +23,8 @@ impl Loader {
             Loader::Neoforge => "neoforge",
         }
     }
-    /// The identifier Modrinth uses for this loader in its facets.
-    pub fn modrinth_id(&self) -> &'static str {
-        self.as_str()
-    }
 }
 
-impl Default for Loader {
-    fn default() -> Self {
-        Loader::Vanilla
-    }
-}
 
 /// A user-created instance: an isolated Minecraft installation.
 #[derive(Debug, Clone, Serialize, Deserialize)]

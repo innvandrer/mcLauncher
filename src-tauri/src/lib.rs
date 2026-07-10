@@ -124,6 +124,7 @@ pub fn run() {
             commands::export_instance,
             commands::import_instance,
             commands::export_mrpack,
+            commands::import_mrpack,
             commands::list_mods,
             commands::set_mod_enabled,
             commands::delete_mod,

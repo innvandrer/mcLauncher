@@ -4,7 +4,8 @@ version = "0.2.5"
 description = "EZMapa — a modern Minecraft launcher"
 authors = ["EZMapa contributors"]
 edition = "2021"
-rust-version = "1.77"
+# Option::is_none_or (used in instances.rs) requires 1.82.
+rust-version = "1.82"
 
 # The library that the Tauri application binds to. The desktop binary in
 # `main.rs` simply calls `ezmapa_lib::run()`.

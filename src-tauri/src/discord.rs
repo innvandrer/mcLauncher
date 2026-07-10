@@ -89,10 +89,6 @@ impl DiscordPresence {
         });
     }
 
-    /// Remove the presence entirely.
-    pub fn clear(&self) {
-        self.with_client(|client| client.clear_activity());
-    }
 }
 
 fn unix_now() -> i64 {

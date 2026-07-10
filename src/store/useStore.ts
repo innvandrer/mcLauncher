@@ -318,9 +318,11 @@ export const useStore = create<State>((set, get) => ({
   },
 
   importInstanceFromPath: async (path) => {
+    // Instance backups come in as .zip; Modrinth modpacks as .mrpack.
+    const isPack = path.toLowerCase().endsWith(".mrpack");
     try {
-      get().toast("info", "Importing instance…");
-      const inst = await api.importInstance(path);
+      get().toast("info", isPack ? "Importing modpack…" : "Importing instance…");
+      const inst = isPack ? await api.importMrpack(path) : await api.importInstance(path);
       await get().refreshInstances();
       get().toast("success", `Imported “${inst.name}”`);
       set({ view: "instances", selectedInstanceId: inst.id });

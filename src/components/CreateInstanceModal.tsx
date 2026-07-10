@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import { Search } from "lucide-react";
+import { FolderOpen, Search } from "lucide-react";
+import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { Button, Field, Input, Modal, Select } from "./ui";
 import { LoaderLogo } from "./LoaderLogo";
 import { useStore } from "@/store/useStore";
@@ -14,6 +15,7 @@ const ALL_LOADERS: Loader[] = ["vanilla", "fabric", "quilt", "forge", "neoforge"
 export function CreateInstanceModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   const versions = useStore((s) => s.versions);
   const createInstance = useStore((s) => s.createInstance);
+  const importFromPath = useStore((s) => s.importInstanceFromPath);
   const toast = useStore((s) => s.toast);
 
   const [name, setName] = useState("");
@@ -81,6 +83,18 @@ export function CreateInstanceModal({ open, onClose }: { open: boolean; onClose:
     mcVersion &&
     (loader === "vanilla" || loaderVersion);
 
+  // Alternative to building an instance by hand: pick a .mrpack modpack or an
+  // exported instance .zip and import it (same flow as dropping the file).
+  const importFromFile = async () => {
+    const selected = await openDialog({
+      multiple: false,
+      filters: [{ name: "Modpack or instance", extensions: ["mrpack", "zip"] }],
+    });
+    if (typeof selected !== "string") return;
+    onClose();
+    await importFromPath(selected);
+  };
+
   const submit = async () => {
     if (!canSubmit) return;
     setSubmitting(true);
@@ -108,6 +122,10 @@ export function CreateInstanceModal({ open, onClose }: { open: boolean; onClose:
       size="lg"
       footer={
         <>
+          <Button variant="ghost" className="mr-auto gap-2" onClick={importFromFile}>
+            <FolderOpen className="h-4 w-4" />
+            Import file…
+          </Button>
           <Button variant="ghost" onClick={onClose}>
             Cancel
           </Button>

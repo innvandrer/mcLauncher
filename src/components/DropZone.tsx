@@ -5,9 +5,9 @@ import { Download } from "lucide-react";
 import { useStore } from "@/store/useStore";
 
 /**
- * Full-window drop target: drag an EZMapa instance `.zip` onto the launcher to
- * import it. Listens to Tauri's native drag-drop events so it works with files
- * dragged from the OS file manager.
+ * Full-window drop target: drag an EZMapa instance `.zip` or a Modrinth
+ * modpack `.mrpack` onto the launcher to import it. Listens to Tauri's native
+ * drag-drop events so it works with files dragged from the OS file manager.
  */
 export function DropZone() {
   const [over, setOver] = useState(false);
@@ -25,13 +25,16 @@ export function DropZone() {
           setOver(false);
         } else if (p.type === "drop") {
           setOver(false);
-          const zips = p.paths.filter((path) => path.toLowerCase().endsWith(".zip"));
-          if (zips.length === 0) {
-            toast("error", "Drop an EZMapa instance .zip to import it.");
+          const files = p.paths.filter((path) => {
+            const lower = path.toLowerCase();
+            return lower.endsWith(".zip") || lower.endsWith(".mrpack");
+          });
+          if (files.length === 0) {
+            toast("error", "Drop an instance .zip or a .mrpack modpack to import it.");
             return;
           }
           // Import sequentially so multiple drops don't race the refresh.
-          zips.reduce(
+          files.reduce(
             (chain, path) => chain.then(() => importFromPath(path)),
             Promise.resolve(),
           );
@@ -59,7 +62,8 @@ export function DropZone() {
             <Download className="h-10 w-10 text-accent" />
             <p className="text-lg font-semibold">Drop to import</p>
             <p className="text-sm text-muted-foreground">
-              Release an EZMapa instance <span className="font-mono">.zip</span> to add it.
+              Release an instance <span className="font-mono">.zip</span> or a{" "}
+              <span className="font-mono">.mrpack</span> modpack to add it.
             </p>
           </div>
         </motion.div>

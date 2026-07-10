@@ -6,8 +6,10 @@ on:
   pull_request:
 
 jobs:
+  # Windows is the platform we ship, and it needs no extra system libraries to
+  # compile the Tauri backend (Linux would need webkit2gtk/glib dev packages).
   build-and-test:
-    runs-on: ubuntu-latest
+    runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
 
@@ -19,6 +21,8 @@ jobs:
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
 
       - name: Cache Rust build
         uses: swatinem/rust-cache@v2
@@ -28,8 +32,14 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
+      # Also produces dist/, which tauri::generate_context! embeds at compile
+      # time — the Rust steps below won't build without it.
       - name: Build frontend
         run: npm run build
+
+      - name: Clippy (deny warnings)
+        working-directory: src-tauri
+        run: cargo clippy -- -D warnings
 
       - name: Run Rust tests
         working-directory: src-tauri

@@ -113,7 +113,7 @@ pub fn list_snapshots(state: &AppState, instance_id: &str) -> Vec<Snapshot> {
             out.push(Snapshot { file_name: name, world, size, created });
         }
     }
-    out.sort_by(|a, b| b.created.cmp(&a.created));
+    out.sort_by_key(|s| std::cmp::Reverse(s.created));
     out
 }
 
