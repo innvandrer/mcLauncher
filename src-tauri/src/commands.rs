@@ -357,6 +357,36 @@ pub async fn set_mod_enabled(
     instances::set_mod_enabled(state.inner(), &instance_id, &file_name, enabled)
 }
 
+/// Save the instance's current mod enable/disable state as a named loadout.
+#[tauri::command]
+pub async fn save_loadout(
+    state: State<'_, AppState>,
+    instance_id: String,
+    name: String,
+) -> Result<Instance> {
+    instances::save_loadout(state.inner(), &instance_id, &name)
+}
+
+/// Toggle mods to match a named loadout; returns how many changed state.
+#[tauri::command]
+pub async fn apply_loadout(
+    state: State<'_, AppState>,
+    instance_id: String,
+    name: String,
+) -> Result<u32> {
+    instances::apply_loadout(state.inner(), &instance_id, &name)
+}
+
+/// Remove a named loadout (mods on disk are untouched).
+#[tauri::command]
+pub async fn delete_loadout(
+    state: State<'_, AppState>,
+    instance_id: String,
+    name: String,
+) -> Result<Instance> {
+    instances::delete_loadout(state.inner(), &instance_id, &name)
+}
+
 #[tauri::command]
 pub async fn delete_mod(
     state: State<'_, AppState>,

@@ -79,9 +79,25 @@ pub struct Instance {
     /// Origin of a modpack-derived instance, used to offer updates with a diff.
     #[serde(default)]
     pub pack_source: Option<PackSource>,
+    /// Named enable/disable mod sets, switchable without duplicating the
+    /// instance (e.g. "Performance", "Building", "Vanilla-ish").
+    #[serde(default)]
+    pub loadouts: Vec<Loadout>,
     /// Number of .jar files in the mods/ folder. Computed at list time, never read from disk.
     #[serde(default, skip_deserializing)]
     pub mod_count: u32,
+}
+
+/// A named mod set within an instance. `disabled` lists the mods turned OFF
+/// when the loadout is applied (all others are turned on). Entries are keyed
+/// by provider project id when the content index knows the file, otherwise by
+/// the versionless file-name key — so a loadout survives mod updates.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Loadout {
+    pub name: String,
+    #[serde(default)]
+    pub disabled: Vec<String>,
 }
 
 /// Where a modpack instance came from, so we can check for newer versions.

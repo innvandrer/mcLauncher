@@ -109,6 +109,14 @@ export const api = {
   deleteMod: (instanceId: string, fileName: string) =>
     invoke<void>("delete_mod", { instanceId, fileName }),
 
+  // Loadouts (named enable/disable mod sets)
+  saveLoadout: (instanceId: string, name: string) =>
+    invoke<Instance>("save_loadout", { instanceId, name }),
+  applyLoadout: (instanceId: string, name: string) =>
+    invoke<number>("apply_loadout", { instanceId, name }),
+  deleteLoadout: (instanceId: string, name: string) =>
+    invoke<Instance>("delete_loadout", { instanceId, name }),
+
   // Unified content installer (mods, resource packs, shaders)
   installContent: (args: {
     instanceId: string;

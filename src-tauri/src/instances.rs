@@ -384,6 +384,7 @@ pub fn create_instance(
         pre_launch: None,
         post_exit: None,
         pack_source: None,
+        loadouts: Vec::new(),
         mod_count: 0,
     };
 
@@ -732,6 +733,75 @@ pub fn delete_mod(state: &AppState, instance_id: &str, file_name: &str) -> Resul
 }
 
 // ---------------------------------------------------------------------------
+// Loadouts (named enable/disable mod sets)
+// ---------------------------------------------------------------------------
+
+/// Stable identity for a mod across version updates: the tracked project id
+/// when the content index knows the file, otherwise the versionless part of
+/// the file name.
+fn loadout_key(entry: &ModEntry) -> String {
+    entry
+        .project_id
+        .clone()
+        .unwrap_or_else(|| crate::tools::mod_base_key(&entry.file_name))
+}
+
+/// Snapshot the instance's current enabled/disabled mod state into a named
+/// loadout, creating it or overwriting an existing one. Returns the updated
+/// instance.
+pub fn save_loadout(state: &AppState, instance_id: &str, name: &str) -> Result<Instance> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err(Error::Other("Loadout name can't be empty.".into()));
+    }
+    let disabled: Vec<String> = list_mods(state, instance_id)
+        .iter()
+        .filter(|m| !m.enabled)
+        .map(loadout_key)
+        .collect();
+    let mut inst = get_instance(state, instance_id)?;
+    if let Some(existing) = inst.loadouts.iter_mut().find(|l| l.name == name) {
+        existing.disabled = disabled;
+    } else {
+        inst.loadouts.push(Loadout { name: name.to_string(), disabled });
+    }
+    save_instance(state, &inst)?;
+    Ok(inst)
+}
+
+/// Enable/disable every mod to match the named loadout. Mods added after the
+/// loadout was saved aren't in its `disabled` list, so they end up enabled.
+/// Returns how many mods actually changed state.
+pub fn apply_loadout(state: &AppState, instance_id: &str, name: &str) -> Result<u32> {
+    let inst = get_instance(state, instance_id)?;
+    let loadout = inst
+        .loadouts
+        .iter()
+        .find(|l| l.name == name)
+        .ok_or_else(|| Error::NotFound(format!("loadout {name}")))?;
+    let disabled: std::collections::HashSet<&str> =
+        loadout.disabled.iter().map(|s| s.as_str()).collect();
+
+    let mut changed = 0;
+    for m in list_mods(state, instance_id) {
+        let want_enabled = !disabled.contains(loadout_key(&m).as_str());
+        if m.enabled != want_enabled {
+            set_mod_enabled(state, instance_id, &m.file_name, want_enabled)?;
+            changed += 1;
+        }
+    }
+    Ok(changed)
+}
+
+/// Remove a named loadout. Mods on disk are left exactly as they are.
+pub fn delete_loadout(state: &AppState, instance_id: &str, name: &str) -> Result<Instance> {
+    let mut inst = get_instance(state, instance_id)?;
+    inst.loadouts.retain(|l| l.name != name);
+    save_instance(state, &inst)?;
+    Ok(inst)
+}
+
+// ---------------------------------------------------------------------------
 // Resource packs
 // ---------------------------------------------------------------------------
 
@@ -926,6 +996,28 @@ mod account_migration_tests {
         }"#;
         let legacy: LegacyAccountStore = serde_json::from_str(json).unwrap();
         assert!(!legacy_has_inline_tokens(&legacy));
+    }
+
+    #[test]
+    fn loadout_key_prefers_project_id() {
+        let m = ModEntry {
+            file_name: "sodium-fabric-0.5.8.jar".into(),
+            enabled: true,
+            size: 0,
+            project_id: Some("AANobbMI".into()),
+        };
+        assert_eq!(loadout_key(&m), "AANobbMI");
+    }
+
+    #[test]
+    fn loadout_key_falls_back_to_versionless_file_key() {
+        let m = ModEntry {
+            file_name: "sodium-fabric-0.5.8.jar".into(),
+            enabled: false,
+            size: 0,
+            project_id: None,
+        };
+        assert_eq!(loadout_key(&m), "sodium");
     }
 
     #[test]

@@ -34,6 +34,7 @@ import { ACCENTS, AIKAR_FLAGS, cn, formatBytes, formatNumber, isImageIcon, loade
 import { InstanceIcon } from "@/components/InstanceIcon";
 import { LoaderLogo } from "@/components/LoaderLogo";
 import { ExportMenu } from "@/components/ExportMenu";
+import { LoadoutsMenu } from "@/components/LoadoutsMenu";
 import { analyzeCrash, type CrashFinding } from "@/lib/crash";
 import { exportInstanceMrpack } from "@/lib/export";
 import type {
@@ -779,7 +780,10 @@ function ModsPanel({ instance }: { instance: Instance }) {
             {installedQuery.trim() ? ` / ${installed.length}` : ""})
           </h2>
           {installed.length > 0 && (
-            <ContentUpdateButton checking={checking} onClick={checkUpdates} />
+            <div className="flex items-center gap-3">
+              <LoadoutsMenu instance={instance} onApplied={refresh} />
+              <ContentUpdateButton checking={checking} onClick={checkUpdates} />
+            </div>
           )}
         </div>
 

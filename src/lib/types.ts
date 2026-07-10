@@ -25,6 +25,13 @@ export interface Instance {
   postExit?: string | null;
   modCount?: number;
   packSource?: { provider: string; projectId: string; versionId?: string | null; versionName?: string | null } | null;
+  loadouts?: Loadout[];
+}
+
+/** A named enable/disable mod set within an instance. */
+export interface Loadout {
+  name: string;
+  disabled: string[];
 }
 
 export interface Settings {
