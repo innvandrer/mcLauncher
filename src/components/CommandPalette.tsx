@@ -5,6 +5,7 @@ import {
   Home,
   Package,
   Play,
+  Rocket,
   Search,
   Settings,
   Square,
@@ -121,6 +122,20 @@ export function CommandPalette() {
             toast("info", "Exporting modpack…");
             exportInstanceMrpack(inst.id, inst.name)
               .then((path) => path && toast("success", "Exported .mrpack"))
+              .catch((e) => toast("error", errMessage(e)));
+          },
+        },
+        {
+          id: `shortcut:${inst.id}`,
+          label: `Create desktop shortcut for ${inst.name}`,
+          hint: "Quick Play",
+          icon: <Rocket className="h-4 w-4" />,
+          keywords: `${inst.name} shortcut desktop quick play stream deck`,
+          run: () => {
+            close();
+            api
+              .createShortcut(inst.id, inst.name)
+              .then(() => toast("success", "Shortcut created on your Desktop"))
               .catch((e) => toast("error", errMessage(e)));
           },
         },

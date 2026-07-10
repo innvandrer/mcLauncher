@@ -14,6 +14,7 @@ import {
   Package,
   Play,
   RefreshCw,
+  Rocket,
   Save,
   ScrollText,
   Search,
@@ -1508,6 +1509,17 @@ function WorldsPanel({ instance }: { instance: Instance }) {
     }
   };
 
+  // Desktop shortcut that relaunches straight into this world — a physical
+  // "Quick Play" icon (or Stream Deck button) instead of launcher → world list.
+  const shortcutWorld = async (name: string) => {
+    try {
+      await api.createShortcut(instance.id, instance.name, name);
+      toast("success", "Shortcut created on your Desktop");
+    } catch (e) {
+      toast("error", errMessage(e));
+    }
+  };
+
   const backup = async (name: string) => {
     setBusy(name);
     try {
@@ -1588,6 +1600,13 @@ function WorldsPanel({ instance }: { instance: Instance }) {
               >
                 <Play className="h-3.5 w-3.5 fill-current" />
                 Play
+              </button>
+              <button
+                onClick={() => shortcutWorld(w.name)}
+                className="text-muted-foreground transition hover:text-foreground"
+                title="Create a desktop shortcut to this world"
+              >
+                <Rocket className="h-4 w-4" />
               </button>
               <button
                 onClick={() => backup(w.name)}
@@ -1814,6 +1833,16 @@ function ServersTab({ instance }: { instance: Instance }) {
     }
   };
 
+  // Desktop shortcut that relaunches straight into this server.
+  const shortcut = async (ip: string) => {
+    try {
+      await api.createShortcut(instance.id, instance.name, null, ip);
+      toast("success", "Shortcut created on your Desktop");
+    } catch (e) {
+      toast("error", errMessage(e));
+    }
+  };
+
   const copy = async (ip: string) => {
     try {
       await navigator.clipboard.writeText(ip);
@@ -1856,6 +1885,7 @@ function ServersTab({ instance }: { instance: Instance }) {
               onRefresh={pingManual}
               onConnect={() => connect(manual.address)}
               onCopy={() => copy(manual.address)}
+              onShortcut={() => shortcut(manual.address)}
             />
           </div>
         )}
@@ -1907,6 +1937,7 @@ function ServersTab({ instance }: { instance: Instance }) {
                 onRefresh={() => ping(s.ip)}
                 onConnect={() => connect(s.ip)}
                 onCopy={() => copy(s.ip)}
+                onShortcut={() => shortcut(s.ip)}
               />
             ))}
           </div>
@@ -1924,6 +1955,7 @@ function ServerRow({
   onRefresh,
   onConnect,
   onCopy,
+  onShortcut,
 }: {
   server: SavedServer;
   status: ServerStatus | null;
@@ -1932,6 +1964,7 @@ function ServerRow({
   onRefresh: () => void;
   onConnect: () => void;
   onCopy: () => void;
+  onShortcut: () => void;
 }) {
   const favicon =
     status?.favicon ?? (server.icon ? `data:image/png;base64,${server.icon}` : null);
@@ -2002,6 +2035,13 @@ function ServerRow({
             className="rounded-md p-1.5 text-muted-foreground transition hover:bg-muted hover:text-foreground btn-focus disabled:opacity-40"
           >
             <RefreshCw className={cn("h-3.5 w-3.5", pinging && "animate-spin")} />
+          </button>
+          <button
+            onClick={onShortcut}
+            title="Create a desktop shortcut to this server"
+            className="rounded-md p-1.5 text-muted-foreground transition hover:bg-muted hover:text-foreground btn-focus"
+          >
+            <Rocket className="h-3.5 w-3.5" />
           </button>
           <Button
             size="sm"

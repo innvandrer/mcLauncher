@@ -87,6 +87,13 @@ export const api = {
     }),
   stopInstance: (id: string) => invoke<void>("stop_instance", { id }),
   runningInstances: () => invoke<string[]>("running_instances"),
+  createShortcut: (instanceId: string, instanceName: string, world?: string | null, server?: string | null) =>
+    invoke<string>("create_shortcut", {
+      instanceId,
+      instanceName,
+      world: world ?? null,
+      server: server ?? null,
+    }),
 
   // Mods
   searchModrinth: (args: {

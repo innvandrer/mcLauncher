@@ -278,6 +278,24 @@ pub async fn stop_instance(state: State<'_, AppState>, id: String) -> Result<()>
     launch::stop(state.inner(), &id)
 }
 
+/// Create a Desktop shortcut that relaunches this instance straight into a
+/// world or server (or just opens it, if neither is given). Returns the
+/// created shortcut's path.
+#[tauri::command]
+pub async fn create_shortcut(
+    instance_id: String,
+    instance_name: String,
+    world: Option<String>,
+    server: Option<String>,
+) -> Result<String> {
+    crate::shortcuts::create_desktop_shortcut(
+        &instance_id,
+        &instance_name,
+        world.as_deref(),
+        server.as_deref(),
+    )
+}
+
 #[tauri::command]
 pub async fn running_instances(state: State<'_, AppState>) -> Result<Vec<String>> {
     Ok(launch::running_ids(state.inner()))

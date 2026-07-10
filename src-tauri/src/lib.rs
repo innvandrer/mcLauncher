@@ -16,6 +16,7 @@ mod modrinth;
 mod mojang;
 mod net;
 mod servers;
+mod shortcuts;
 mod state;
 mod system;
 mod tools;
@@ -58,6 +59,10 @@ fn copy_dir_all(from: &std::path::Path, to: &std::path::Path) -> std::io::Result
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Set by a desktop shortcut (see `shortcuts.rs`): jump straight into a
+    // world/server on startup instead of waiting for the user to click Play.
+    let quick_launch = shortcuts::parse_quick_launch(&std::env::args().skip(1).collect::<Vec<_>>());
+
     let mut builder = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
@@ -70,7 +75,7 @@ pub fn run() {
     }
 
     builder
-        .setup(|app| {
+        .setup(move |app| {
             let data_dir = app.path().app_data_dir()?;
             migrate_legacy_data_dir(&data_dir);
             std::fs::create_dir_all(&data_dir).ok();
@@ -79,6 +84,24 @@ pub fn run() {
             // System tray
             #[cfg(desktop)]
             setup_tray(app)?;
+
+            if let Some(ql) = quick_launch {
+                let handle = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    let state = handle.state::<AppState>();
+                    if let Err(e) = launch::launch(
+                        &handle,
+                        state.inner(),
+                        &ql.instance_id,
+                        ql.world.as_deref(),
+                        ql.server.as_deref(),
+                    )
+                    .await
+                    {
+                        eprintln!("quick launch failed: {e}");
+                    }
+                });
+            }
 
             Ok(())
         })
@@ -108,6 +131,7 @@ pub fn run() {
             commands::launch_instance,
             commands::stop_instance,
             commands::running_instances,
+            commands::create_shortcut,
             commands::search_modrinth,
             commands::search_curseforge,
             commands::install_mod,
