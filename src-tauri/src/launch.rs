@@ -203,12 +203,23 @@ pub async fn launch(
         );
     }
 
-    // --- Account (refresh Microsoft token if expired) ------------------------
+    // --- Account (refresh Microsoft session when missing or expired) ---------
     let mut account = instances::active_account(state)?;
-    if account.kind == "microsoft" && account.expires_at <= chrono::Utc::now().timestamp() {
-        if let Some(rt) = account.refresh_token.clone() {
-            account = auth::refresh(state, &rt).await?;
-            instances::upsert_account(state, account.clone())?;
+    if account.kind == "microsoft" {
+        let needs_refresh = account.access_token.is_empty()
+            || account.expires_at <= chrono::Utc::now().timestamp();
+        if needs_refresh {
+            if let Some(rt) = account.refresh_token.clone() {
+                account = auth::refresh(state, &rt).await?;
+                instances::upsert_account(state, account.clone())?;
+            }
+        }
+        if account.access_token.is_empty() {
+            return Err(crate::error::Error::Auth(
+                "No valid Microsoft session is stored. Sign out of your Microsoft \
+                 account in EZMapa, sign in again, then try launching."
+                    .into(),
+            ));
         }
     }
 
@@ -295,14 +306,7 @@ pub async fn launch(
     vars.insert("game_assets", assets_dir.to_string_lossy().to_string());
     vars.insert("assets_index_name", resolved.assets_id.clone());
     vars.insert("auth_uuid", account.id.clone());
-    vars.insert(
-        "auth_access_token",
-        if account.access_token.is_empty() {
-            "0".to_string()
-        } else {
-            account.access_token.clone()
-        },
-    );
+    vars.insert("auth_access_token", account.access_token.clone());
     vars.insert("auth_xuid", account.xuid.clone().unwrap_or_default());
     vars.insert("clientid", String::new());
     vars.insert(

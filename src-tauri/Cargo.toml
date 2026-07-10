@@ -1,6 +1,6 @@
 [package]
 name = "ezmapa-launcher"
-version = "0.2.5"
+version = "0.2.6"
 description = "EZMapa — a modern Minecraft launcher"
 authors = ["EZMapa contributors"]
 edition = "2021"
@@ -53,7 +53,7 @@ uuid = { version = "1", features = ["v4"] }
 chrono = { version = "0.4", features = ["serde", "clock"], default-features = false }
 dirs = "5"
 discord-rich-presence = "1.1.0"
-keyring = "3"
+keyring = { version = "3", features = ["windows-native", "apple-native", "linux-native-sync-persistent", "crypto-rust"] }
 
 [features]
 # This feature is used for production builds or when a dev server is not

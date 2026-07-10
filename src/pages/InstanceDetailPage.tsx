@@ -36,6 +36,7 @@ import { InstanceIcon } from "@/components/InstanceIcon";
 import { LoaderLogo } from "@/components/LoaderLogo";
 import { ExportMenu } from "@/components/ExportMenu";
 import { LoadoutsMenu } from "@/components/LoadoutsMenu";
+import { TurboButton } from "@/components/TurboButton";
 import { analyzeCrash, type CrashFinding } from "@/lib/crash";
 import { exportInstanceMrpack } from "@/lib/export";
 import type {
@@ -48,6 +49,7 @@ import type {
   ModHit,
   ModpackUpdate,
   ModUpdate,
+  PreflightWarning,
   ResourcePackEntry,
   SavedServer,
   ScreenshotEntry,
@@ -168,6 +170,7 @@ export function InstanceDetailPage({ id }: { id: string }) {
       </header>
 
       <div className="app-gutter shrink-0">
+        <PreflightBanner instance={instance} onOpenSettings={() => setTab("settings")} />
         <ModpackUpdateBanner instance={instance} />
       </div>
 
@@ -178,6 +181,104 @@ export function InstanceDetailPage({ id }: { id: string }) {
           <LogsTab id={id} instance={instance} onOpenSettings={() => setTab("settings")} />
         )}
         {tab === "settings" && <SettingsTab instance={instance} />}
+      </div>
+    </div>
+  );
+}
+
+// --------------------------------------------------------------------------
+// Preflight Check — fast local scan for the setup mistakes that reliably
+// crash modded Minecraft: Java/MC version mismatch, a RAM allocation that's
+// obviously wrong, and duplicate mod jars. Re-runs whenever the inputs to
+// those checks change, so it's inline the moment they'd actually matter.
+// --------------------------------------------------------------------------
+
+function PreflightBanner({
+  instance,
+  onOpenSettings,
+}: {
+  instance: Instance;
+  onOpenSettings: () => void;
+}) {
+  const toast = useStore((s) => s.toast);
+  const updateInstance = useStore((s) => s.updateInstance);
+  const [warnings, setWarnings] = useState<PreflightWarning[]>([]);
+  const [fixing, setFixing] = useState<number | null>(null);
+
+  const refresh = () => {
+    api.preflightCheck(instance.id).then(setWarnings).catch(() => {});
+  };
+
+  useEffect(() => {
+    refresh();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [instance.id, instance.memoryMb, instance.javaPath, instance.modCount]);
+
+  if (warnings.length === 0) return null;
+
+  const fixLabel: Record<PreflightWarning["action"], string> = {
+    "increase-ram": "Raise memory",
+    "lower-ram": "Lower memory",
+    "open-settings": "Open settings",
+    "clean-duplicates": "Clean up",
+  };
+
+  const fix = async (w: PreflightWarning, i: number) => {
+    if (w.action === "open-settings") {
+      onOpenSettings();
+      return;
+    }
+    setFixing(i);
+    try {
+      if ((w.action === "increase-ram" || w.action === "lower-ram") && w.suggestedMemoryMb) {
+        await updateInstance({ ...instance, memoryMb: w.suggestedMemoryMb });
+        toast("success", `Memory set to ${w.suggestedMemoryMb} MB`);
+      } else if (w.action === "clean-duplicates") {
+        const removed = await api.resolveModConflicts(instance.id);
+        toast(
+          "success",
+          removed.length
+            ? `Removed ${removed.length} duplicate ${removed.length === 1 ? "file" : "files"}`
+            : "Nothing to clean up",
+        );
+      }
+      refresh();
+    } catch (e) {
+      toast("error", errMessage(e));
+    } finally {
+      setFixing(null);
+    }
+  };
+
+  return (
+    <div className="mt-4 rounded-xl border border-amber-500/40 bg-amber-500/10 p-3">
+      <div className="flex items-center gap-2">
+        <AlertTriangle className="h-4 w-4 shrink-0 text-amber-400" />
+        <p className="text-sm font-semibold text-amber-200">
+          Preflight found {warnings.length} thing{warnings.length === 1 ? "" : "s"} worth checking
+        </p>
+      </div>
+      <div className="mt-2 space-y-2">
+        {warnings.map((w, i) => (
+          <div
+            key={i}
+            className="flex items-start justify-between gap-3 rounded-lg bg-black/10 p-2.5"
+          >
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-foreground/90">{w.title}</p>
+              <p className="text-xs text-muted-foreground">{w.detail}</p>
+            </div>
+            <Button
+              size="sm"
+              variant="secondary"
+              className="shrink-0"
+              loading={fixing === i}
+              onClick={() => fix(w, i)}
+            >
+              {fixLabel[w.action]}
+            </Button>
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -782,6 +883,7 @@ function ModsPanel({ instance }: { instance: Instance }) {
           </h2>
           {installed.length > 0 && (
             <div className="flex items-center gap-3">
+              <TurboButton instance={instance} onApplied={refresh} />
               <LoadoutsMenu instance={instance} onApplied={refresh} />
               <ContentUpdateButton checking={checking} onClick={checkUpdates} />
             </div>

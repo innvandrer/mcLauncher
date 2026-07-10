@@ -250,13 +250,31 @@ export const useStore = create<State>((set, get) => ({
   checkForUpdates: async () => {
     try {
       const upd = await check();
-      if (upd) {
-        pendingUpdate = upd;
-        set({ update: { version: upd.version, notes: upd.body ?? "" } });
+      if (!upd) return;
+
+      pendingUpdate = upd;
+      get().toast("info", `Updating EZMapa to ${upd.version}…`);
+      set({ updating: true });
+
+      await upd.downloadAndInstall();
+      await relaunch();
+    } catch (e) {
+      const msg = errMessage(e);
+      const offline =
+        msg.toLowerCase().includes("network") ||
+        msg.toLowerCase().includes("fetch") ||
+        msg.toLowerCase().includes("connect");
+
+      if (pendingUpdate && !offline) {
+        set({
+          update: { version: pendingUpdate.version, notes: pendingUpdate.body ?? "" },
+          updating: false,
+        });
+        return;
       }
-    } catch {
-      // Offline, or running under `tauri dev` without a published release —
-      // self-update simply isn't available, so stay quiet.
+
+      pendingUpdate = null;
+      set({ updating: false });
     }
   },
 

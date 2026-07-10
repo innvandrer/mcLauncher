@@ -16,6 +16,8 @@ import type {
   ModpackUpdate,
   ModUpdate,
   PlayerSkin,
+  PreflightWarning,
+  TurboResult,
   PublicAccount,
   ResourcePackEntry,
   SavedServer,
@@ -244,6 +246,9 @@ export const api = {
     invoke<ModConflict[]>("scan_mod_conflicts", { instanceId }),
   resolveModConflicts: (instanceId: string) =>
     invoke<string[]>("resolve_mod_conflicts", { instanceId }),
+  preflightCheck: (instanceId: string) =>
+    invoke<PreflightWarning[]>("preflight_check", { instanceId }),
+  applyTurbo: (instanceId: string) => invoke<TurboResult>("apply_turbo", { instanceId }),
 
   // Java
   detectJava: () => invoke<JavaInstall[]>("detect_java"),

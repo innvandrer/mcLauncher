@@ -51,6 +51,23 @@ pub fn store_tokens(account_id: &str, access: &str, refresh: Option<&str>) -> Re
             let _ = refresh_entry.delete_credential();
         }
     }
+
+    // Catch Windows Credential Manager issues at login time instead of silently
+    // launching Minecraft with an empty session later.
+    let (loaded_access, loaded_refresh) = load_tokens(account_id)?;
+    if loaded_access != access {
+        return Err(Error::Other(format!(
+            "Saved session for account {account_id} could not be read back from \
+             secure storage. Try signing in again or check Windows Credential \
+             Manager permissions."
+        )));
+    }
+    if refresh.filter(|r| !r.is_empty()) != loaded_refresh.as_deref() {
+        return Err(Error::Other(format!(
+            "Saved refresh token for account {account_id} could not be read back \
+             from secure storage. Try signing in again."
+        )));
+    }
     Ok(())
 }
 

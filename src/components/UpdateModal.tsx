@@ -3,10 +3,8 @@ import { Button, Modal } from "./ui";
 import { useStore } from "@/store/useStore";
 
 /**
- * Prompts the user when the background update check (store.checkForUpdates) has
- * found a newer release. Installing downloads the signed package, applies it and
- * relaunches the app. While updating we lock the modal so it can't be dismissed
- * mid-install.
+ * Fallback when automatic startup update fails (network error, signature issue,
+ * etc.). Successful updates install silently and relaunch before this is shown.
  */
 export function UpdateModal() {
   const update = useStore((s) => s.update);

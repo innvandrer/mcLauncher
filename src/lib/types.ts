@@ -200,6 +200,25 @@ export interface ModConflict {
   files: string[];
 }
 
+export type PreflightAction = "increase-ram" | "lower-ram" | "open-settings" | "clean-duplicates";
+
+export interface PreflightWarning {
+  title: string;
+  detail: string;
+  action: PreflightAction;
+  suggestedMemoryMb?: number | null;
+}
+
+export interface TurboSkip {
+  label: string;
+  reason: string;
+}
+
+export interface TurboResult {
+  installed: string[];
+  skipped: TurboSkip[];
+}
+
 export interface ModpackUpdate {
   versionId: string;
   versionName: string;

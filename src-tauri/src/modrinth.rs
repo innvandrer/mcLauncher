@@ -172,6 +172,25 @@ pub async fn list_versions(state: &AppState, project_id: &str) -> Result<Vec<Con
         .collect())
 }
 
+#[derive(Debug, Deserialize)]
+struct ProjectLookup {
+    id: String,
+}
+
+/// Resolve a Modrinth slug (or project id — the endpoint accepts either) to
+/// its canonical project id.
+pub async fn resolve_project_id(state: &AppState, slug_or_id: &str) -> Result<String> {
+    let resp: ProjectLookup = state
+        .http
+        .get(format!("{API}/project/{slug_or_id}"))
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    Ok(resp.id)
+}
+
 /// Fetch the versions of a project compatible with the given loader + version,
 /// newest first.
 pub async fn project_versions(
@@ -1322,6 +1341,13 @@ pub async fn export_mrpack(
     let config_dir = game_dir.join("config");
     if config_dir.is_dir() {
         collect_overrides(&config_dir, &game_dir, &mut bundled);
+    }
+
+    // Bundle the saved multiplayer server list too, so a shared pack brings a
+    // friend straight to the right server instead of just the right mods.
+    let servers_dat = game_dir.join("servers.dat");
+    if servers_dat.is_file() {
+        bundled.push(("overrides/servers.dat".to_string(), servers_dat));
     }
 
     let mut deps = HashMap::new();

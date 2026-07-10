@@ -15,11 +15,13 @@ mod modloader;
 mod modrinth;
 mod mojang;
 mod net;
+mod preflight;
 mod servers;
 mod shortcuts;
 mod state;
 mod system;
 mod tools;
+mod turbo;
 
 use state::AppState;
 use tauri::Manager;
@@ -172,6 +174,8 @@ pub fn run() {
             commands::delete_snapshot,
             commands::scan_mod_conflicts,
             commands::resolve_mod_conflicts,
+            commands::preflight_check,
+            commands::apply_turbo,
             commands::cancel_task,
             commands::check_modpack_update,
             commands::apply_modpack_update,

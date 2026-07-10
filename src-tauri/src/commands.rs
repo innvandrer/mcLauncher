@@ -5,8 +5,8 @@ use crate::instances::{ResourcePackEntry, ScreenshotEntry, ShaderEntry, WorldEnt
 use crate::models::*;
 use crate::state::AppState;
 use crate::{
-    auth, curseforge, forge, instances, java, launch, modloader, modrinth, mojang, servers, skin,
-    tools,
+    auth, curseforge, forge, instances, java, launch, modloader, modrinth, mojang, preflight,
+    servers, skin, tools, turbo,
 };
 use serde::Serialize;
 use std::path::Path;
@@ -976,6 +976,26 @@ pub async fn resolve_mod_conflicts(
     instance_id: String,
 ) -> Result<Vec<String>> {
     Ok(tools::resolve_mod_conflicts(state.inner(), &instance_id))
+}
+
+/// Preflight Check — fast local scan for the setup mistakes that reliably
+/// crash modded Minecraft (Java mismatch, bad RAM allocation, duplicate mods).
+#[tauri::command]
+pub async fn preflight_check(
+    state: State<'_, AppState>,
+    instance_id: String,
+) -> Result<Vec<preflight::PreflightWarning>> {
+    preflight::preflight_check(state.inner(), &instance_id).await
+}
+
+/// Turbo Button — install the curated performance mod stack for this
+/// instance's loader in one click.
+#[tauri::command]
+pub async fn apply_turbo(
+    state: State<'_, AppState>,
+    instance_id: String,
+) -> Result<turbo::TurboResult> {
+    turbo::apply(state.inner(), &instance_id).await
 }
 
 /// Signal an in-flight download task (e.g. "modpack:<id>") to stop.
