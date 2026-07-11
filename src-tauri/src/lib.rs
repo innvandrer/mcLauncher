@@ -18,6 +18,7 @@ mod modrinth;
 mod mojang;
 mod net;
 mod preflight;
+mod server_mods;
 mod servers;
 mod shortcuts;
 mod state;
@@ -187,6 +188,8 @@ pub fn run() {
             commands::detect_java,
             commands::list_servers,
             commands::ping_server,
+            commands::analyze_server_mods,
+            commands::create_instance_from_server,
             commands::list_sessions,
             commands::list_saved_skins,
             commands::save_skin,

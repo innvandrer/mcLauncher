@@ -22,7 +22,7 @@ section below restates what matters.
   platform-exclusive mods, license warning, default exclude). ✅ DONE
 - **Phase 4** — Server browser: decode Forge/NeoForge mod list from server
   ping (`forgeData.d` packed UTF-16 → binary), map mods to
-  Modrinth/CurseForge, build a matching instance; best-effort UI copy.
+  Modrinth/CurseForge, build a matching instance; best-effort UI copy. ✅ DONE
 - **Phase 5** — Per-instance JVM auto-tuning (ZGC on Java 21+, Aikar-ish G1
   older; Xmx capped by system RAM) with before/after arg diff + confirm, and
   startup-time measurement from log markers stored per instance.
@@ -256,12 +256,55 @@ Untested live: whether real CF launchers accept the generated manifest zips
   undecided-files exclusion, vanilla = no modLoaders, modlist HTML escaping,
   mrpack index refs + selective embedding.
 
-## Phases 4–5 — NOT STARTED
+## Phase 4 — Server → matching instance (DONE)
 
-Key design decisions already made (see plan summary above), plus:
-- Phase 4: decoder for `forgeData.d` (15 bits per UTF-16 char → bytes →
-  VarInt-framed mod list); test via round-trip with own encoder (real
-  payloads unobtainable in sandbox — mark untested); new `server_mods.rs`.
+Verified: clippy zero warnings, 90/90 tests, tsc + vite build clean.
+UNTESTED (flagged in module docs): the decoder against REAL server payloads —
+fixtures are generated from the FML format spec via a test-only encoder
+(round-trip). Live resolution (Modrinth/CF lookups) also untested (network
+blocked). The `latestFilesIndexes`-newest-first and "NeoForge keeps the
+forgeData field" assumptions are documented in code.
+
+- NEW `src-tauri/src/server_mods.rs`:
+  - `decode_packed_utf16` — FML `encodeOptimized` inverse: 2 length chars
+    (15 bits each, LE) + 15-bits-per-char LSB-first payload; size-capped.
+  - `parse_forge_payload` — truncated bool, u16 mod count, per mod VarInt
+    (low bit = IGNORESERVERONLY, high bits = channel count), readUtf strings,
+    channels skipped. `parse_status_mods(&json)` handles 1.18+ `forgeData.d`,
+    1.13–1.17 `forgeData.mods` (plain JSON, "OHNOES" marker), and legacy
+    `modinfo.modList`. Loader = "neoforge" iff mod id "neoforge" present.
+  - `extract_mc_version` — pulls "1.21.1" out of "Paper 1.21.1" etc.
+  - `analyze_server(app, state, address) → ServerModPlan { mc_version,
+    loader, truncated, resolved: [PlannedMod], unresolved (with Modrinth
+    search links), skipped (platform ids minecraft/forge/neoforge/fml/mcp +
+    IGNORESERVERONLY mods) }`. Resolution per mod: Modrinth project by slug →
+    search fallback (hit accepted only when normalized slug == modId), skips
+    `client_side == "unsupported"`, `pick_version` ranks exact
+    version_number, then containment, then filename, else newest (exact:
+    false → "closest version" badge); CurseForge fallback via
+    `curseforge::find_server_mod_file` (slug filter → normalized-slug text
+    search; file whose name carries the version; blocked files only via
+    Modrinth mirror). Progress on `task://progress` (`server-analyze:<addr>`).
+    Rate-limited via new `Resolver::throttle_modrinth/throttle_curseforge`.
+  - `create_instance_from_server` — loader + MC version from the ping,
+    loader build = first entry of forge/neoforge list (recommended-first),
+    downloads via the shared pipeline under `modpack:<id>` (card shows
+    progress; rollback on failure), records all identities in the content
+    index. Returns `ServerInstanceOutcome { instance, plan }`.
+- `servers.rs`: `ServerStatus.mod_info: Option<ServerModList>` populated in
+  `ping_inner`.
+- Commands `analyze_server_mods(address)` / `create_instance_from_server(
+  name, address)` registered in lib.rs.
+- Frontend: `ServerStatus.modInfo` + plan types in types.ts; api wrappers;
+  NEW `ServerInstanceModal.tsx` (best-effort warning, plan summary with
+  resolved/approx badge/unresolved with search links/skipped, name input,
+  create). Servers panel: Boxes-icon "Create matching instance" button on
+  rows whose ping shows a forge/neoforge mod list (saved + manual ping rows).
+- Tests (`server_mods::tests`, 11): packed round-trip (incl. 0/1-byte and
+  1000-byte buffers), full handshake payload with channels + server-only
+  flag, NeoForge + truncation detection, FML2 plain JSON, legacy modinfo,
+  vanilla → None, corrupt data rejected without panic, MC-version extraction,
+  version ranking, slug normalization, URL encoding.
 - Phase 5: extend `system.rs` with /proc/meminfo (Linux) + sysctl (macOS)
   probes (repo deliberately avoids a system-info crate); suggestion command
   + arg-merge; startup markers hooked into `launch.rs::spawn_reader`;

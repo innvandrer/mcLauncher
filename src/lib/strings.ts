@@ -49,6 +49,22 @@ const en = {
   "export.doneBoth": "Exported both formats",
   "export.exporting": "Exporting modpack…",
 
+  // "Join server → build matching instance"
+  "server.buildInstance": "Create matching instance",
+  "server.bestEffort":
+    "Best effort: server-only mods are skipped, and client-only mods (minimaps, HUDs…) can't be detected from the server — the result may still need tweaks before it matches perfectly.",
+  "server.analyzing": "Decoding the server's mod list and matching mods…",
+  "server.planSummary": "{resolved} of {total} mods matched · {unresolved} unresolved · {skipped} skipped",
+  "server.resolvedTitle": "Will be installed",
+  "server.unresolvedTitle": "Needs manual download",
+  "server.skippedTitle": "Skipped (platform / server-side only)",
+  "server.approx": "closest version",
+  "server.truncated": "The server truncated its mod list — some mods may be missing from this plan.",
+  "server.nameLabel": "Instance name",
+  "server.create": "Create instance",
+  "server.created": "Instance created — installing mods in the background.",
+  "server.searchLink": "Search",
+
   // Unified update checking
   "updates.sourceModrinth": "Modrinth",
   "updates.sourceCurseforge": "CurseForge",

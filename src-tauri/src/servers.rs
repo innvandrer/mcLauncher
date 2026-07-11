@@ -238,6 +238,9 @@ pub struct ServerStatus {
     pub motd: Option<String>,
     /// Data-URI PNG favicon as returned by the server, if it sends one.
     pub favicon: Option<String>,
+    /// Forge/NeoForge mod list decoded from the handshake data, when present.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mod_info: Option<crate::server_mods::ServerModList>,
 }
 
 /// Ping a server address (`host` or `host:port`). Never errors — an unreachable
@@ -315,6 +318,8 @@ async fn ping_inner(address: &str) -> Result<ServerStatus> {
         .filter(|s| s.starts_with("data:image"))
         .map(|s| s.to_string());
 
+    let mod_info = crate::server_mods::parse_status_mods(&v);
+
     Ok(ServerStatus {
         online: true,
         latency_ms: Some(latency),
@@ -323,6 +328,7 @@ async fn ping_inner(address: &str) -> Result<ServerStatus> {
         version,
         motd,
         favicon,
+        mod_info,
     })
 }
 

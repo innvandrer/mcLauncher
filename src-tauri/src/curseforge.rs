@@ -1339,6 +1339,144 @@ mod tests {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Server-mod lookup (for "join server → build matching instance")
+// ---------------------------------------------------------------------------
+
+/// A downloadable CurseForge file matched to a server's (modId, version).
+pub struct ServerModCandidate {
+    pub project_id: u32,
+    pub file_id: u32,
+    pub file_name: String,
+    pub url: String,
+    pub sha1: Option<String>,
+    /// True when the file name carries the server's exact mod version.
+    pub exact: bool,
+}
+
+fn normalize_slug(s: &str) -> String {
+    s.chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .map(|c| c.to_ascii_lowercase())
+        .collect()
+}
+
+/// Find the CurseForge file for a server-reported mod: exact `slug` filter
+/// first (mod ids frequently equal the CF slug), then a text search whose hit
+/// slug normalizes to the mod id. Blocked files only count when the identical
+/// file is mirrored on Modrinth.
+pub async fn find_server_mod_file(
+    state: &AppState,
+    mod_id: &str,
+    want_version: &str,
+    loader: Option<&str>,
+    game_version: &str,
+) -> Result<Option<ServerModCandidate>> {
+    let key = api_key(state)?;
+
+    let lookup = |params: Vec<(&'static str, String)>| {
+        let key = key.clone();
+        async move {
+            let resp: std::result::Result<CfSearchResponse, reqwest::Error> = async {
+                state
+                    .http
+                    .get(format!("{API}/mods/search"))
+                    .header("x-api-key", &key)
+                    .header("Accept", "application/json")
+                    .query(&params)
+                    .send()
+                    .await?
+                    .error_for_status()?
+                    .json()
+                    .await
+            }
+            .await;
+            resp.map(|r| r.data).unwrap_or_default()
+        }
+    };
+
+    // Exact slug filter.
+    let mut hits = lookup(vec![
+        ("gameId", GAME_ID.to_string()),
+        ("classId", class_id("mod").to_string()),
+        ("slug", mod_id.to_string()),
+        ("pageSize", "1".to_string()),
+    ])
+    .await;
+    // Fuzzy: text search, but only accept a hit whose slug matches the mod id
+    // after normalization (modId often differs only by -/_).
+    if hits.is_empty() {
+        let want = normalize_slug(mod_id);
+        hits = lookup(vec![
+            ("gameId", GAME_ID.to_string()),
+            ("classId", class_id("mod").to_string()),
+            ("searchFilter", mod_id.to_string()),
+            ("pageSize", "5".to_string()),
+        ])
+        .await
+        .into_iter()
+        .filter(|m| normalize_slug(&m.slug) == want)
+        .collect();
+    }
+    let Some(project) = hits.first() else {
+        return Ok(None);
+    };
+
+    // Compatible files, newest first.
+    let mut params: Vec<(&str, String)> = vec![
+        ("pageSize", "50".to_string()),
+        ("gameVersion", game_version.to_string()),
+    ];
+    if let Some(lt) = loader_type(loader) {
+        params.push(("modLoaderType", lt.to_string()));
+    }
+    let resp: CfFilesResponse = state
+        .http
+        .get(format!("{API}/mods/{}/files", project.id))
+        .header("x-api-key", &key)
+        .header("Accept", "application/json")
+        .query(&params)
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    let mut files = resp.data;
+    files.sort_by(|a, b| b.file_date.cmp(&a.file_date));
+    if files.is_empty() {
+        return Ok(None);
+    }
+
+    let want_lower = want_version.to_lowercase();
+    let (idx, exact) = files
+        .iter()
+        .position(|f| {
+            !want_lower.is_empty()
+                && (f.file_name.to_lowercase().contains(&want_lower)
+                    || f.display_name.to_lowercase().contains(&want_lower))
+        })
+        .map(|i| (i, true))
+        .unwrap_or((0, false));
+    let file = &files[idx];
+
+    let url = match file.download_url.clone() {
+        Some(u) => u,
+        None => match plan_blocked_file(state, file).await {
+            BlockedPlan::Modrinth(mr) => mr.url,
+            BlockedPlan::Manual => return Ok(None),
+        },
+    };
+
+    Ok(Some(ServerModCandidate {
+        project_id: project.id,
+        file_id: file.id,
+        file_name: file.file_name.clone(),
+        url,
+        sha1: file.sha1(),
+        exact,
+    }))
+}
+
 #[cfg(test)]
 mod update_tests {
     use super::*;

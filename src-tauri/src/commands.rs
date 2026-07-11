@@ -1172,6 +1172,29 @@ pub async fn ping_server(address: String) -> Result<servers::ServerStatus> {
     Ok(servers::ping_server(&address).await)
 }
 
+/// Decode a modded (Forge/NeoForge) server's mod list and map every mod to a
+/// downloadable file — the plan behind "Create matching instance".
+#[tauri::command]
+pub async fn analyze_server_mods(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    address: String,
+) -> Result<crate::server_mods::ServerModPlan> {
+    crate::server_mods::analyze_server(&app, state.inner(), &address).await
+}
+
+/// Build an instance matching a modded server: right loader + MC version,
+/// all resolvable mods installed, plus a report of what needs manual work.
+#[tauri::command]
+pub async fn create_instance_from_server(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    name: String,
+    address: String,
+) -> Result<crate::server_mods::ServerInstanceOutcome> {
+    crate::server_mods::create_instance_from_server(&app, state.inner(), &name, &address).await
+}
+
 // ---------------------------------------------------------------------------
 // Play sessions (activity stats)
 // ---------------------------------------------------------------------------

@@ -350,6 +350,17 @@ impl Resolver {
         Ok(map.into_values().next())
     }
 
+    /// Wait for a Modrinth request slot. For callers that talk to the API
+    /// directly (search, project lookups) but should share this limiter.
+    pub async fn throttle_modrinth(&self) {
+        self.modrinth_limiter.acquire().await;
+    }
+
+    /// Wait for a CurseForge request slot (see [`Self::throttle_modrinth`]).
+    pub async fn throttle_curseforge(&self) {
+        self.curseforge_limiter.acquire().await;
+    }
+
     /// Everything we know about a file from the cache alone (no network).
     pub fn cached(&self, sha1: &str) -> CrossRef {
         match self.cache.get(&sha1.to_lowercase()) {

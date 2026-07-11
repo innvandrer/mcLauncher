@@ -26,6 +26,8 @@ import type {
   SavedSkin,
   ScreenshotEntry,
   SearchResponse,
+  ServerInstanceOutcome,
+  ServerModPlan,
   ServerStatus,
   Session,
   Settings,
@@ -309,6 +311,12 @@ export const api = {
   listServers: (instanceId: string) =>
     invoke<SavedServer[]>("list_servers", { instanceId }),
   pingServer: (address: string) => invoke<ServerStatus>("ping_server", { address }),
+  /** Decode a modded server's mod list and match every mod to a download. */
+  analyzeServerMods: (address: string) =>
+    invoke<ServerModPlan>("analyze_server_mods", { address }),
+  /** Build an instance matching a modded server (best effort). */
+  createInstanceFromServer: (name: string, address: string) =>
+    invoke<ServerInstanceOutcome>("create_instance_from_server", { name, address }),
 
   // Play sessions (activity stats)
   listSessions: () => invoke<Session[]>("list_sessions"),

@@ -336,4 +336,60 @@ export interface ServerStatus {
   motd?: string | null;
   /** Data-URI PNG favicon the server returned, if any. */
   favicon?: string | null;
+  /** Forge/NeoForge mod list decoded from the handshake data, when present. */
+  modInfo?: ServerModList | null;
+}
+
+export interface ServerMod {
+  id: string;
+  version: string;
+  /** The server marked this mod as not needed on the client. */
+  ignoreServerOnly: boolean;
+}
+
+export interface ServerModList {
+  loader: "forge" | "neoforge" | string;
+  /** The server truncated its list (very large packs). */
+  truncated: boolean;
+  mods: ServerMod[];
+}
+
+/** One server mod matched to a downloadable file. */
+export interface PlannedServerMod {
+  modId: string;
+  version: string;
+  provider: "modrinth" | "curseforge";
+  projectId: string;
+  versionId: string;
+  fileName: string;
+  url: string;
+  sha1?: string | null;
+  /** False = closest compatible version, not the server's exact one. */
+  exact: boolean;
+}
+
+export interface UnresolvedServerMod {
+  modId: string;
+  version: string;
+  searchUrl: string;
+}
+
+export interface SkippedServerMod {
+  modId: string;
+  reason: "platform" | "server-only" | string;
+}
+
+export interface ServerModPlan {
+  address: string;
+  mcVersion?: string | null;
+  loader: string;
+  truncated: boolean;
+  resolved: PlannedServerMod[];
+  unresolved: UnresolvedServerMod[];
+  skipped: SkippedServerMod[];
+}
+
+export interface ServerInstanceOutcome {
+  instance: Instance;
+  plan: ServerModPlan;
 }

@@ -3,6 +3,7 @@ import {
   AlertTriangle,
   ArrowLeft,
   ArrowLeftRight,
+  Boxes,
   Camera,
   Check,
   ChevronLeft,
@@ -41,6 +42,7 @@ import { LoadoutsMenu } from "@/components/LoadoutsMenu";
 import { TurboButton } from "@/components/TurboButton";
 import { analyzeCrash, type CrashFinding } from "@/lib/crash";
 import { startPackExport } from "@/components/PackExport";
+import { ServerInstanceModal } from "@/components/ServerInstanceModal";
 import type {
   ContentVersion,
   DiskUsage,
@@ -1944,6 +1946,8 @@ function ServersTab({ instance }: { instance: Instance }) {
   const [manual, setManual] = useState<{ address: string; status: ServerStatus } | null>(null);
   const [manualBusy, setManualBusy] = useState(false);
   const [loaded, setLoaded] = useState(false);
+  // "Create matching instance" target (modded servers only).
+  const [buildTarget, setBuildTarget] = useState<{ address: string; name: string } | null>(null);
 
   const ping = async (address: string) => {
     setPinging((m) => ({ ...m, [address]: true }));
@@ -2048,6 +2052,9 @@ function ServersTab({ instance }: { instance: Instance }) {
               onConnect={() => connect(manual.address)}
               onCopy={() => copy(manual.address)}
               onShortcut={() => shortcut(manual.address)}
+              onBuildInstance={() =>
+                setBuildTarget({ address: manual.address, name: manual.address })
+              }
             />
           </div>
         )}
@@ -2100,11 +2107,21 @@ function ServersTab({ instance }: { instance: Instance }) {
                 onConnect={() => connect(s.ip)}
                 onCopy={() => copy(s.ip)}
                 onShortcut={() => shortcut(s.ip)}
+                onBuildInstance={() =>
+                  setBuildTarget({ address: s.ip, name: s.name || s.ip })
+                }
               />
             ))}
           </div>
         )}
       </section>
+
+      <ServerInstanceModal
+        open={!!buildTarget}
+        address={buildTarget?.address ?? ""}
+        defaultName={buildTarget?.name ?? ""}
+        onClose={() => setBuildTarget(null)}
+      />
     </div>
   );
 }
@@ -2118,6 +2135,7 @@ function ServerRow({
   onConnect,
   onCopy,
   onShortcut,
+  onBuildInstance,
 }: {
   server: SavedServer;
   status: ServerStatus | null;
@@ -2127,7 +2145,11 @@ function ServerRow({
   onConnect: () => void;
   onCopy: () => void;
   onShortcut: () => void;
+  onBuildInstance?: () => void;
 }) {
+  const modded =
+    !!status?.modInfo &&
+    (status.modInfo.loader === "forge" || status.modInfo.loader === "neoforge");
   const favicon =
     status?.favicon ?? (server.icon ? `data:image/png;base64,${server.icon}` : null);
   const online = status?.online ?? false;
@@ -2205,6 +2227,15 @@ function ServerRow({
           >
             <Rocket className="h-3.5 w-3.5" />
           </button>
+          {modded && onBuildInstance && (
+            <button
+              onClick={onBuildInstance}
+              title={t("server.buildInstance")}
+              className="rounded-md p-1.5 text-accent transition hover:bg-accent/10 btn-focus"
+            >
+              <Boxes className="h-3.5 w-3.5" />
+            </button>
+          )}
           <Button
             size="sm"
             variant="secondary"
