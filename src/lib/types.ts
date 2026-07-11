@@ -393,3 +393,29 @@ export interface ServerInstanceOutcome {
   instance: Instance;
   plan: ServerModPlan;
 }
+
+/** Recommended JVM settings for an instance (Phase 5 tuner). */
+export interface JvmSuggestion {
+  currentArgs: string;
+  suggestedArgs: string;
+  currentXmxMb: number;
+  suggestedXmxMb: number;
+  javaMajor: number;
+  systemRamMb: number;
+  modCount: number;
+  /** The instance has custom args — the diff is a merge, not a replace. */
+  hasCustomArgs: boolean;
+  reasons: string[];
+}
+
+export interface StartupGroupStat {
+  fingerprint: string;
+  avgMs: number;
+  count: number;
+}
+
+/** Avg startup under current JVM settings vs. the previous settings. */
+export interface StartupStats {
+  current?: StartupGroupStat | null;
+  previous?: StartupGroupStat | null;
+}

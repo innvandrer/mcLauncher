@@ -25,7 +25,7 @@ section below restates what matters.
   Modrinth/CurseForge, build a matching instance; best-effort UI copy. ✅ DONE
 - **Phase 5** — Per-instance JVM auto-tuning (ZGC on Java 21+, Aikar-ish G1
   older; Xmx capped by system RAM) with before/after arg diff + confirm, and
-  startup-time measurement from log markers stored per instance.
+  startup-time measurement from log markers stored per instance. ✅ DONE
 
 ### Hard constraints (user-imposed)
 
@@ -305,7 +305,60 @@ forgeData field" assumptions are documented in code.
   flag, NeoForge + truncation detection, FML2 plain JSON, legacy modinfo,
   vanilla → None, corrupt data rejected without panic, MC-version extraction,
   version ranking, slug normalization, URL encoding.
-- Phase 5: extend `system.rs` with /proc/meminfo (Linux) + sysctl (macOS)
-  probes (repo deliberately avoids a system-info crate); suggestion command
-  + arg-merge; startup markers hooked into `launch.rs::spawn_reader`;
-  samples in `<instance>/startup_stats.json` keyed by args fingerprint.
+## Phase 5 — JVM auto-tuning + startup measurement (DONE)
+
+Verified: clippy zero warnings, 100/100 tests, tsc + vite build clean.
+Untested live: actual game launches (no GPU/game in sandbox), so the
+readiness markers ("Sound engine started", "Preparing spawn area",
+"Joining world") are validated against known log-line shapes only. macOS
+sysctl and Windows RAM paths compile-checked only (Linux path unit-tested).
+
+- `system.rs`: real RAM detection on Linux (/proc/meminfo, parser unit-
+  tested) and macOS (sysctl hw.memsize FFI) — kept the file's no-crate
+  approach instead of adding `sysinfo`.
+- NEW `jvmtune.rs`: `suggest(state, id) → JvmSuggestion { current/suggested
+  args + Xmx, java_major, system_ram_mb, mod_count, has_custom_args,
+  reasons[] }`. Java major = probed pinned java_path (new
+  `java::probe_major`) else `required_major_for_mc` (1.20.5+→21, 1.17+→17,
+  else 8). Heap tiers by mod count (2/4/6/8 GB, heavy-pack floor 8 GB via
+  `HEAVY_PACK_IDS` on pack_source), capped at half RAM and RAM−2GB, floor
+  1 GB. GC flags: ≤16 legacy G1 (repo default), 17–20 Aikar-style client G1,
+  21–23 `-XX:+UseZGC -XX:+ZGenerational`, 24+ plain UseZGC (generational
+  default, flag obsolete). `merge_args` keeps every non-GC user token
+  (`is_gc_token` prefix list) — the merge view honors custom args.
+  Suggestion is read-only; applying = the UI fills the settings form and the
+  user presses Save (never silently overwrites).
+- NEW `startup.rs`: `args_fingerprint(mem, args)` (sha1[..12], whitespace-
+  normalized, order-sensitive); `StartupTracker` observes log lines from
+  both reader threads (`launch.rs::spawn_reader` gained the param) and
+  records ONE `StartupSample { started, startup_ms, args_fingerprint }` per
+  session into `<instance>/startup_stats.json` (capped 200, atomic).
+  `compute_stats(samples, current_fp)` → current-group avg + the most
+  recently used different fingerprint as "before". All local.
+- Commands `suggest_jvm_args`, `startup_stats` (registered in lib.rs).
+- Frontend: NEW `JvmTuneModal.tsx` — reasons list, Xmx before/after,
+  token-level arg diff (red struck removed / green added), merge-note banner
+  when custom args exist; Apply fills jvmArgs+memory into the settings form
+  + toast "review and press Save". Settings tab gained a "Recommended
+  settings" (Gauge) button beside the Aikar preset and a
+  `StartupStatsLine` under the args field ("avg startup before/after (n
+  sessions)"). Strings under `jvm.*`.
+- Tests: required-major mapping, GC flag selection per major (incl. 24+
+  obsolescence), heap tiers + RAM caps, merge (preserve -D/--add-opens,
+  drop old GC/Xmx, dedupe), meminfo parsing, fingerprint normalization,
+  marker matching on real log-line shapes, before/after stat splits and
+  missing-group handling.
+
+## Known follow-ups / done-ness notes
+
+- ALL FIVE PHASES ARE IMPLEMENTED. Remaining work is validation against the
+  live APIs / real servers / real game launches (blocked in this sandbox)
+  and the planned Norwegian locale for `src/lib/strings.ts`.
+- `crosssource/mod.rs` still has a module-level `#![allow(dead_code)]`
+  (a few API surfaces like `cached()`/`CrossRef` have no consumer yet).
+- PUSH: `git push` AND the GitHub MCP integration both get 403 on this repo
+  (App/installation has read-only access; the remote branch
+  `claude/ezmapa-feature-planning-lfaqgt` was deleted at some point). All
+  work exists as local commits; patch files were sent to the user as backup.
+  Fix repo write access, then `git push -u origin
+  claude/ezmapa-feature-planning-lfaqgt`.

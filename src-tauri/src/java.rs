@@ -77,6 +77,12 @@ fn probe(java: &Path) -> Option<JavaInstall> {
     })
 }
 
+/// Probe an explicit `java` executable for its major version (for JVM-flag
+/// suggestions when the user pinned a runtime).
+pub fn probe_major(java: &Path) -> Option<u32> {
+    probe(java).map(|j| j.major)
+}
+
 fn push_java_dir(set: &mut BTreeSet<PathBuf>, dir: &Path) {
     let candidate = dir.join("bin").join(JAVA_EXE);
     if candidate.exists() {

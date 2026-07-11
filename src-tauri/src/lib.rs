@@ -17,10 +17,12 @@ mod modloader;
 mod modrinth;
 mod mojang;
 mod net;
+mod jvmtune;
 mod preflight;
 mod server_mods;
 mod servers;
 mod shortcuts;
+mod startup;
 mod state;
 mod system;
 mod tools;
@@ -186,6 +188,8 @@ pub fn run() {
             commands::check_modpack_update,
             commands::apply_modpack_update,
             commands::detect_java,
+            commands::suggest_jvm_args,
+            commands::startup_stats,
             commands::list_servers,
             commands::ping_server,
             commands::analyze_server_mods,

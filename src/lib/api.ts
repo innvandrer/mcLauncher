@@ -5,6 +5,7 @@ import type {
   Instance,
   InstanceStateEvent,
   JavaInstall,
+  JvmSuggestion,
   Loader,
   LoaderVersion,
   ContentVersion,
@@ -33,6 +34,7 @@ import type {
   Settings,
   ShaderEntry,
   Snapshot,
+  StartupStats,
   TaskProgress,
   VersionList,
   WorldEntry,
@@ -264,6 +266,12 @@ export const api = {
 
   // Java
   detectJava: () => invoke<JavaInstall[]>("detect_java"),
+
+  // JVM tuning + startup measurement
+  suggestJvmArgs: (instanceId: string) =>
+    invoke<JvmSuggestion>("suggest_jvm_args", { instanceId }),
+  startupStats: (instanceId: string) =>
+    invoke<StartupStats>("startup_stats", { instanceId }),
 
   // System
   systemMemoryMb: () => invoke<number>("system_memory_mb"),

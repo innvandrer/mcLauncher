@@ -11,6 +11,7 @@ import {
   Download,
   ExternalLink,
   FolderOpen,
+  Gauge,
   Globe,
   Image,
   Package,
@@ -43,6 +44,7 @@ import { TurboButton } from "@/components/TurboButton";
 import { analyzeCrash, type CrashFinding } from "@/lib/crash";
 import { startPackExport } from "@/components/PackExport";
 import { ServerInstanceModal } from "@/components/ServerInstanceModal";
+import { JvmTuneModal } from "@/components/JvmTuneModal";
 import type {
   ContentVersion,
   DiskUsage,
@@ -60,6 +62,7 @@ import type {
   ServerStatus,
   ShaderEntry,
   Snapshot,
+  StartupStats,
   WorldEntry,
 } from "@/lib/types";
 
@@ -1929,6 +1932,32 @@ function ScreenshotsPanel({ instance }: { instance: Instance }) {
 // --------------------------------------------------------------------------
 
 /** Tailwind bg-* class for a latency dot: green < 100ms, amber < 300ms, red. */
+/** "avg startup before/after" readout under the JVM args field. */
+function StartupStatsLine({ stats }: { stats: StartupStats | null }) {
+  if (!stats || (!stats.current && !stats.previous)) return null;
+  const secs = (ms: number) => (ms / 1000).toFixed(1);
+  let text: string;
+  if (stats.current && stats.previous) {
+    text = t("jvm.startupBoth", {
+      before: secs(stats.previous.avgMs),
+      nBefore: stats.previous.count,
+      after: secs(stats.current.avgMs),
+      nAfter: stats.current.count,
+    });
+  } else if (stats.current) {
+    text = t("jvm.startupCurrentOnly", {
+      after: secs(stats.current.avgMs),
+      nAfter: stats.current.count,
+    });
+  } else {
+    text = t("jvm.startupPreviousOnly", {
+      before: secs(stats.previous!.avgMs),
+      nBefore: stats.previous!.count,
+    });
+  }
+  return <p className="mt-1.5 text-xs text-muted-foreground">{text}</p>;
+}
+
 function latencyColor(ms?: number | null): string {
   if (ms == null) return "bg-muted-foreground";
   if (ms < 100) return "bg-emerald-400";
@@ -2405,9 +2434,12 @@ function SettingsTab({ instance }: { instance: Instance }) {
   const [saving, setSaving] = useState(false);
   const [exportingPack, setExportingPack] = useState(false);
   const [usage, setUsage] = useState<DiskUsage | null>(null);
+  const [tuneOpen, setTuneOpen] = useState(false);
+  const [startupStats, setStartupStats] = useState<StartupStats | null>(null);
 
   useEffect(() => {
     api.instanceDiskUsage(instance.id).then(setUsage).catch(() => {});
+    api.startupStats(instance.id).then(setStartupStats).catch(() => {});
   }, [instance.id]);
 
   const exportPack = async () => {
@@ -2546,6 +2578,14 @@ function SettingsTab({ instance }: { instance: Instance }) {
             <Sparkles className="h-3 w-3" />
             {jvmArgs.trim() === AIKAR_FLAGS ? "Aikar's flags applied" : "Use Aikar's flags"}
           </button>
+          <button
+            type="button"
+            onClick={() => setTuneOpen(true)}
+            className="inline-flex items-center gap-1 rounded-md bg-muted/60 px-2 py-1 text-xs font-medium text-muted-foreground transition hover:text-foreground btn-focus"
+          >
+            <Gauge className="h-3 w-3" />
+            {t("jvm.recommend")}
+          </button>
           {jvmArgs.trim() !== "" && (
             <button
               type="button"
@@ -2563,7 +2603,19 @@ function SettingsTab({ instance }: { instance: Instance }) {
           placeholder="Leave empty to use the global JVM arguments."
           className="input-base resize-none font-mono text-xs"
         />
+        <StartupStatsLine stats={startupStats} />
       </Field>
+
+      <JvmTuneModal
+        open={tuneOpen}
+        instanceId={instance.id}
+        onClose={() => setTuneOpen(false)}
+        onApply={(args, xmxMb) => {
+          setJvmArgs(args);
+          setMemory(xmxMb);
+          toast("info", t("jvm.applied"));
+        }}
+      />
 
       <Field label="Game window size" hint="Leave 0 to use Minecraft's default / last size.">
         <div className="flex items-center gap-2">

@@ -53,6 +53,7 @@ fn spawn_reader<R: Read + Send + 'static>(
     stream: Option<R>,
     is_err: bool,
     shader_guard: Arc<AtomicBool>,
+    startup: Arc<crate::startup::StartupTracker>,
 ) {
     let Some(stream) = stream else { return };
     std::thread::spawn(move || {
@@ -60,6 +61,7 @@ fn spawn_reader<R: Read + Send + 'static>(
         for line in reader.lines() {
             match line {
                 Ok(line) => {
+                    startup.observe_line(&line);
                     maybe_autoinstall_shader(&app, &instance_id, &line, &shader_guard);
                     let _ = app.emit(
                         "instance://log",
@@ -469,12 +471,20 @@ pub async fn launch(
     let pid = child.id();
 
     let shader_guard = Arc::new(AtomicBool::new(false));
+    // Measure time-to-playable from the readiness markers in the log, keyed
+    // to the JVM settings this session launched with.
+    let startup_tracker = crate::startup::StartupTracker::new(
+        state.dirs.clone(),
+        instance.id.clone(),
+        crate::startup::args_fingerprint(mem, &user_jvm),
+    );
     spawn_reader(
         app.clone(),
         instance.id.clone(),
         child.stdout.take(),
         false,
         shader_guard.clone(),
+        startup_tracker.clone(),
     );
     spawn_reader(
         app.clone(),
@@ -482,6 +492,7 @@ pub async fn launch(
         child.stderr.take(),
         true,
         shader_guard,
+        startup_tracker,
     );
 
     state

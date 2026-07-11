@@ -1153,6 +1153,31 @@ pub async fn detect_java(state: State<'_, AppState>) -> Result<Vec<java::JavaIns
 }
 
 // ---------------------------------------------------------------------------
+// JVM tuning + startup measurement
+// ---------------------------------------------------------------------------
+
+/// Recommended JVM settings for an instance (heap from pack size vs. system
+/// RAM, GC flags from the Java major). Read-only — applying is a normal
+/// `update_instance` after the user confirms the diff.
+#[tauri::command]
+pub async fn suggest_jvm_args(
+    state: State<'_, AppState>,
+    instance_id: String,
+) -> Result<crate::jvmtune::JvmSuggestion> {
+    crate::jvmtune::suggest(state.inner(), &instance_id).await
+}
+
+/// Average startup time under the instance's current JVM settings vs. the
+/// previous settings (for the before/after readout).
+#[tauri::command]
+pub async fn startup_stats(
+    state: State<'_, AppState>,
+    instance_id: String,
+) -> Result<crate::startup::StartupStats> {
+    crate::startup::startup_stats(state.inner(), &instance_id)
+}
+
+// ---------------------------------------------------------------------------
 // Servers — saved multiplayer list + live Server List Ping
 // ---------------------------------------------------------------------------
 

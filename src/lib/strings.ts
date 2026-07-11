@@ -65,6 +65,23 @@ const en = {
   "server.created": "Instance created — installing mods in the background.",
   "server.searchLink": "Search",
 
+  // JVM auto-tuning + startup measurement
+  "jvm.recommend": "Recommended settings",
+  "jvm.title": "Recommended JVM settings",
+  "jvm.memory": "Memory (Xmx)",
+  "jvm.argsDiff": "JVM arguments",
+  "jvm.mergeNote":
+    "This instance has custom JVM arguments. Only GC/heap flags are replaced — your other arguments are kept (merge shown below).",
+  "jvm.apply": "Use these settings",
+  "jvm.applied": "Suggestion filled in — review the fields and press Save.",
+  "jvm.currentLabel": "Current",
+  "jvm.suggestedLabel": "Suggested",
+  "jvm.startupBoth":
+    "Avg startup — before: {before}s ({nBefore} sessions) · after: {after}s ({nAfter} sessions)",
+  "jvm.startupCurrentOnly": "Avg startup: {after}s ({nAfter} sessions)",
+  "jvm.startupPreviousOnly":
+    "Avg startup before the settings change: {before}s ({nBefore} sessions) — launch to measure the new settings.",
+
   // Unified update checking
   "updates.sourceModrinth": "Modrinth",
   "updates.sourceCurseforge": "CurseForge",
