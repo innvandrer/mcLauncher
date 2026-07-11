@@ -28,6 +28,27 @@ const en = {
   "blocked.author": "author",
   "blocked.authors": "authors",
 
+  // Dual-format modpack export
+  "export.cfpack": "Export as CurseForge pack",
+  "export.cfpackHint": "manifest.json pack for CurseForge launchers",
+  "export.both": "Export both formats",
+  "export.bothHint": ".mrpack + CurseForge pack in one go",
+  "export.reviewTitle": "Review platform-exclusive files",
+  "export.reviewIntro":
+    "The exported pack can't reference these files (they're missing from the target platform). Tick the ones to embed in the pack's overrides folder — unticked files are left out of the export.",
+  "export.licenseWarning":
+    "Embedding third-party mods redistributes their files. Only embed mods whose license allows redistribution — you are responsible for checking.",
+  "export.embedAll": "Embed all",
+  "export.missingOnCurseforge": "Not on CurseForge",
+  "export.missingOnModrinth": "Not on Modrinth",
+  "export.missingEverywhere": "Not on either platform",
+  "export.confirm": "Export",
+  "export.cancel": "Cancel",
+  "export.doneMrpack": "Exported .mrpack",
+  "export.doneCfpack": "Exported CurseForge pack",
+  "export.doneBoth": "Exported both formats",
+  "export.exporting": "Exporting modpack…",
+
   // Unified update checking
   "updates.sourceModrinth": "Modrinth",
   "updates.sourceCurseforge": "CurseForge",

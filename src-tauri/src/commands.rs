@@ -828,10 +828,41 @@ pub async fn import_instance(state: State<'_, AppState>, src: String) -> Result<
     instances::import_instance(state.inner(), Path::new(&src))
 }
 
-/// Export an instance as a Modrinth modpack (`.mrpack`).
+/// Export an instance as a Modrinth modpack (`.mrpack`). `embed` lists the
+/// files (not available on Modrinth) the user chose to bundle into overrides;
+/// omitted = legacy behavior (bundle everything unresolved).
 #[tauri::command]
-pub async fn export_mrpack(state: State<'_, AppState>, id: String, dest: String) -> Result<()> {
-    modrinth::export_mrpack(state.inner(), &id, Path::new(&dest)).await
+pub async fn export_mrpack(
+    state: State<'_, AppState>,
+    id: String,
+    dest: String,
+    embed: Option<Vec<String>>,
+) -> Result<()> {
+    crate::export::export_mrpack(state.inner(), &id, Path::new(&dest), embed.as_deref()).await
+}
+
+/// Export an instance as a CurseForge modpack zip (manifest.json +
+/// modlist.html + overrides/). `embed` lists the files (not available on
+/// CurseForge) the user chose to bundle into overrides.
+#[tauri::command]
+pub async fn export_curseforge_pack(
+    state: State<'_, AppState>,
+    id: String,
+    dest: String,
+    embed: Option<Vec<String>>,
+) -> Result<()> {
+    crate::export::export_curseforge_pack(state.inner(), &id, Path::new(&dest), embed.as_deref())
+        .await
+}
+
+/// Resolve every exportable file on both platforms for the pre-export review
+/// dialog (which files are Modrinth-only / CurseForge-only / unresolved).
+#[tauri::command]
+pub async fn prepare_pack_export(
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<crate::export::PackExportPreview> {
+    crate::export::prepare_pack_export(state.inner(), &id).await
 }
 
 // ---------------------------------------------------------------------------

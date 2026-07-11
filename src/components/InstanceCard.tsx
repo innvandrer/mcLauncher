@@ -15,9 +15,10 @@ import type { Instance } from "@/lib/types";
 import { t } from "@/lib/strings";
 import { useStore } from "@/store/useStore";
 import { api, errMessage } from "@/lib/api";
-import { exportInstanceMrpack, exportInstanceZip } from "@/lib/export";
+import { exportInstanceZip } from "@/lib/export";
 import { ACCENTS, cn, formatPlaytime, loaderLabel, timeAgo } from "@/lib/utils";
 import { InstanceIcon } from "./InstanceIcon";
+import { startPackExport } from "./PackExport";
 
 const LOADER_THEMES: Record<string, string> = {
   vanilla: "from-emerald-600/20 to-emerald-900/5 border-emerald-500/20",
@@ -43,24 +44,21 @@ export function InstanceCard({ instance, onOpen }: { instance: Instance; onOpen:
   const updateInstance = useStore((s) => s.updateInstance);
   const toast = useStore((s) => s.toast);
   const [menuOpen, setMenuOpen] = useState(false);
-  const [exporting, setExporting] = useState(false);
+  const [zipping, setZipping] = useState(false);
+  const packExporting = useStore((s) => s.packExporting);
+  const exporting = zipping || packExporting;
 
-  const runExport = async (format: "zip" | "mrpack") => {
+  const runZipExport = async () => {
     setMenuOpen(false);
-    setExporting(true);
+    setZipping(true);
     try {
-      toast("info", format === "zip" ? "Exporting instance…" : "Exporting modpack…");
-      const path =
-        format === "zip"
-          ? await exportInstanceZip(instance.id, instance.name)
-          : await exportInstanceMrpack(instance.id, instance.name);
-      if (path) {
-        toast("success", format === "zip" ? "Instance exported" : "Exported .mrpack");
-      }
+      toast("info", "Exporting instance…");
+      const path = await exportInstanceZip(instance.id, instance.name);
+      if (path) toast("success", "Instance exported");
     } catch (e) {
       toast("error", errMessage(e));
     } finally {
-      setExporting(false);
+      setZipping(false);
     }
   };
 
@@ -142,13 +140,16 @@ export function InstanceCard({ instance, onOpen }: { instance: Instance; onOpen:
               <MenuItem
                 icon={exporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
                 label="Export as .zip"
-                onClick={() => runExport("zip")}
+                onClick={runZipExport}
                 disabled={exporting}
               />
               <MenuItem
                 icon={exporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
                 label="Export as .mrpack"
-                onClick={() => runExport("mrpack")}
+                onClick={() => {
+                  setMenuOpen(false);
+                  void startPackExport(instance.id, instance.name, "mrpack");
+                }}
                 disabled={exporting}
               />
               <MenuItem

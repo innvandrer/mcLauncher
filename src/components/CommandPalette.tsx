@@ -14,7 +14,8 @@ import {
 } from "lucide-react";
 import { useStore } from "@/store/useStore";
 import { api, errMessage } from "@/lib/api";
-import { exportInstanceMrpack, exportInstanceZip } from "@/lib/export";
+import { exportInstanceZip } from "@/lib/export";
+import { startPackExport } from "@/components/PackExport";
 import { cn, isImageIcon } from "@/lib/utils";
 
 interface Command {
@@ -119,10 +120,7 @@ export function CommandPalette() {
           keywords: `${inst.name} export modpack mrpack modrinth share`,
           run: () => {
             close();
-            toast("info", "Exporting modpack…");
-            exportInstanceMrpack(inst.id, inst.name)
-              .then((path) => path && toast("success", "Exported .mrpack"))
-              .catch((e) => toast("error", errMessage(e)));
+            void startPackExport(inst.id, inst.name, "mrpack");
           },
         },
         {

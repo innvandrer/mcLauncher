@@ -9,6 +9,7 @@ import type {
   Instance,
   LogLine,
   ModpackInstallReport,
+  PendingPackExport,
   PublicAccount,
   Settings,
   TaskProgress,
@@ -48,6 +49,13 @@ interface State {
   /** Instance whose blocked-mods dialog is currently shown. */
   activePackReportId: string | null;
   dismissPackReport: (instanceId: string) => void;
+
+  /** Modpack export awaiting the embed/exclude review dialog (global modal). */
+  packExport: PendingPackExport | null;
+  setPackExport: (p: PendingPackExport | null) => void;
+  /** True while a pack export is writing, so export buttons can disable. */
+  packExporting: boolean;
+  setPackExporting: (v: boolean) => void;
 
   update: { version: string; notes: string } | null;
   updating: boolean;
@@ -117,6 +125,11 @@ export const useStore = create<State>((set, get) => ({
   toasts: [],
   authPrompt: null,
   busy: false,
+
+  packExport: null,
+  setPackExport: (p) => set({ packExport: p }),
+  packExporting: false,
+  setPackExporting: (v) => set({ packExporting: v }),
 
   packReports: {},
   activePackReportId: null,

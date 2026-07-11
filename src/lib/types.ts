@@ -270,6 +270,28 @@ export interface ModpackInstallReport {
   blocked: BlockedFileInfo[];
 }
 
+/** One exportable file's platform availability, for the pre-export review. */
+export interface PackPreviewEntry {
+  subdir: string;
+  fileName: string;
+  availability: "both" | "modrinth" | "curseforge" | "none";
+}
+
+export interface PackExportPreview {
+  entries: PackPreviewEntry[];
+}
+
+/** A modpack export waiting on the embed/exclude review dialog. */
+export interface PendingPackExport {
+  instanceId: string;
+  instanceName: string;
+  format: "mrpack" | "cfpack" | "both";
+  /** Only the entries that need a decision for this format. */
+  entries: PackPreviewEntry[];
+  /** Destination paths already chosen in the save dialog. */
+  paths: { mrpack?: string; cfpack?: string };
+}
+
 export interface Session {
   instanceId: string;
   /** Unix seconds when the session started. */

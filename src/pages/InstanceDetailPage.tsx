@@ -40,7 +40,7 @@ import { ExportMenu } from "@/components/ExportMenu";
 import { LoadoutsMenu } from "@/components/LoadoutsMenu";
 import { TurboButton } from "@/components/TurboButton";
 import { analyzeCrash, type CrashFinding } from "@/lib/crash";
-import { exportInstanceMrpack } from "@/lib/export";
+import { startPackExport } from "@/components/PackExport";
 import type {
   ContentVersion,
   DiskUsage,
@@ -2382,11 +2382,7 @@ function SettingsTab({ instance }: { instance: Instance }) {
   const exportPack = async () => {
     try {
       setExportingPack(true);
-      toast("info", "Exporting modpack…");
-      const path = await exportInstanceMrpack(instance.id, instance.name);
-      if (path) toast("success", "Exported .mrpack");
-    } catch (e) {
-      toast("error", errMessage(e));
+      await startPackExport(instance.id, instance.name, "mrpack");
     } finally {
       setExportingPack(false);
     }

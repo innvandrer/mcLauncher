@@ -19,7 +19,7 @@ section below restates what matters.
   `modrinth::check_updates`, source badges, "switch source of truth"). ✅ DONE
 - **Phase 3** — Dual-format modpack export (CF manifest zip + mrpack from one
   shared "resolved pack model"; embed/exclude review dialog for
-  platform-exclusive mods, license warning, default exclude).
+  platform-exclusive mods, license warning, default exclude). ✅ DONE
 - **Phase 4** — Server browser: decode Forge/NeoForge mod list from server
   ping (`forgeData.d` packed UTF-16 → binary), map mods to
   Modrinth/CurseForge, build a matching instance; best-effort UI copy.
@@ -213,13 +213,52 @@ Assumption documented in code: `latestFilesIndexes` is ordered newest-first.
   `curseforge::update_tests` (index picking: stable-over-beta, loader/game
   version filters, loaderless entries, response parsing).
 
-## Phases 3–5 — NOT STARTED
+## Phase 3 — Dual-format export (DONE)
+
+Verified: clippy zero warnings, 79/79 tests, tsc + vite build clean.
+Untested live: whether real CF launchers accept the generated manifest zips
+(shape matches the format spec and is unit-tested).
+
+- NEW `src-tauri/src/export.rs`: shared resolved-pack model.
+  `build_resolved_pack(state, id) → (Instance, Vec<ResolvedEntry>)` — every
+  exportable file (enabled mods/.zip packs/shaders) with sha1+sha512 (one
+  streaming pass), size, `modrinth: Option<ModrinthRef>` (batch hash lookup)
+  and `curseforge: Option<CurseforgeRef>` (fingerprint; empty without API
+  key). `ResolvedEntry::availability()` → both/modrinth/curseforge/none.
+- Writers consume the same model:
+  - `export_mrpack(state, id, dest, embed: Option<&[String]>)` — Modrinth
+    files become hash-verified download refs (locally computed sha1/sha512);
+    others embed into `overrides/` only if in the embed list. `embed: None`
+    = legacy embed-all (kept for old callers; the UI always sends a list).
+  - `export_curseforge_pack(...)` — manifest.json (manifestType
+    "minecraftModpack", manifestVersion 1, files[] projectID/fileID/required,
+    modLoaders "loader-version", overrides "overrides") + modlist.html
+    (HTML-escaped links to /projects/{id}) + overrides/. Errors if files are
+    missing from CF and no decision list was passed (never bundles silently).
+  - Both include the common overrides (config/, servers.dat, folder-based
+    packs) via shared helpers.
+- The old export section in modrinth.rs was REMOVED (replaced by a pointer
+  comment); commands `export_mrpack` (now takes optional `embed`),
+  `export_curseforge_pack`, `prepare_pack_export` (returns
+  `PackExportPreview { entries: [{subdir, fileName, availability}] }`).
+- Frontend: NEW `src/components/PackExport.tsx` —
+  `startPackExport(instanceId, name, format)` callable from anywhere
+  (save dialog(s) → preparePackExport → direct export or global review
+  modal) + `PackExportModal` mounted in App.tsx; state in useStore
+  (`packExport`, `packExporting`). Review dialog: per-file embed checkboxes
+  (default excluded), "Embed all", license warning, per-file "Not on
+  CurseForge/Modrinth/either" chip. ExportMenu gained "Export as CurseForge
+  pack" and "Export both formats"; InstanceCard, CommandPalette, and the
+  detail page's exportPack all route through startPackExport (the old
+  silent-embed `exportInstanceMrpack` helper in lib/export.ts was removed).
+- Tests (`export.rs::tests`): availability classification, embed decisions,
+  CF manifest exact shape (incl. neoforge loader id + primary flag),
+  undecided-files exclusion, vanilla = no modLoaders, modlist HTML escaping,
+  mrpack index refs + selective embedding.
+
+## Phases 4–5 — NOT STARTED
 
 Key design decisions already made (see plan summary above), plus:
-- Phase 3: new `export.rs` with shared resolved-pack model; refactor
-  `modrinth::export_mrpack` onto it; new `prepare_pack_export` +
-  `export_curseforge_pack` commands; CF zip = manifest.json (manifestType
-  "minecraftModpack", manifestVersion 1) + modlist.html + overrides/.
 - Phase 4: decoder for `forgeData.d` (15 bits per UTF-16 char → bytes →
   VarInt-framed mod list); test via round-trip with own encoder (real
   payloads unobtainable in sandbox — mark untested); new `server_mods.rs`.

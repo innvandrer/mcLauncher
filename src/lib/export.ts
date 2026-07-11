@@ -11,12 +11,5 @@ export async function exportInstanceZip(id: string, name: string): Promise<strin
   return path;
 }
 
-export async function exportInstanceMrpack(id: string, name: string): Promise<string | null> {
-  const path = await save({
-    defaultPath: `${name}.mrpack`,
-    filters: [{ name: "Modrinth modpack", extensions: ["mrpack"] }],
-  });
-  if (!path) return null;
-  await api.exportMrpack(id, path);
-  return path;
-}
+// Modpack exports (.mrpack / CurseForge zip) go through the review flow in
+// components/PackExport.tsx, which handles the save dialog itself.

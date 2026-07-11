@@ -5,6 +5,7 @@ mod commands;
 mod crosssource;
 mod discord;
 mod curseforge;
+mod export;
 mod forge;
 mod skin;
 mod error;
@@ -152,6 +153,8 @@ pub fn run() {
             commands::export_instance,
             commands::import_instance,
             commands::export_mrpack,
+            commands::export_curseforge_pack,
+            commands::prepare_pack_export,
             commands::import_mrpack,
             commands::list_mods,
             commands::set_mod_enabled,

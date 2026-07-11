@@ -1,11 +1,13 @@
 import { useState } from "react";
 import { ChevronDown, Loader2, Upload } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { exportInstanceMrpack, exportInstanceZip } from "@/lib/export";
+import { exportInstanceZip } from "@/lib/export";
 import { errMessage } from "@/lib/api";
+import { t } from "@/lib/strings";
+import { startPackExport, type PackFormat } from "./PackExport";
 import { useStore } from "@/store/useStore";
 
-type ExportFormat = "zip" | "mrpack";
+type ExportFormat = "zip" | PackFormat;
 
 interface ExportMenuProps {
   instanceId: string;
@@ -26,35 +28,39 @@ export function ExportMenu({
   onExportEnd,
 }: ExportMenuProps) {
   const toast = useStore((s) => s.toast);
+  const packExporting = useStore((s) => s.packExporting);
   const [open, setOpen] = useState(false);
-  const [exporting, setExporting] = useState<ExportFormat | null>(null);
+  const [zipping, setZipping] = useState(false);
+  const exporting = zipping || packExporting;
 
-  const runExport = async (format: ExportFormat) => {
+  const runZipExport = async () => {
     setOpen(false);
-    setExporting(format);
-    onExportStart?.(format);
+    setZipping(true);
+    onExportStart?.("zip");
     try {
-      toast("info", format === "zip" ? "Exporting instance…" : "Exporting modpack…");
-      const path =
-        format === "zip"
-          ? await exportInstanceZip(instanceId, instanceName)
-          : await exportInstanceMrpack(instanceId, instanceName);
-      if (path) {
-        toast("success", format === "zip" ? "Instance exported" : "Exported .mrpack");
-      }
+      toast("info", "Exporting instance…");
+      const path = await exportInstanceZip(instanceId, instanceName);
+      if (path) toast("success", "Instance exported");
     } catch (e) {
       toast("error", errMessage(e));
     } finally {
-      setExporting(null);
+      setZipping(false);
       onExportEnd?.();
     }
+  };
+
+  const runPackExport = async (format: PackFormat) => {
+    setOpen(false);
+    onExportStart?.(format);
+    await startPackExport(instanceId, instanceName, format);
+    onExportEnd?.();
   };
 
   return (
     <div className={cn("relative", className)}>
       <button
         type="button"
-        disabled={!!exporting}
+        disabled={exporting}
         onClick={(e) => {
           e.stopPropagation();
           setOpen((v) => !v);
@@ -93,12 +99,22 @@ export function ExportMenu({
           <MenuItem
             label="Export as .zip"
             hint="Full EZMapa instance backup"
-            onClick={() => runExport("zip")}
+            onClick={runZipExport}
           />
           <MenuItem
             label="Export as .mrpack"
             hint="Modrinth modpack for sharing"
-            onClick={() => runExport("mrpack")}
+            onClick={() => runPackExport("mrpack")}
+          />
+          <MenuItem
+            label={t("export.cfpack")}
+            hint={t("export.cfpackHint")}
+            onClick={() => runPackExport("cfpack")}
+          />
+          <MenuItem
+            label={t("export.both")}
+            hint={t("export.bothHint")}
+            onClick={() => runPackExport("both")}
           />
         </div>
       )}

@@ -15,6 +15,7 @@ import type {
   ModEntry,
   ModpackInstallReport,
   ModpackUpdate,
+  PackExportPreview,
   ModUpdate,
   PlayerSkin,
   PreflightWarning,
@@ -200,8 +201,13 @@ export const api = {
   // Export / import
   exportInstance: (id: string, dest: string) =>
     invoke<void>("export_instance", { id, dest }),
-  exportMrpack: (id: string, dest: string) =>
-    invoke<void>("export_mrpack", { id, dest }),
+  exportMrpack: (id: string, dest: string, embed?: string[] | null) =>
+    invoke<void>("export_mrpack", { id, dest, embed: embed ?? null }),
+  exportCurseforgePack: (id: string, dest: string, embed?: string[] | null) =>
+    invoke<void>("export_curseforge_pack", { id, dest, embed: embed ?? null }),
+  /** Resolve exportable files on both platforms for the review dialog. */
+  preparePackExport: (id: string) =>
+    invoke<PackExportPreview>("prepare_pack_export", { id }),
   importInstance: (src: string) => invoke<Instance>("import_instance", { src }),
   importMrpack: (src: string) => invoke<Instance>("import_mrpack", { src }),
 
