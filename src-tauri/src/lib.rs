@@ -2,6 +2,7 @@ mod account_tokens;
 mod archive;
 mod auth;
 mod commands;
+mod crosssource;
 mod discord;
 mod curseforge;
 mod forge;

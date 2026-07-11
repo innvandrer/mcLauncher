@@ -6,10 +6,12 @@
 //! that avoids a new dependency for one feature.
 
 use crate::error::{Error, Result};
+#[cfg(windows)]
 use std::path::PathBuf;
 
 /// Escape a value for a single-quoted PowerShell string literal (the only
 /// special character is `'`, doubled to escape).
+#[cfg(any(windows, test))]
 fn ps_quote(s: &str) -> String {
     format!("'{}'", s.replace('\'', "''"))
 }
@@ -17,6 +19,7 @@ fn ps_quote(s: &str) -> String {
 /// Quote a value as one Windows command-line argument, following the same
 /// backslash/quote rules the MSVC runtime uses to split argv — so
 /// `std::env::args()` on the receiving end parses it back out intact.
+#[cfg(any(windows, test))]
 fn win_arg_quote(s: &str) -> String {
     if !s.is_empty() && !s.chars().any(|c| c == ' ' || c == '"' || c == '\t') {
         return s.to_string();
@@ -45,6 +48,7 @@ fn win_arg_quote(s: &str) -> String {
     out
 }
 
+#[cfg(windows)]
 fn sanitize_filename(name: &str) -> String {
     let cleaned: String = name
         .chars()

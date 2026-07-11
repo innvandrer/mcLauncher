@@ -45,6 +45,10 @@ pub struct SearchResponse {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProjectVersion {
     pub id: String,
+    /// The owning project's id. Always present in API responses; defaulted so
+    /// older cached/serialized shapes without it still deserialize.
+    #[serde(default)]
+    pub project_id: String,
     pub version_number: String,
     #[serde(default)]
     pub name: String,

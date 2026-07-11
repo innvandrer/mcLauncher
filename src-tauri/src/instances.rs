@@ -22,7 +22,7 @@ fn read_json_or_default<T: DeserializeOwned + Default>(path: &Path) -> T {
 /// Write `data` to `path` atomically: stream it into a sibling temp file and
 /// rename over the destination. A crash mid-write then leaves either the old
 /// file or the new one — never a truncated, unparseable JSON document.
-fn atomic_write(path: &Path, data: &[u8]) -> std::io::Result<()> {
+pub(crate) fn atomic_write(path: &Path, data: &[u8]) -> std::io::Result<()> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }

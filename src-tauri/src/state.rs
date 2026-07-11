@@ -38,6 +38,10 @@ impl AppDirs {
     pub fn settings_file(&self) -> PathBuf {
         self.root.join("settings.json")
     }
+    /// Cross-source resolution cache (sha1 → Modrinth/CurseForge identity).
+    pub fn crosssource_cache_file(&self) -> PathBuf {
+        self.root.join("crosssource_cache.json")
+    }
     pub fn accounts_file(&self) -> PathBuf {
         self.root.join("accounts.json")
     }
@@ -100,6 +104,11 @@ pub struct AppState {
     /// fetched, so a launch (or the create-instance dialog) doesn't re-download
     /// the multi-megabyte manifest on every call. Refreshed past the TTL.
     pub manifest: tokio::sync::RwLock<Option<(std::time::Instant, Arc<crate::mojang::VersionManifest>)>>,
+    /// Cross-source (Modrinth ↔ CurseForge) identity resolver with its disk
+    /// cache and per-provider rate limiters. Consumers arrive in Phase 1
+    /// (blocked-download fallback); drop the allow when they do.
+    #[allow(dead_code)]
+    pub crosssource: crate::crosssource::Resolver,
 }
 
 impl AppState {
@@ -140,6 +149,7 @@ impl AppState {
             eprintln!("warning: could not create data directories: {e}");
         }
 
+        let crosssource = crate::crosssource::Resolver::new(dirs.crosssource_cache_file());
         Self {
             http,
             dirs,
@@ -148,6 +158,7 @@ impl AppState {
             cancels: Arc::new(Mutex::new(HashMap::new())),
             accounts_lock: Mutex::new(()),
             manifest: tokio::sync::RwLock::new(None),
+            crosssource,
         }
     }
 }
