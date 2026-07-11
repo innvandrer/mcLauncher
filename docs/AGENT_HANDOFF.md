@@ -349,6 +349,20 @@ sysctl and Windows RAM paths compile-checked only (Linux path unit-tested).
   marker matching on real log-line shapes, before/after stat splits and
   missing-group handling.
 
+## Release v0.3.0 (prepared, NOT published — blocked on repo access)
+
+- Version bumped 0.2.6 → 0.3.0 in package.json, package-lock.json,
+  src-tauri/tauri.conf.json, src-tauri/Cargo.toml (+ Cargo.lock).
+- RELEASE_NOTES.md rewritten for 0.3.0 (the release workflow uses it as the
+  GitHub release body and updater notes).
+- Release commit + annotated tag `v0.3.0` created locally on the feature
+  branch. Publishing = push the branch and the tag: the `Release` workflow
+  (.github/workflows/release.yml) triggers on `v*` tags, builds the signed
+  Windows installer (needs the TAURI_SIGNING_* secrets), and publishes the
+  GitHub release. Normal flow: merge the branch to main first, then
+  `git push origin v0.3.0` (retag on the merge commit if you want the tag
+  on main: `git tag -f v0.3.0 <merge-sha> && git push -f origin v0.3.0`).
+
 ## Known follow-ups / done-ness notes
 
 - ALL FIVE PHASES ARE IMPLEMENTED. Remaining work is validation against the
