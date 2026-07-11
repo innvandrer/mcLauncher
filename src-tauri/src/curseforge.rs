@@ -26,7 +26,7 @@ fn class_id(content_type: &str) -> u32 {
 }
 
 // CurseForge modLoaderType enum: Forge=1, Fabric=4, Quilt=5, NeoForge=6.
-fn loader_type(loader: Option<&str>) -> Option<u8> {
+pub(crate) fn loader_type(loader: Option<&str>) -> Option<u8> {
     match loader {
         Some("forge") => Some(1),
         Some("fabric") => Some(4),
@@ -38,7 +38,7 @@ fn loader_type(loader: Option<&str>) -> Option<u8> {
 
 /// Resolve the API key from settings, falling back to `EZMAPA_CF_API_KEY` or
 /// legacy `BEACON_CF_API_KEY`. Returns a friendly error when neither is set.
-fn api_key(state: &AppState) -> Result<String> {
+pub(crate) fn api_key(state: &AppState) -> Result<String> {
     if let Some(k) = crate::instances::load_settings(state)
         .curseforge_api_key
         .filter(|k| !k.trim().is_empty())
@@ -1041,6 +1041,190 @@ fn blocked_file_info(f: &CfFile, info: Option<&(String, Option<String>)>) -> Blo
     }
 }
 
+// ---------------------------------------------------------------------------
+// Update candidates (for the unified cross-platform update checker)
+// ---------------------------------------------------------------------------
+
+/// The newest compatible CurseForge file for one installed local file.
+#[derive(Debug, Clone)]
+pub struct CfUpdateCandidate {
+    pub project_id: u32,
+    pub file_id: u32,
+    pub file_name: String,
+    /// ISO-8601 upload date, comparable against Modrinth's `date_published`.
+    pub file_date: String,
+    /// Download URL — the API's own, or the Modrinth mirror of the identical
+    /// file when the author blocked CF downloads. Candidates that can't be
+    /// downloaded either way are dropped before this struct is built.
+    pub url: String,
+    pub sha1: Option<String>,
+}
+
+/// `POST /v1/mods` response entry (only the update-relevant fields).
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CfModWithIndexes {
+    id: u32,
+    #[serde(default)]
+    latest_files_indexes: Vec<CfFileIndex>,
+}
+
+/// One entry of `latestFilesIndexes`: the newest file per (game version,
+/// loader) combination, newest first.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CfFileIndex {
+    #[serde(default)]
+    game_version: String,
+    file_id: u32,
+    #[serde(default)]
+    release_type: u8, // 1 = release, 2 = beta, 3 = alpha
+    #[serde(default)]
+    mod_loader: Option<u8>,
+}
+
+/// Pick the newest compatible file id from a mod's `latestFilesIndexes`.
+/// Entries are newest-first; stable releases win over beta/alpha. A `None`
+/// `mod_loader` entry (non-mod content) matches any loader.
+fn pick_file_index(indexes: &[CfFileIndex], game_version: &str, loader: Option<u8>) -> Option<u32> {
+    let matches = |ix: &&CfFileIndex| {
+        ix.game_version == game_version
+            && match (ix.mod_loader, loader) {
+                (Some(have), Some(want)) => have == want,
+                _ => true,
+            }
+    };
+    indexes
+        .iter()
+        .filter(matches)
+        .find(|ix| ix.release_type == 1)
+        .or_else(|| indexes.iter().find(matches))
+        .map(|ix| ix.file_id)
+}
+
+/// For each local file (keyed by sha1), find the newest compatible CurseForge
+/// file. Uses the fingerprint API to identify files, one `POST /v1/mods` for
+/// the per-version file indexes and one `POST /v1/mods/files` for the full
+/// candidate files — three requests total regardless of mod count.
+///
+/// Best-effort: returns an empty map when no API key is configured or any
+/// step fails (the caller then simply offers Modrinth-only updates).
+pub async fn update_candidates(
+    state: &AppState,
+    files: &[(String, std::path::PathBuf)],
+    loader: Option<&str>,
+    game_version: &str,
+) -> std::collections::HashMap<String, CfUpdateCandidate> {
+    use std::collections::HashMap;
+
+    let mut out = HashMap::new();
+    let Ok(key) = api_key(state) else {
+        return out;
+    };
+    let Ok(refs) = state
+        .crosssource
+        .resolve_local_files_to_cf(&state.http, &key, files)
+        .await
+    else {
+        return out;
+    };
+    if refs.is_empty() {
+        return out;
+    }
+
+    // Batch-fetch every identified mod's latest-file indexes.
+    let mut mod_ids: Vec<u32> = refs.values().map(|r| r.project_id).collect();
+    mod_ids.sort_unstable();
+    mod_ids.dedup();
+    #[derive(Deserialize)]
+    struct ModsResp {
+        data: Vec<CfModWithIndexes>,
+    }
+    let resp = state
+        .http
+        .post(format!("{API}/mods"))
+        .header("x-api-key", &key)
+        .header("Accept", "application/json")
+        .json(&serde_json::json!({ "modIds": mod_ids }))
+        .send()
+        .await;
+    let mods: HashMap<u32, CfModWithIndexes> = match resp {
+        Ok(r) => match r.error_for_status() {
+            Ok(r) => match r.json::<ModsResp>().await {
+                Ok(body) => body.data.into_iter().map(|m| (m.id, m)).collect(),
+                Err(_) => return out,
+            },
+            Err(_) => return out,
+        },
+        Err(_) => return out,
+    };
+
+    // sha1 of the installed file → candidate file id (skipping "already newest").
+    let lt = loader_type(loader);
+    let mut wanted: Vec<(String, u32)> = Vec::new();
+    for (sha1, cf) in &refs {
+        let Some(m) = mods.get(&cf.project_id) else {
+            continue;
+        };
+        if let Some(fid) = pick_file_index(&m.latest_files_indexes, game_version, lt) {
+            if fid != cf.file_id {
+                wanted.push((sha1.clone(), fid));
+            }
+        }
+    }
+    if wanted.is_empty() {
+        return out;
+    }
+
+    // Bulk-fetch the full candidate files (dates, hashes, URLs).
+    let file_ids: Vec<u32> = wanted.iter().map(|(_, fid)| *fid).collect();
+    let bulk = state
+        .http
+        .post(format!("{API}/mods/files"))
+        .header("x-api-key", &key)
+        .header("Accept", "application/json")
+        .json(&serde_json::json!({ "fileIds": file_ids }))
+        .send()
+        .await;
+    let candidates: HashMap<u32, CfFile> = match bulk {
+        Ok(r) => match r.error_for_status() {
+            Ok(r) => match r.json::<CfBulkFiles>().await {
+                Ok(body) => body.data.into_iter().map(|f| (f.id, f)).collect(),
+                Err(_) => return out,
+            },
+            Err(_) => return out,
+        },
+        Err(_) => return out,
+    };
+
+    for (sha1, fid) in wanted {
+        let Some(f) = candidates.get(&fid) else {
+            continue;
+        };
+        // Blocked candidate: only offer it if the identical file is mirrored
+        // on Modrinth (never guess CDN links).
+        let url = match &f.download_url {
+            Some(u) => u.clone(),
+            None => match plan_blocked_file(state, f).await {
+                BlockedPlan::Modrinth(mr) => mr.url,
+                BlockedPlan::Manual => continue,
+            },
+        };
+        out.insert(
+            sha1,
+            CfUpdateCandidate {
+                project_id: f.mod_id,
+                file_id: f.id,
+                file_name: f.file_name.clone(),
+                file_date: f.file_date.clone(),
+                url,
+                sha1: f.sha1(),
+            },
+        );
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1152,5 +1336,72 @@ mod tests {
         assert!(matches!(parse_modloader("neoforge-21.1.90"), (Loader::Neoforge, Some(v)) if v == "21.1.90"));
         assert!(matches!(parse_modloader("fabric-0.16.0"), (Loader::Fabric, Some(v)) if v == "0.16.0"));
         assert!(matches!(parse_modloader("unknown"), (Loader::Vanilla, None)));
+    }
+}
+
+#[cfg(test)]
+mod update_tests {
+    use super::*;
+
+    fn ix(game_version: &str, file_id: u32, release_type: u8, mod_loader: Option<u8>) -> CfFileIndex {
+        CfFileIndex {
+            game_version: game_version.into(),
+            file_id,
+            release_type,
+            mod_loader,
+        }
+    }
+
+    #[test]
+    fn stable_release_beats_newer_beta() {
+        // Newest-first list: a beta on top, a release below — release wins.
+        let indexes = vec![
+            ix("1.21.1", 300, 2, Some(4)),
+            ix("1.21.1", 200, 1, Some(4)),
+            ix("1.20.1", 100, 1, Some(4)),
+        ];
+        assert_eq!(pick_file_index(&indexes, "1.21.1", Some(4)), Some(200));
+    }
+
+    #[test]
+    fn falls_back_to_prerelease_when_no_stable_exists() {
+        let indexes = vec![ix("1.21.1", 300, 2, Some(4))];
+        assert_eq!(pick_file_index(&indexes, "1.21.1", Some(4)), Some(300));
+    }
+
+    #[test]
+    fn filters_by_game_version_and_loader() {
+        let indexes = vec![
+            ix("1.21.1", 300, 1, Some(1)), // forge
+            ix("1.21.1", 200, 1, Some(4)), // fabric
+            ix("1.20.1", 100, 1, Some(4)),
+        ];
+        assert_eq!(pick_file_index(&indexes, "1.21.1", Some(4)), Some(200));
+        assert_eq!(pick_file_index(&indexes, "1.21.1", Some(1)), Some(300));
+        assert_eq!(pick_file_index(&indexes, "1.19.2", Some(4)), None);
+    }
+
+    #[test]
+    fn loaderless_entries_match_any_loader() {
+        // Resource packs / shaders have no modLoader on their indexes.
+        let indexes = vec![ix("1.21.1", 400, 1, None)];
+        assert_eq!(pick_file_index(&indexes, "1.21.1", Some(4)), Some(400));
+        assert_eq!(pick_file_index(&indexes, "1.21.1", None), Some(400));
+    }
+
+    #[test]
+    fn mods_response_shape_parses() {
+        let m: CfModWithIndexes = serde_json::from_value(serde_json::json!({
+            "id": 238222,
+            "name": "JEI",
+            "latestFilesIndexes": [
+                { "gameVersion": "1.21.1", "fileId": 42, "filename": "jei.jar",
+                  "releaseType": 1, "gameVersionTypeId": 77784, "modLoader": 6 }
+            ]
+        }))
+        .unwrap();
+        assert_eq!(m.id, 238222);
+        assert_eq!(m.latest_files_indexes[0].file_id, 42);
+        assert_eq!(m.latest_files_indexes[0].mod_loader, Some(6));
     }
 }

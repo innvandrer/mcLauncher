@@ -2,6 +2,7 @@ import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   ArrowLeft,
+  ArrowLeftRight,
   Camera,
   Check,
   ChevronLeft,
@@ -31,6 +32,7 @@ import {
 import { Button, EmptyState, Field, Input, Modal, Select, Skeleton, Spinner } from "@/components/ui";
 import { useStore } from "@/store/useStore";
 import { api, errMessage } from "@/lib/api";
+import { t } from "@/lib/strings";
 import { ACCENTS, AIKAR_FLAGS, cn, formatBytes, formatNumber, isImageIcon, loaderLabel } from "@/lib/utils";
 import { InstanceIcon } from "@/components/InstanceIcon";
 import { LoaderLogo } from "@/components/LoaderLogo";
@@ -605,7 +607,45 @@ function useContentUpdates(
     }
   };
 
-  return { updates, checking, updatingAll, checkUpdates, applyAllUpdates };
+  // Re-pin a mod to the other platform ("switch source of truth"), then
+  // re-check so the offered updates reflect the new pin.
+  const switchSource = async (u: ModUpdate) => {
+    const current = u.pinnedProvider ?? u.source;
+    const other = current === "curseforge" ? "modrinth" : "curseforge";
+    try {
+      await api.setModSource(instance.id, u.oldFileName, other);
+      toast(
+        "success",
+        t("updates.switched", {
+          file: u.oldFileName,
+          provider: t(other === "modrinth" ? "updates.sourceModrinth" : "updates.sourceCurseforge"),
+        }),
+      );
+      await checkUpdates();
+    } catch (e) {
+      toast("error", errMessage(e));
+    }
+  };
+
+  return { updates, checking, updatingAll, checkUpdates, applyAllUpdates, switchSource };
+}
+
+/** Small colored label showing which platform an update comes from. */
+function SourceBadge({ source }: { source: ModUpdate["source"] }) {
+  const isCf = source === "curseforge";
+  return (
+    <span
+      title={t("updates.fromOtherPlatform", {
+        provider: t(isCf ? "updates.sourceCurseforge" : "updates.sourceModrinth"),
+      })}
+      className={cn(
+        "inline-flex shrink-0 items-center rounded px-1.5 py-px text-[10px] font-semibold uppercase tracking-wide",
+        isCf ? "bg-orange-500/15 text-orange-400" : "bg-emerald-500/15 text-emerald-400",
+      )}
+    >
+      {t(isCf ? "updates.sourceCurseforge" : "updates.sourceModrinth")}
+    </span>
+  );
 }
 
 function ContentUpdateButton({
@@ -631,10 +671,12 @@ function ContentUpdatesBanner({
   updates,
   updatingAll,
   onApply,
+  onSwitchSource,
 }: {
   updates: ModUpdate[];
   updatingAll: boolean;
   onApply: () => void;
+  onSwitchSource?: (u: ModUpdate) => void;
 }) {
   if (updates.length === 0) return null;
   return (
@@ -642,12 +684,32 @@ function ContentUpdatesBanner({
       <p className="text-sm font-medium">
         {updates.length} update{updates.length > 1 ? "s" : ""} available
       </p>
-      <ul className="mt-1.5 space-y-0.5 text-xs text-muted-foreground">
-        {updates.slice(0, 4).map((u) => (
-          <li key={u.oldFileName} className="truncate">
-            {u.newFileName.replace(/\.(jar|zip)$/, "")} · v{u.versionNumber}
-          </li>
-        ))}
+      <ul className="mt-1.5 space-y-1 text-xs text-muted-foreground">
+        {updates.slice(0, 4).map((u) => {
+          const pin = u.pinnedProvider ?? u.source;
+          const other = pin === "curseforge" ? "modrinth" : "curseforge";
+          return (
+            <li key={u.oldFileName} className="flex items-center gap-1.5">
+              <span className="min-w-0 truncate">
+                {u.newFileName.replace(/\.(jar|zip)$/, "")} · v{u.versionNumber}
+              </span>
+              <SourceBadge source={u.source} />
+              {onSwitchSource && u.contentType === "mod" && (
+                <button
+                  onClick={() => onSwitchSource(u)}
+                  title={t(
+                    other === "modrinth"
+                      ? "updates.switchToModrinth"
+                      : "updates.switchToCurseforge",
+                  )}
+                  className="shrink-0 rounded p-0.5 text-muted-foreground transition hover:bg-muted hover:text-foreground btn-focus"
+                >
+                  <ArrowLeftRight className="h-3 w-3" />
+                </button>
+              )}
+            </li>
+          );
+        })}
         {updates.length > 4 && <li>+{updates.length - 4} more…</li>}
       </ul>
       <Button size="sm" variant="primary" className="mt-2 w-full" loading={updatingAll} onClick={onApply}>
@@ -866,11 +928,8 @@ function ModsPanel({ instance }: { instance: Instance }) {
     refresh();
   };
 
-  const { updates, checking, updatingAll, checkUpdates, applyAllUpdates } = useContentUpdates(
-    instance,
-    "mod",
-    refresh,
-  );
+  const { updates, checking, updatingAll, checkUpdates, applyAllUpdates, switchSource } =
+    useContentUpdates(instance, "mod", refresh);
 
   return (
     <div className="grid grid-cols-1 gap-6 lg:grid-cols-[300px_minmax(0,1fr)]">
@@ -936,6 +995,7 @@ function ModsPanel({ instance }: { instance: Instance }) {
           updates={updates}
           updatingAll={updatingAll}
           onApply={applyAllUpdates}
+          onSwitchSource={switchSource}
         />
         {installed.length === 0 ? (
           <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">

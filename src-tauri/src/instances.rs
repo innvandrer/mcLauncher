@@ -691,6 +691,17 @@ pub fn record_modrinth_fallback(
     let _ = write_json(&index_path(state, id), &idx);
 }
 
+/// Map of tracked file name → provider ("modrinth"/"curseforge"), used as the
+/// per-file source-of-truth pin by the update checker.
+pub fn content_provider_map(state: &AppState, id: &str) -> HashMap<String, String> {
+    load_index(state, id)
+        .items
+        .into_iter()
+        .filter(|(_, item)| !item.provider.is_empty())
+        .map(|(name, item)| (name, item.provider))
+        .collect()
+}
+
 /// Drop a file from the content index (called on delete).
 fn forget_install(state: &AppState, id: &str, file_name: &str) {
     let mut idx = load_index(state, id);

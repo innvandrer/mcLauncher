@@ -875,23 +875,53 @@ pub struct ModUpdate {
     pub url: String,
     pub sha1: Option<String>,
     pub enabled: bool,
+    /// Which platform the update comes from ("modrinth" / "curseforge").
+    #[serde(default = "default_source")]
+    pub source: String,
+    /// The project's id on `source` (Modrinth project id or CF mod id).
+    #[serde(default)]
+    pub source_project_id: Option<String>,
+    /// The Modrinth version id or CurseForge file id being offered.
+    #[serde(default)]
+    pub source_version_id: Option<String>,
+    /// ISO-8601 release date of the offered version (used for cross-platform
+    /// comparison; kept for the UI).
+    #[serde(default)]
+    pub date: Option<String>,
+    /// The file's current source-of-truth pin from the content index, so the
+    /// UI can offer "switch to the other platform".
+    #[serde(default)]
+    pub pinned_provider: Option<String>,
 }
 
 fn default_content_type() -> String {
     "mod".into()
 }
 
+fn default_source() -> String {
+    "modrinth".into()
+}
+
 fn content_dir(game_dir: &std::path::Path, content_type: &str) -> std::path::PathBuf {
     game_dir.join(crate::instances::content_subdir(content_type))
 }
 
-/// Map sha1 -> (content type, on-disk name, enabled).
+/// One installed file eligible for update checking.
+struct LocalContent {
+    content_type: String,
+    /// Display name (without any `.disabled` suffix).
+    file_name: String,
+    enabled: bool,
+    path: std::path::PathBuf,
+}
+
+/// Map sha1 -> installed file info.
 async fn collect_updatable_hashes(
     state: &AppState,
     instance_id: &str,
-) -> Result<HashMap<String, (String, String, bool)>> {
+) -> Result<HashMap<String, LocalContent>> {
     let game = state.dirs.game_dir(instance_id);
-    let mut by_hash: HashMap<String, (String, String, bool)> = HashMap::new();
+    let mut by_hash: HashMap<String, LocalContent> = HashMap::new();
 
     if let Ok(rd) = std::fs::read_dir(game.join("mods")) {
         for e in rd.flatten() {
@@ -904,7 +934,15 @@ async fn collect_updatable_hashes(
                 continue;
             };
             if let Ok(h) = net::file_sha1(&e.path()).await {
-                by_hash.insert(h, ("mod".into(), jar, enabled));
+                by_hash.insert(
+                    h,
+                    LocalContent {
+                        content_type: "mod".into(),
+                        file_name: jar,
+                        enabled,
+                        path: e.path(),
+                    },
+                );
             }
         }
     }
@@ -917,7 +955,15 @@ async fn collect_updatable_hashes(
                     continue;
                 }
                 if let Ok(h) = net::file_sha1(&e.path()).await {
-                    by_hash.insert(h, (content_type.into(), name, true));
+                    by_hash.insert(
+                        h,
+                        LocalContent {
+                            content_type: content_type.into(),
+                            file_name: name,
+                            enabled: true,
+                            path: e.path(),
+                        },
+                    );
                 }
             }
         }
@@ -926,8 +972,57 @@ async fn collect_updatable_hashes(
     Ok(by_hash)
 }
 
-/// Check installed mods, resource packs, and shaders against Modrinth and return
-/// those with a newer version available for the instance's loader + game version.
+/// Order two ISO-8601 timestamps. Falls back to a plain string comparison for
+/// anything chrono can't parse (still correct for same-format timestamps).
+fn newer_date(a: &str, b: &str) -> std::cmp::Ordering {
+    use chrono::DateTime;
+    match (
+        DateTime::parse_from_rfc3339(a),
+        DateTime::parse_from_rfc3339(b),
+    ) {
+        (Ok(a), Ok(b)) => a.cmp(&b),
+        _ => a.cmp(b),
+    }
+}
+
+/// Given at most one candidate per platform, pick the one to offer: newest
+/// release date wins; the file's pinned provider (its content-index source of
+/// truth) breaks ties.
+fn choose_update(
+    modrinth: Option<ModUpdate>,
+    curseforge: Option<ModUpdate>,
+    pinned: Option<&str>,
+) -> Option<ModUpdate> {
+    match (modrinth, curseforge) {
+        (None, None) => None,
+        (Some(m), None) => Some(m),
+        (None, Some(c)) => Some(c),
+        (Some(m), Some(c)) => {
+            let ord = newer_date(
+                m.date.as_deref().unwrap_or(""),
+                c.date.as_deref().unwrap_or(""),
+            );
+            Some(match ord {
+                std::cmp::Ordering::Greater => m,
+                std::cmp::Ordering::Less => c,
+                std::cmp::Ordering::Equal => {
+                    if pinned == Some("curseforge") {
+                        c
+                    } else {
+                        m
+                    }
+                }
+            })
+        }
+    }
+}
+
+/// Check installed mods, resource packs, and shaders against BOTH Modrinth and
+/// CurseForge and return, per file, the newest version available for the
+/// instance's loader + game version (with its source platform).
+///
+/// CurseForge checking is best-effort: without an API key (or when the
+/// fingerprint lookup fails) the result is Modrinth-only, as before.
 pub async fn check_updates(
     state: &AppState,
     instance_id: &str,
@@ -962,27 +1057,71 @@ pub async fn check_updates(
         .json()
         .await?;
 
-    let mut updates = Vec::new();
-    for (old_hash, version) in resp {
-        let Some((content_type, old_name, enabled)) = by_hash.get(&old_hash) else {
-            continue;
-        };
-        let Some(file) = version.files.iter().find(|f| f.primary).or_else(|| version.files.first())
-        else {
-            continue;
-        };
-        if file.hashes.sha1.as_deref() == Some(old_hash.as_str()) || &file.filename == old_name {
-            continue;
+    // CurseForge candidates for the same files (empty without an API key).
+    let cf_candidates = match game_version.filter(|v| !v.is_empty()) {
+        Some(gv) => {
+            let files: Vec<(String, std::path::PathBuf)> = by_hash
+                .iter()
+                .map(|(h, c)| (h.clone(), c.path.clone()))
+                .collect();
+            crate::curseforge::update_candidates(state, &files, loader, gv).await
         }
-        updates.push(ModUpdate {
-            content_type: content_type.clone(),
-            old_file_name: old_name.clone(),
-            new_file_name: file.filename.clone(),
-            version_number: version.version_number.clone(),
-            url: file.url.clone(),
-            sha1: file.hashes.sha1.clone(),
-            enabled: *enabled,
+        None => std::collections::HashMap::new(),
+    };
+
+    // The pinned provider per file (where it was installed from / switched to).
+    let providers = crate::instances::content_provider_map(state, instance_id);
+
+    let mut updates = Vec::new();
+    for (old_hash, local) in &by_hash {
+        let from_modrinth = resp.get(old_hash).and_then(|version| {
+            let file = version.files.iter().find(|f| f.primary).or_else(|| version.files.first())?;
+            if file.hashes.sha1.as_deref() == Some(old_hash.as_str())
+                || file.filename == local.file_name
+            {
+                return None;
+            }
+            Some(ModUpdate {
+                content_type: local.content_type.clone(),
+                old_file_name: local.file_name.clone(),
+                new_file_name: file.filename.clone(),
+                version_number: version.version_number.clone(),
+                url: file.url.clone(),
+                sha1: file.hashes.sha1.clone(),
+                enabled: local.enabled,
+                source: "modrinth".into(),
+                source_project_id: Some(version.project_id.clone()).filter(|p| !p.is_empty()),
+                source_version_id: Some(version.id.clone()),
+                date: Some(version.date_published.clone()),
+                pinned_provider: None,
+            })
         });
+
+        let from_curseforge = cf_candidates.get(old_hash).and_then(|c| {
+            if c.sha1.as_deref() == Some(old_hash.as_str()) || c.file_name == local.file_name {
+                return None;
+            }
+            Some(ModUpdate {
+                content_type: local.content_type.clone(),
+                old_file_name: local.file_name.clone(),
+                new_file_name: c.file_name.clone(),
+                version_number: c.file_name.trim_end_matches(".jar").to_string(),
+                url: c.url.clone(),
+                sha1: c.sha1.clone(),
+                enabled: local.enabled,
+                source: "curseforge".into(),
+                source_project_id: Some(c.project_id.to_string()),
+                source_version_id: Some(c.file_id.to_string()),
+                date: Some(c.file_date.clone()),
+                pinned_provider: None,
+            })
+        });
+
+        let pinned = providers.get(&local.file_name).map(|s| s.as_str());
+        if let Some(mut chosen) = choose_update(from_modrinth, from_curseforge, pinned) {
+            chosen.pinned_provider = pinned.map(|s| s.to_string());
+            updates.push(chosen);
+        }
     }
     Ok(updates)
 }
@@ -1019,6 +1158,17 @@ pub async fn apply_update(state: &AppState, instance_id: &str, update: ModUpdate
 
     // Keep the content index in sync when the file name changes.
     crate::instances::migrate_index_entry(state, instance_id, &update.old_file_name, &update.new_file_name);
+
+    // The installed bytes now come from `update.source`: re-anchor the file's
+    // identity there so future checks and exports use the right project.
+    if let Some(project_id) = update.source_project_id.as_deref().filter(|p| !p.is_empty()) {
+        crate::instances::record_installs(
+            state,
+            instance_id,
+            &[(update.new_file_name.clone(), project_id.to_string())],
+            &update.source,
+        );
+    }
 
     Ok(())
 }
@@ -1395,4 +1545,90 @@ pub async fn export_mrpack(
     }
     zip.finish()?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn update(source: &str, date: &str) -> ModUpdate {
+        ModUpdate {
+            content_type: "mod".into(),
+            old_file_name: "old.jar".into(),
+            new_file_name: format!("{source}.jar"),
+            version_number: "1.1".into(),
+            url: format!("https://example.invalid/{source}.jar"),
+            sha1: None,
+            enabled: true,
+            source: source.into(),
+            source_project_id: Some("p".into()),
+            source_version_id: Some("v".into()),
+            date: Some(date.into()),
+            pinned_provider: None,
+        }
+    }
+
+    #[test]
+    fn newest_release_date_wins_across_platforms() {
+        let m = update("modrinth", "2025-06-01T12:00:00+00:00");
+        // CurseForge dates carry fractional seconds — must still compare right.
+        let c = update("curseforge", "2025-06-02T09:30:00.123Z");
+        let chosen = choose_update(Some(m.clone()), Some(c.clone()), None).unwrap();
+        assert_eq!(chosen.source, "curseforge");
+
+        let chosen = choose_update(Some(m), Some(update("curseforge", "2025-05-01T00:00:00Z")), None)
+            .unwrap();
+        assert_eq!(chosen.source, "modrinth");
+    }
+
+    #[test]
+    fn pinned_provider_breaks_date_ties() {
+        let same = "2025-06-01T12:00:00Z";
+        let m = update("modrinth", same);
+        let c = update("curseforge", same);
+        let chosen = choose_update(Some(m.clone()), Some(c.clone()), Some("curseforge")).unwrap();
+        assert_eq!(chosen.source, "curseforge");
+        let chosen = choose_update(Some(m.clone()), Some(c.clone()), Some("modrinth")).unwrap();
+        assert_eq!(chosen.source, "modrinth");
+        // No pin: Modrinth is the default tiebreak.
+        let chosen = choose_update(Some(m), Some(c), None).unwrap();
+        assert_eq!(chosen.source, "modrinth");
+    }
+
+    #[test]
+    fn single_platform_candidates_pass_through() {
+        let m = update("modrinth", "2025-06-01T12:00:00Z");
+        assert_eq!(choose_update(Some(m), None, Some("curseforge")).unwrap().source, "modrinth");
+        let c = update("curseforge", "2025-06-01T12:00:00Z");
+        assert_eq!(choose_update(None, Some(c), Some("modrinth")).unwrap().source, "curseforge");
+        assert!(choose_update(None, None, None).is_none());
+    }
+
+    #[test]
+    fn unparseable_dates_fall_back_to_string_order() {
+        assert_eq!(newer_date("zzz", "aaa"), std::cmp::Ordering::Greater);
+        assert_eq!(
+            newer_date("2025-06-01T00:00:00Z", "2025-06-01T00:00:00+00:00"),
+            std::cmp::Ordering::Equal
+        );
+    }
+
+    #[test]
+    fn legacy_mod_update_payloads_deserialize() {
+        // Payloads from a frontend built before the cross-source fields
+        // existed must still round-trip through apply_mod_update.
+        let json = serde_json::json!({
+            "contentType": "mod",
+            "oldFileName": "a.jar",
+            "newFileName": "b.jar",
+            "versionNumber": "2.0",
+            "url": "https://cdn.modrinth.com/b.jar",
+            "sha1": null,
+            "enabled": true
+        });
+        let u: ModUpdate = serde_json::from_value(json).unwrap();
+        assert_eq!(u.source, "modrinth");
+        assert!(u.source_project_id.is_none());
+        assert!(u.date.is_none());
+    }
 }

@@ -188,6 +188,9 @@ export const api = {
   }) => invoke<ModUpdate[]>("check_mod_updates", args),
   applyModUpdate: (instanceId: string, update: ModUpdate) =>
     invoke<void>("apply_mod_update", { instanceId, update }),
+  /** Re-pin a mod's source of truth to the other platform; returns the new project id. */
+  setModSource: (instanceId: string, fileName: string, provider: "modrinth" | "curseforge") =>
+    invoke<string>("set_mod_source", { instanceId, fileName, provider }),
   autoUpdateInstanceContent: (args: {
     instanceId: string;
     loader?: string | null;

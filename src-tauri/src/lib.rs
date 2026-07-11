@@ -147,6 +147,7 @@ pub fn run() {
             commands::list_curseforge_files,
             commands::check_mod_updates,
             commands::apply_mod_update,
+            commands::set_mod_source,
             commands::auto_update_instance_content,
             commands::export_instance,
             commands::import_instance,

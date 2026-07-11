@@ -27,6 +27,14 @@ const en = {
   "blocked.files": "files",
   "blocked.author": "author",
   "blocked.authors": "authors",
+
+  // Unified update checking
+  "updates.sourceModrinth": "Modrinth",
+  "updates.sourceCurseforge": "CurseForge",
+  "updates.switchToModrinth": "Switch source of truth to Modrinth",
+  "updates.switchToCurseforge": "Switch source of truth to CurseForge",
+  "updates.switched": "{file} now tracks {provider} for updates",
+  "updates.fromOtherPlatform": "Newer version found on {provider}",
 } as const;
 
 export type StringKey = keyof typeof en;

@@ -177,6 +177,16 @@ export interface ModUpdate {
   url: string;
   sha1?: string | null;
   enabled: boolean;
+  /** Which platform the update comes from. */
+  source: "modrinth" | "curseforge";
+  /** The project's id on `source` (Modrinth project id or CF mod id). */
+  sourceProjectId?: string | null;
+  /** The Modrinth version id or CurseForge file id being offered. */
+  sourceVersionId?: string | null;
+  /** ISO-8601 release date of the offered version. */
+  date?: string | null;
+  /** The file's current source-of-truth pin from the content index. */
+  pinnedProvider?: string | null;
 }
 
 export interface DiskUsage {

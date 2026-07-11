@@ -740,6 +740,60 @@ pub async fn apply_mod_update(
     modrinth::apply_update(state.inner(), &instance_id, update).await
 }
 
+/// Re-pin an installed mod to the other platform ("switch source of truth"):
+/// the file's bytes stay untouched, but its content-index identity — which the
+/// update checker uses as the preferred source — moves to `provider`. Returns
+/// the project id on the new provider.
+#[tauri::command]
+pub async fn set_mod_source(
+    state: State<'_, AppState>,
+    instance_id: String,
+    file_name: String,
+    provider: String,
+) -> Result<String> {
+    let state = state.inner();
+    let dir = state.dirs.game_dir(&instance_id).join("mods");
+    let path = [
+        dir.join(&file_name),
+        dir.join(format!("{file_name}.disabled")),
+    ]
+    .into_iter()
+    .find(|p| p.exists())
+    .ok_or_else(|| Error::NotFound(format!("mod file {file_name}")))?;
+    let sha1 = crate::net::file_sha1(&path).await?;
+
+    let project_id = match provider.as_str() {
+        "modrinth" => state
+            .crosssource
+            .resolve_by_hash(&state.http, &sha1)
+            .await?
+            .map(|mr| mr.project_id)
+            .ok_or_else(|| {
+                Error::NotFound(format!("{file_name} on Modrinth (no identical file)"))
+            })?,
+        "curseforge" => {
+            let key = curseforge::api_key(state)?;
+            state
+                .crosssource
+                .resolve_local_file_to_cf(&state.http, &key, &sha1, &path)
+                .await?
+                .map(|cf| cf.project_id.to_string())
+                .ok_or_else(|| {
+                    Error::NotFound(format!("{file_name} on CurseForge (no identical file)"))
+                })?
+        }
+        other => return Err(Error::Other(format!("unknown provider: {other}"))),
+    };
+
+    instances::record_installs(
+        state,
+        &instance_id,
+        &[(file_name, project_id.clone())],
+        &provider,
+    );
+    Ok(project_id)
+}
+
 #[tauri::command]
 pub async fn auto_update_instance_content(
     state: State<'_, AppState>,

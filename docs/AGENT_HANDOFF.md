@@ -16,7 +16,7 @@ section below restates what matters.
 - **Phase 1** — Blocked CurseForge downloads (`downloadUrl: null`) re-sourced
   from Modrinth by exact hash; manual-download summary UI. ✅ DONE
 - **Phase 2** — Unified update checking across both platforms (extend
-  `modrinth::check_updates`, source badges, "switch source of truth").
+  `modrinth::check_updates`, source badges, "switch source of truth"). ✅ DONE
 - **Phase 3** — Dual-format modpack export (CF manifest zip + mrpack from one
   shared "resolved pack model"; embed/exclude review dialog for
   platform-exclusive mods, license warning, default exclude).
@@ -172,13 +172,50 @@ logic, serde shapes, report building, and index round-trips.
   untracked-file fallback creates entry, legacy index JSON (no `fallback`
   field) parses, reinstall clears stale fallback marker.
 
-## Phases 2–5 — NOT STARTED
+## Phase 2 — Unified update checking (DONE)
+
+Verified: clippy zero warnings, 72/72 tests, tsc + vite build clean.
+Untested live: CF `POST /v1/mods` (latestFilesIndexes) and
+`POST /v1/mods/files` bulk shapes, fingerprint identification end-to-end.
+Assumption documented in code: `latestFilesIndexes` is ordered newest-first.
+
+- `curseforge.rs`: `update_candidates(state, &[(sha1, path)], loader,
+  game_version) → HashMap<sha1, CfUpdateCandidate>`. Pipeline (3 requests
+  total): fingerprint-identify local files → batch `POST /v1/mods` →
+  `pick_file_index` filters `latestFilesIndexes` by game version + loader
+  (stable releases preferred over beta/alpha; loaderless entries = non-mod
+  content match any loader) → bulk `POST /v1/mods/files` for full candidate
+  files. Blocked candidates (null URL) are offered only when mirrored on
+  Modrinth (via `plan_blocked_file`), else dropped. Best-effort: any failure
+  or missing API key → empty map (Modrinth-only behavior).
+- `modrinth.rs`: `collect_updatable_hashes` now returns `LocalContent`
+  (content_type, file_name, enabled, **path**). `check_updates` merges both
+  platforms per file via pure `choose_update(mr, cf, pinned)` — newest
+  release date wins (`newer_date`: RFC3339 parse, string-compare fallback);
+  the content-index provider is the pin used as tiebreak. `ModUpdate` gained
+  `source` (default "modrinth"), `source_project_id`, `source_version_id`,
+  `date`, `pinned_provider` — all serde-defaulted so old payloads parse.
+- `apply_update` re-anchors the file's index identity to the applied
+  update's source (record_installs after migrate_index_entry).
+- `instances.rs`: `content_provider_map(state, id)`.
+- New command `set_mod_source(instance_id, file_name, provider)`
+  (commands.rs, registered in lib.rs): sha1 the local jar, resolve on the
+  target platform (Modrinth by hash / CF by fingerprint), rewrite the index
+  entry; errors if no identical file exists there. `curseforge::api_key` and
+  `loader_type` are now pub(crate).
+- Frontend: `ModUpdate` TS type extended; `api.setModSource`;
+  `SourceBadge` (green Modrinth / orange CurseForge) on each row of
+  `ContentUpdatesBanner`; per-mod ArrowLeftRight button = switch source of
+  truth (mods panel only), calls setModSource then re-checks. Strings under
+  `updates.*` in strings.ts.
+- Tests: `modrinth::tests` (date comparison incl. fractional seconds,
+  pin tiebreak, single-platform passthrough, legacy payload deserialization),
+  `curseforge::update_tests` (index picking: stable-over-beta, loader/game
+  version filters, loaderless entries, response parsing).
+
+## Phases 3–5 — NOT STARTED
 
 Key design decisions already made (see plan summary above), plus:
-- Phase 2 extends `modrinth::check_updates` in place; `ModUpdate` gains
-  `source` + ids (serde-defaulted); winner picked by release date
-  (`date_published` vs CF `fileDate`); "switch source" = new command
-  rewriting the content-index entry.
 - Phase 3: new `export.rs` with shared resolved-pack model; refactor
   `modrinth::export_mrpack` onto it; new `prepare_pack_export` +
   `export_curseforge_pack` commands; CF zip = manifest.json (manifestType
