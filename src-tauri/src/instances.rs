@@ -605,6 +605,20 @@ struct IndexItem {
     project_id: String,
     #[serde(default)]
     provider: String,
+    /// Set when the file's bytes were fetched from Modrinth because the
+    /// CurseForge author blocked third-party downloads. The primary identity
+    /// (`provider`/`project_id`) stays CurseForge; this records where the
+    /// hash-verified identical file actually came from.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    fallback: Option<FallbackSource>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct FallbackSource {
+    provider: String,
+    project_id: String,
+    version_id: String,
 }
 
 fn index_path(state: &AppState, id: &str) -> std::path::PathBuf {
@@ -647,9 +661,33 @@ pub fn record_installs(state: &AppState, id: &str, items: &[(String, String)], p
             IndexItem {
                 project_id: project_id.clone(),
                 provider: provider.to_string(),
+                fallback: None,
             },
         );
     }
+    let _ = write_json(&index_path(state, id), &idx);
+}
+
+/// Mark a tracked file as having been sourced from Modrinth as a fallback for
+/// a blocked CurseForge download. Creates the entry when the file isn't
+/// tracked yet (keeping the CurseForge identity empty in that case).
+pub fn record_modrinth_fallback(
+    state: &AppState,
+    id: &str,
+    file_name: &str,
+    mr: &crate::crosssource::ModrinthRef,
+) {
+    let mut idx = load_index(state, id);
+    let entry = idx.items.entry(file_name.to_string()).or_insert(IndexItem {
+        project_id: String::new(),
+        provider: "curseforge".into(),
+        fallback: None,
+    });
+    entry.fallback = Some(FallbackSource {
+        provider: "modrinth".into(),
+        project_id: mr.project_id.clone(),
+        version_id: mr.version_id.clone(),
+    });
     let _ = write_json(&index_path(state, id), &idx);
 }
 
@@ -1035,5 +1073,96 @@ mod account_migration_tests {
         assert_eq!(stored.id, "x");
         assert_eq!(stored.username, "Steve");
         assert_eq!(stored.kind, "microsoft");
+    }
+}
+
+#[cfg(test)]
+mod index_tests {
+    use super::*;
+    use crate::state::AppState;
+
+    fn temp_state() -> (AppState, std::path::PathBuf) {
+        let root = std::env::temp_dir().join(format!("ezmapa_idx_test_{}", uuid::Uuid::new_v4()));
+        (AppState::new(root.clone()), root)
+    }
+
+    fn sample_modrinth_ref() -> crate::crosssource::ModrinthRef {
+        crate::crosssource::ModrinthRef {
+            project_id: "AANobbMI".into(),
+            version_id: "ver1".into(),
+            url: "https://cdn.modrinth.com/x.jar".into(),
+            filename: "x.jar".into(),
+            sha1: "a".repeat(40),
+            sha512: None,
+            size: 1,
+        }
+    }
+
+    #[test]
+    fn fallback_survives_reload_and_keeps_cf_identity() {
+        let (state, root) = temp_state();
+        let id = "inst1";
+        std::fs::create_dir_all(state.dirs.instance_dir(id)).unwrap();
+
+        record_installs(&state, id, &[("blocked.jar".into(), "238222".into())], "curseforge");
+        record_modrinth_fallback(&state, id, "blocked.jar", &sample_modrinth_ref());
+
+        let idx = load_index(&state, id);
+        let item = idx.items.get("blocked.jar").expect("tracked");
+        // The primary identity stays CurseForge...
+        assert_eq!(item.provider, "curseforge");
+        assert_eq!(item.project_id, "238222");
+        // ...while the fallback records where the bytes came from.
+        let fb = item.fallback.as_ref().expect("fallback recorded");
+        assert_eq!(fb.provider, "modrinth");
+        assert_eq!(fb.project_id, "AANobbMI");
+        assert_eq!(fb.version_id, "ver1");
+
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn fallback_on_untracked_file_creates_entry() {
+        let (state, root) = temp_state();
+        let id = "inst2";
+        std::fs::create_dir_all(state.dirs.instance_dir(id)).unwrap();
+
+        record_modrinth_fallback(&state, id, "orphan.jar", &sample_modrinth_ref());
+        let idx = load_index(&state, id);
+        let item = idx.items.get("orphan.jar").expect("created");
+        assert_eq!(item.provider, "curseforge");
+        assert!(item.project_id.is_empty());
+        assert!(item.fallback.is_some());
+
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn legacy_index_entries_without_fallback_still_parse() {
+        let json = r#"{
+            "items": {
+                "sodium.jar": { "project_id": "AANobbMI", "provider": "modrinth" }
+            }
+        }"#;
+        let idx: ContentIndex = serde_json::from_str(json).unwrap();
+        let item = idx.items.get("sodium.jar").unwrap();
+        assert_eq!(item.project_id, "AANobbMI");
+        assert!(item.fallback.is_none());
+    }
+
+    #[test]
+    fn record_installs_resets_fallback_on_reinstall() {
+        // Re-installing a file through the normal CF path replaces the entry,
+        // clearing a stale fallback marker from a previous blocked install.
+        let (state, root) = temp_state();
+        let id = "inst3";
+        std::fs::create_dir_all(state.dirs.instance_dir(id)).unwrap();
+
+        record_modrinth_fallback(&state, id, "m.jar", &sample_modrinth_ref());
+        record_installs(&state, id, &[("m.jar".into(), "42".into())], "curseforge");
+        let idx = load_index(&state, id);
+        assert!(idx.items.get("m.jar").unwrap().fallback.is_none());
+
+        std::fs::remove_dir_all(&root).ok();
     }
 }

@@ -96,6 +96,10 @@ pub struct Dependency {
 pub struct InstalledDep {
     pub file_name: String,
     pub project_id: String,
+    /// Set when a blocked CurseForge dependency was fetched from Modrinth
+    /// instead (hash-verified identical file).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub modrinth_fallback: Option<crate::crosssource::ModrinthRef>,
 }
 
 /// Search Modrinth, optionally constrained by loader and game version.
@@ -412,6 +416,7 @@ fn install_dependency<'a>(
         let mut out = vec![InstalledDep {
             file_name: file.filename,
             project_id: project_id.to_string(),
+            modrinth_fallback: None,
         }];
 
         // Recurse into this dependency's own required dependencies.

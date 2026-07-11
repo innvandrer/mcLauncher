@@ -7,6 +7,7 @@ import { Toaster } from "./components/Toaster";
 import { CommandPalette } from "./components/CommandPalette";
 import { DropZone } from "./components/DropZone";
 import { AuthPromptModal } from "./components/AuthPromptModal";
+import { BlockedModsModal } from "./components/BlockedModsModal";
 import { UpdateModal } from "./components/UpdateModal";
 import { OnboardingModal } from "./components/OnboardingModal";
 import { ShortcutsOverlay } from "./components/ShortcutsOverlay";
@@ -74,6 +75,7 @@ export default function App() {
       <CommandPalette />
       <DropZone />
       <AuthPromptModal />
+      <BlockedModsModal />
       <UpdateModal />
       <OnboardingModal />
       <ShortcutsOverlay />

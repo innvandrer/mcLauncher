@@ -105,9 +105,7 @@ pub struct AppState {
     /// the multi-megabyte manifest on every call. Refreshed past the TTL.
     pub manifest: tokio::sync::RwLock<Option<(std::time::Instant, Arc<crate::mojang::VersionManifest>)>>,
     /// Cross-source (Modrinth ↔ CurseForge) identity resolver with its disk
-    /// cache and per-provider rate limiters. Consumers arrive in Phase 1
-    /// (blocked-download fallback); drop the allow when they do.
-    #[allow(dead_code)]
+    /// cache and per-provider rate limiters.
     pub crosssource: crate::crosssource::Resolver,
 }
 

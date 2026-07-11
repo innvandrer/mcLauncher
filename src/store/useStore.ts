@@ -3,10 +3,12 @@ import { check, type Update } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { api, errMessage, events } from "@/lib/api";
 import { applyTheme, isImageIcon } from "@/lib/utils";
+import { plural, t } from "@/lib/strings";
 import type {
   AuthPrompt,
   Instance,
   LogLine,
+  ModpackInstallReport,
   PublicAccount,
   Settings,
   TaskProgress,
@@ -40,6 +42,12 @@ interface State {
   toasts: Toast[];
   authPrompt: AuthPrompt | null;
   busy: boolean;
+
+  /** Blocked-download reports from modpack installs, keyed by instance id. */
+  packReports: Record<string, ModpackInstallReport>;
+  /** Instance whose blocked-mods dialog is currently shown. */
+  activePackReportId: string | null;
+  dismissPackReport: (instanceId: string) => void;
 
   update: { version: string; notes: string } | null;
   updating: boolean;
@@ -110,6 +118,18 @@ export const useStore = create<State>((set, get) => ({
   authPrompt: null,
   busy: false,
 
+  packReports: {},
+  activePackReportId: null,
+  dismissPackReport: (instanceId) =>
+    set((s) => {
+      const packReports = { ...s.packReports };
+      delete packReports[instanceId];
+      return {
+        packReports,
+        activePackReportId: s.activePackReportId === instanceId ? null : s.activePackReportId,
+      };
+    }),
+
   update: null,
   updating: false,
 
@@ -174,7 +194,18 @@ export const useStore = create<State>((set, get) => ({
         if (p.done) {
           // A finished modpack install turns its "installing" card into a real
           // one — pull the fully populated instance (mod count, etc.).
-          if (p.id.startsWith("modpack:")) get().refreshInstances();
+          if (p.id.startsWith("modpack:")) {
+            get().refreshInstances();
+            // Surface the blocked-downloads dialog once the install settles
+            // (unless the install errored out and the card was rolled back).
+            const instanceId = p.id.slice("modpack:".length);
+            const report = get().packReports[instanceId];
+            if (!p.error && report && report.blocked.length > 0) {
+              set({ activePackReportId: instanceId });
+            } else if (report) {
+              get().dismissPackReport(instanceId);
+            }
+          }
           setTimeout(() => {
             set((s) => {
               const tasks = { ...s.tasks };
@@ -192,6 +223,20 @@ export const useStore = create<State>((set, get) => ({
             ? s
             : { instances: [...s.instances, inst] },
         );
+      });
+      events.onModpackReport((report) => {
+        set((s) => ({
+          packReports: { ...s.packReports, [report.instanceId]: report },
+        }));
+        if (report.resolvedViaModrinth > 0) {
+          get().toast(
+            "info",
+            t("install.viaModrinthToast", {
+              n: report.resolvedViaModrinth,
+              files: plural(report.resolvedViaModrinth, "blocked.file", "blocked.files"),
+            }),
+          );
+        }
       });
       events.onInstanceRemoved((id) => {
         set((s) => ({

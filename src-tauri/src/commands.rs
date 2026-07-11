@@ -354,6 +354,7 @@ pub async fn install_mod(
     Ok(InstallOutcome {
         file,
         dependencies: deps.into_iter().map(|d| d.file_name).collect(),
+        via_modrinth_fallback: false,
     })
 }
 
@@ -451,7 +452,7 @@ pub async fn install_curseforge_content(
     loader: Option<String>,
     game_version: Option<String>,
 ) -> Result<InstallOutcome> {
-    let (file, deps) = curseforge::install_content(
+    let installed = curseforge::install_content(
         state.inner(),
         &instance_id,
         &project_id,
@@ -460,13 +461,39 @@ pub async fn install_curseforge_content(
         game_version.as_deref(),
     )
     .await?;
-    let mut idx = vec![(file.clone(), project_id.clone())];
-    idx.extend(deps.iter().map(|d| (d.file_name.clone(), d.project_id.clone())));
-    instances::record_installs(state.inner(), &instance_id, &idx, "curseforge");
+    record_cf_install(state.inner(), &instance_id, &project_id, &installed);
     Ok(InstallOutcome {
-        file,
-        dependencies: deps.into_iter().map(|d| d.file_name).collect(),
+        via_modrinth_fallback: installed.modrinth_fallback.is_some(),
+        file: installed.file_name,
+        dependencies: installed.deps.into_iter().map(|d| d.file_name).collect(),
     })
+}
+
+/// Record a CurseForge install (primary file + dependencies) in the content
+/// index, including which files were re-sourced from Modrinth because the
+/// author blocked CF downloads.
+fn record_cf_install(
+    state: &AppState,
+    instance_id: &str,
+    project_id: &str,
+    installed: &curseforge::CfInstall,
+) {
+    let mut idx = vec![(installed.file_name.clone(), project_id.to_string())];
+    idx.extend(
+        installed
+            .deps
+            .iter()
+            .map(|d| (d.file_name.clone(), d.project_id.clone())),
+    );
+    instances::record_installs(state, instance_id, &idx, "curseforge");
+    if let Some(mr) = &installed.modrinth_fallback {
+        instances::record_modrinth_fallback(state, instance_id, &installed.file_name, mr);
+    }
+    for dep in &installed.deps {
+        if let Some(mr) = &dep.modrinth_fallback {
+            instances::record_modrinth_fallback(state, instance_id, &dep.file_name, mr);
+        }
+    }
 }
 
 /// Install a CurseForge modpack as a new instance.
@@ -521,6 +548,7 @@ pub async fn install_content(
     Ok(InstallOutcome {
         file,
         dependencies: deps.into_iter().map(|d| d.file_name).collect(),
+        via_modrinth_fallback: false,
     })
 }
 
@@ -783,6 +811,10 @@ pub async fn get_curseforge_description(
 pub struct InstallOutcome {
     pub file: String,
     pub dependencies: Vec<String>,
+    /// True when the file was blocked on CurseForge and fetched from Modrinth
+    /// instead (hash-verified identical file).
+    #[serde(default)]
+    pub via_modrinth_fallback: bool,
 }
 
 /// Install a specific Modrinth version (from the version picker).
@@ -812,6 +844,7 @@ pub async fn install_content_version(
     Ok(InstallOutcome {
         file,
         dependencies: deps.into_iter().map(|d| d.file_name).collect(),
+        via_modrinth_fallback: false,
     })
 }
 
@@ -827,7 +860,7 @@ pub async fn install_curseforge_file(
     loader: Option<String>,
     game_version: Option<String>,
 ) -> Result<InstallOutcome> {
-    let (file, deps) = curseforge::install_file(
+    let installed = curseforge::install_file(
         state.inner(),
         &instance_id,
         &project_id,
@@ -837,12 +870,11 @@ pub async fn install_curseforge_file(
         game_version.as_deref(),
     )
     .await?;
-    let mut idx = vec![(file.clone(), project_id.clone())];
-    idx.extend(deps.iter().map(|d| (d.file_name.clone(), d.project_id.clone())));
-    instances::record_installs(state.inner(), &instance_id, &idx, "curseforge");
+    record_cf_install(state.inner(), &instance_id, &project_id, &installed);
     Ok(InstallOutcome {
-        file,
-        dependencies: deps.into_iter().map(|d| d.file_name).collect(),
+        via_modrinth_fallback: installed.modrinth_fallback.is_some(),
+        file: installed.file_name,
+        dependencies: installed.deps.into_iter().map(|d| d.file_name).collect(),
     })
 }
 

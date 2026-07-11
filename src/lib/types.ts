@@ -232,6 +232,32 @@ export interface InstallOutcome {
   file: string;
   /** Filenames of required dependencies auto-installed alongside the primary file. */
   dependencies: string[];
+  /**
+   * True when the file was blocked on CurseForge and fetched from Modrinth
+   * instead (hash-verified identical file).
+   */
+  viaModrinthFallback?: boolean;
+}
+
+/** A CurseForge file the user must download manually (author blocked the API). */
+export interface BlockedFileInfo {
+  fileName: string;
+  modName: string;
+  projectId: number;
+  fileId: number;
+  /** CurseForge page to download the file from. */
+  pageUrl: string;
+}
+
+/**
+ * Emitted on `modpack://report` at the start of a CurseForge modpack install:
+ * how many blocked files were re-sourced from Modrinth, and which ones need
+ * manual downloading.
+ */
+export interface ModpackInstallReport {
+  instanceId: string;
+  resolvedViaModrinth: number;
+  blocked: BlockedFileInfo[];
 }
 
 export interface Session {

@@ -12,6 +12,7 @@ import {
   X,
 } from "lucide-react";
 import type { Instance } from "@/lib/types";
+import { t } from "@/lib/strings";
 import { useStore } from "@/store/useStore";
 import { api, errMessage } from "@/lib/api";
 import { exportInstanceMrpack, exportInstanceZip } from "@/lib/export";
@@ -29,6 +30,7 @@ const LOADER_THEMES: Record<string, string> = {
 export function InstanceCard({ instance, onOpen }: { instance: Instance; onOpen: () => void }) {
   const running = useStore((s) => s.running.has(instance.id));
   const installTask = useStore((s) => s.tasks[`modpack:${instance.id}`]);
+  const packReport = useStore((s) => s.packReports[instance.id]);
   const installing = !!installTask && !installTask.done;
   const installPct =
     installTask && installTask.total > 0
@@ -217,6 +219,14 @@ export function InstanceCard({ instance, onOpen }: { instance: Instance; onOpen:
               transition={{ ease: "easeOut", duration: 0.2 }}
             />
           </div>
+          {packReport && packReport.resolvedViaModrinth > 0 && (
+            <div
+              className="mt-1.5 inline-flex items-center rounded-full bg-emerald-500/15 px-2 py-0.5 text-[11px] font-medium text-emerald-400"
+              title={t("install.viaModrinthSingle")}
+            >
+              {t("install.viaModrinthBadge", { n: packReport.resolvedViaModrinth })}
+            </div>
+          )}
         </div>
       ) : (
         <button

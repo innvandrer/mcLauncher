@@ -13,6 +13,7 @@ import type {
   LogLine,
   ModConflict,
   ModEntry,
+  ModpackInstallReport,
   ModpackUpdate,
   ModUpdate,
   PlayerSkin,
@@ -326,6 +327,8 @@ export const events = {
     listen<Instance>("instance://created", (e) => cb(e.payload)),
   onInstanceRemoved: (cb: (id: string) => void): Promise<UnlistenFn> =>
     listen<string>("instance://removed", (e) => cb(e.payload)),
+  onModpackReport: (cb: (r: ModpackInstallReport) => void): Promise<UnlistenFn> =>
+    listen<ModpackInstallReport>("modpack://report", (e) => cb(e.payload)),
   onAuthPrompt: (cb: (p: AuthPrompt) => void): Promise<UnlistenFn> =>
     listen<AuthPrompt>("auth://prompt", (e) => cb(e.payload)),
   onShaderInstalled: (

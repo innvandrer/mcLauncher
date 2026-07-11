@@ -3,11 +3,12 @@
 //! the Modrinth module uses, so the frontend can render either provider with the
 //! same components.
 
+use crate::crosssource::{CurseforgeRef, ModrinthRef};
 use crate::error::{Error, Result};
-use crate::modrinth::{ContentVersion, ModHit, SearchResponse};
+use crate::modrinth::{ContentVersion, InstalledDep, ModHit, SearchResponse};
 use crate::net::{self, DownloadItem};
 use crate::state::AppState;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter};
 
 const API: &str = "https://api.curseforge.com/v1";
@@ -112,6 +113,8 @@ struct CfFilesResponse {
 #[serde(rename_all = "camelCase")]
 struct CfFile {
     id: u32,
+    #[serde(default)]
+    mod_id: u32,
     file_name: String,
     #[serde(default)]
     display_name: String,
@@ -125,6 +128,15 @@ struct CfFile {
     game_versions: Vec<String>,
     #[serde(default)]
     dependencies: Vec<CfDependency>,
+}
+
+impl CfFile {
+    fn sha1(&self) -> Option<String> {
+        self.hashes
+            .iter()
+            .find(|h| h.algo == 1)
+            .map(|h| h.value.to_lowercase())
+    }
 }
 
 #[derive(Deserialize)]
@@ -269,14 +281,92 @@ pub async fn list_files(state: &AppState, project_id: &str) -> Result<Vec<Conten
 // Install
 // ---------------------------------------------------------------------------
 
-/// Build the public forgecdn URL for a file whose `downloadUrl` is null.
-fn fallback_url(file_id: u32, file_name: &str) -> String {
-    let s = file_id.to_string();
-    let split = s.len().saturating_sub(3);
-    let prefix = &s[..split];
-    let suffix: u32 = s[split..].parse().unwrap_or(0);
-    let encoded = file_name.replace(' ', "%20");
-    format!("https://edge.forgecdn.net/files/{prefix}/{suffix}/{encoded}")
+// ---------------------------------------------------------------------------
+// Blocked downloads (`downloadUrl: null`)
+//
+// Authors can disable third-party distribution, in which case the API refuses
+// to serve a URL. Per mod-distribution rules we never guess CDN links for such
+// files; the only automated workaround is fetching the byte-identical file
+// from Modrinth (matched by CF's own sha1, verified on download) — otherwise
+// the user has to download it manually from the CurseForge page.
+// ---------------------------------------------------------------------------
+
+/// How a blocked file will be obtained.
+enum BlockedPlan {
+    /// The identical file exists on Modrinth: download it there, verifying the
+    /// CurseForge sha1 byte-for-byte.
+    Modrinth(ModrinthRef),
+    /// Not on Modrinth (or CF served no sha1): the user must fetch it manually.
+    Manual,
+}
+
+/// Try to source a blocked CurseForge file from Modrinth by exact hash.
+async fn plan_blocked_file(state: &AppState, file: &CfFile) -> BlockedPlan {
+    let Some(sha1) = file.sha1() else {
+        return BlockedPlan::Manual;
+    };
+    let cf = CurseforgeRef {
+        project_id: file.mod_id,
+        file_id: file.id,
+    };
+    match state
+        .crosssource
+        .resolve_cf_file_to_modrinth(&state.http, cf, &sha1)
+        .await
+    {
+        Ok(Some(mr)) => BlockedPlan::Modrinth(mr),
+        _ => BlockedPlan::Manual,
+    }
+}
+
+/// The CurseForge web page for a mod (for "download manually" links). Prefers
+/// the API-provided site link; the `/projects/{id}` redirect is the fallback.
+async fn mod_page_url(state: &AppState, mod_id: u32) -> String {
+    #[derive(Deserialize)]
+    struct Resp {
+        data: CfModInfo,
+    }
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct CfModInfo {
+        #[serde(default)]
+        links: CfLinks,
+    }
+    #[derive(Deserialize, Default)]
+    #[serde(rename_all = "camelCase")]
+    struct CfLinks {
+        #[serde(default)]
+        website_url: Option<String>,
+    }
+
+    if let Ok(key) = api_key(state) {
+        let resp = state
+            .http
+            .get(format!("{API}/mods/{mod_id}"))
+            .header("x-api-key", &key)
+            .header("Accept", "application/json")
+            .send()
+            .await;
+        if let Ok(r) = resp {
+            if let Ok(r) = r.error_for_status() {
+                if let Ok(body) = r.json::<Resp>().await {
+                    if let Some(url) = body.data.links.website_url.filter(|u| !u.is_empty()) {
+                        return url;
+                    }
+                }
+            }
+        }
+    }
+    format!("https://www.curseforge.com/projects/{mod_id}")
+}
+
+/// The result of installing a single CurseForge file.
+pub struct CfInstall {
+    pub file_name: String,
+    pub deps: Vec<InstalledDep>,
+    /// Set when the primary file was blocked on CurseForge and fetched from
+    /// Modrinth instead (hash-verified identical file).
+    pub modrinth_fallback: Option<ModrinthRef>,
 }
 
 /// Download the newest compatible file of a CurseForge project into the correct
@@ -289,7 +379,7 @@ pub async fn install_content(
     content_type: &str,
     loader: Option<&str>,
     game_version: Option<&str>,
-) -> Result<(String, Vec<crate::modrinth::InstalledDep>)> {
+) -> Result<CfInstall> {
     let key = api_key(state)?;
     let mod_id: u32 = project_id
         .parse()
@@ -338,13 +428,30 @@ async fn install_cf_file(
     loader: Option<&str>,
     game_version: Option<&str>,
     file: CfFile,
-) -> Result<(String, Vec<crate::modrinth::InstalledDep>)> {
-    let url = file.download_url.clone().unwrap_or_else(|| fallback_url(file.id, &file.file_name));
-    let sha1 = file
-        .hashes
-        .iter()
-        .find(|h| h.algo == 1)
-        .map(|h| h.value.clone());
+) -> Result<CfInstall> {
+    let sha1 = file.sha1();
+    let mut modrinth_fallback = None;
+    let url = match file.download_url.clone() {
+        Some(url) => url,
+        None => match plan_blocked_file(state, &file).await {
+            BlockedPlan::Modrinth(mr) => {
+                // CF served a sha1 (resolution requires it): keep verifying
+                // against CF's hash so we only ever accept the identical file.
+                let url = mr.url.clone();
+                modrinth_fallback = Some(mr);
+                url
+            }
+            BlockedPlan::Manual => {
+                let page = mod_page_url(state, file.mod_id).await;
+                return Err(Error::Other(format!(
+                    "The author of {} has disabled third-party downloads and no identical \
+                     file exists on Modrinth. Download it manually from {page} and drop it \
+                     into the instance folder.",
+                    file.file_name
+                )));
+            }
+        },
+    };
 
     let folder = crate::instances::content_subdir(content_type);
 
@@ -375,7 +482,11 @@ async fn install_cf_file(
     let target = state.dirs.game_dir(instance_id).join(folder).join(&file.file_name);
     net::download_one(&state.http, &DownloadItem::new(url, target, sha1)).await?;
 
-    Ok((file.file_name, installed_deps))
+    Ok(CfInstall {
+        file_name: file.file_name,
+        deps: installed_deps,
+        modrinth_fallback,
+    })
 }
 
 /// Recursively install a single CurseForge dependency into the mods folder.
@@ -435,13 +546,27 @@ fn install_curseforge_dependency<'a>(
             None => return Vec::new(),
         };
 
-        let url = file.download_url.clone().unwrap_or_else(|| fallback_url(file.id, &file.file_name));
-        let sha1 = file.hashes.iter().find(|h| h.algo == 1).map(|h| h.value.clone());
         let target = mods_dir.join(&file.file_name);
         let target_dis = mods_dir.join(format!("{}.disabled", file.file_name));
         if target.exists() || target_dis.exists() {
             return Vec::new();
         }
+
+        // Dependencies are best-effort: a blocked file that isn't mirrored on
+        // Modrinth is skipped silently, like any other dependency failure.
+        let mut modrinth_fallback = None;
+        let url = match file.download_url.clone() {
+            Some(url) => url,
+            None => match plan_blocked_file(state, &file).await {
+                BlockedPlan::Modrinth(mr) => {
+                    let url = mr.url.clone();
+                    modrinth_fallback = Some(mr);
+                    url
+                }
+                BlockedPlan::Manual => return Vec::new(),
+            },
+        };
+        let sha1 = file.sha1();
 
         if net::download_one(&state.http, &DownloadItem::new(url, target, sha1))
             .await
@@ -453,6 +578,7 @@ fn install_curseforge_dependency<'a>(
         let mut out = vec![crate::modrinth::InstalledDep {
             file_name: file.file_name.clone(),
             project_id: mod_id.to_string(),
+            modrinth_fallback,
         }];
 
         for dep in file.dependencies.iter().filter(|d| d.is_required()) {
@@ -570,7 +696,7 @@ pub async fn install_file(
     content_type: &str,
     loader: Option<&str>,
     game_version: Option<&str>,
-) -> Result<(String, Vec<crate::modrinth::InstalledDep>)> {
+) -> Result<CfInstall> {
     let key = api_key(state)?;
     let mod_id: u32 = project_id
         .parse()
@@ -632,10 +758,13 @@ pub async fn install_modpack(
     }
     .ok_or_else(|| Error::NotFound(format!("modpack file for {mod_id}")))?;
 
-    let pack_url = pack_file
-        .download_url
-        .clone()
-        .unwrap_or_else(|| fallback_url(pack_file.id, &pack_file.file_name));
+    let Some(pack_url) = pack_file.download_url.clone() else {
+        let page = mod_page_url(state, mod_id).await;
+        return Err(Error::Other(format!(
+            "The author of this modpack has disabled third-party downloads. \
+             Download the pack manually from {page} and import the zip instead."
+        )));
+    };
     let tmp_path = std::env::temp_dir().join(format!("ezmapa_cf_{}.zip", pack_file.id));
     net::download_one(&state.http, &DownloadItem::new(pack_url, tmp_path.clone(), None)).await?;
 
@@ -702,9 +831,15 @@ pub async fn install_modpack(
     }
     std::fs::remove_file(&tmp_path).ok();
 
-    // Bulk-resolve download URLs for the listed mod files.
+    // Bulk-resolve download URLs for the listed mod files. Files whose author
+    // blocked third-party distribution (null downloadUrl) are re-sourced from
+    // Modrinth by exact sha1 where possible; the rest are reported for manual
+    // download instead of failing the install.
     let file_ids: Vec<u32> = manifest.files.iter().map(|f| f.file_id).collect();
     let mut items: Vec<DownloadItem> = Vec::new();
+    let mut index_entries: Vec<(String, String)> = Vec::new();
+    let mut fallbacks: Vec<(String, ModrinthRef)> = Vec::new();
+    let mut blocked: Vec<CfFile> = Vec::new();
     if !file_ids.is_empty() {
         let body = serde_json::json!({ "fileIds": file_ids });
         let bulk: CfBulkFiles = state
@@ -719,15 +854,48 @@ pub async fn install_modpack(
             .json()
             .await?;
         let mods_dir = game_dir.join("mods");
+
+        // One batch Modrinth lookup for every blocked file that has a sha1.
+        let blocked_hashes: Vec<String> = bulk
+            .data
+            .iter()
+            .filter(|f| f.download_url.is_none())
+            .filter_map(|f| f.sha1())
+            .collect();
+        let resolved = if blocked_hashes.is_empty() {
+            std::collections::HashMap::new()
+        } else {
+            state
+                .crosssource
+                .resolve_hashes_modrinth(&state.http, &blocked_hashes)
+                .await
+                .unwrap_or_default()
+        };
+
         for f in bulk.data {
-            let url = f
-                .download_url
-                .clone()
-                .unwrap_or_else(|| fallback_url(f.id, &f.file_name));
-            let sha1 = f.hashes.iter().find(|h| h.algo == 1).map(|h| h.value.clone());
+            let sha1 = f.sha1();
+            let url = match f.download_url.clone() {
+                Some(url) => url,
+                None => match sha1.as_ref().and_then(|h| resolved.get(h)) {
+                    Some(mr) => {
+                        fallbacks.push((f.file_name.clone(), mr.clone()));
+                        mr.url.clone()
+                    }
+                    None => {
+                        blocked.push(f);
+                        continue;
+                    }
+                },
+            };
+            index_entries.push((f.file_name.clone(), f.mod_id.to_string()));
             items.push(DownloadItem::new(url, mods_dir.join(&f.file_name), sha1));
         }
     }
+
+    // Tell the UI what was re-sourced and what needs manual downloading. Sent
+    // before the downloads start so the progress card can show the badge.
+    let report = build_install_report(state, &instance.id, fallbacks.len() as u32, &blocked).await;
+    let _ = app.emit("modpack://report", report);
 
     let task_id = format!("modpack:{}", instance.id);
     let cancel = state.cancel_flag(&task_id);
@@ -750,5 +918,239 @@ pub async fn install_modpack(
         return Err(e);
     }
 
+    // Remember where every mod came from (and which ones were re-sourced from
+    // Modrinth) so update checks and exports know each file's identity.
+    crate::instances::record_installs(state, &instance.id, &index_entries, "curseforge");
+    for (file_name, mr) in &fallbacks {
+        crate::instances::record_modrinth_fallback(state, &instance.id, file_name, mr);
+    }
+
     Ok(instance)
+}
+
+// ---------------------------------------------------------------------------
+// Install report (blocked-download summary for the UI)
+// ---------------------------------------------------------------------------
+
+/// Summary of blocked-file handling for one modpack install, emitted on the
+/// `modpack://report` event before downloads begin.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModpackInstallReport {
+    pub instance_id: String,
+    /// Files whose author blocked CF downloads but that were found (and
+    /// hash-verified) on Modrinth.
+    pub resolved_via_modrinth: u32,
+    /// Files the user must download manually from CurseForge.
+    pub blocked: Vec<BlockedFileInfo>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BlockedFileInfo {
+    pub file_name: String,
+    pub mod_name: String,
+    pub project_id: u32,
+    pub file_id: u32,
+    /// CurseForge page to download the file from.
+    pub page_url: String,
+}
+
+/// Fetch names + website links for the blocked files' projects (best-effort;
+/// falls back to the `/projects/{id}` redirect URL).
+async fn build_install_report(
+    state: &AppState,
+    instance_id: &str,
+    resolved_via_modrinth: u32,
+    blocked: &[CfFile],
+) -> ModpackInstallReport {
+    #[derive(Deserialize)]
+    struct Resp {
+        data: Vec<CfModSummary>,
+    }
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct CfModSummary {
+        id: u32,
+        #[serde(default)]
+        name: String,
+        #[serde(default)]
+        links: CfSummaryLinks,
+    }
+    #[derive(Deserialize, Default)]
+    #[serde(rename_all = "camelCase")]
+    struct CfSummaryLinks {
+        #[serde(default)]
+        website_url: Option<String>,
+    }
+
+    let mut infos: std::collections::HashMap<u32, (String, Option<String>)> =
+        std::collections::HashMap::new();
+    if !blocked.is_empty() {
+        if let Ok(key) = api_key(state) {
+            let ids: Vec<u32> = blocked.iter().map(|f| f.mod_id).collect();
+            let resp = state
+                .http
+                .post(format!("{API}/mods"))
+                .header("x-api-key", &key)
+                .header("Accept", "application/json")
+                .json(&serde_json::json!({ "modIds": ids }))
+                .send()
+                .await;
+            if let Ok(r) = resp {
+                if let Ok(r) = r.error_for_status() {
+                    if let Ok(body) = r.json::<Resp>().await {
+                        for m in body.data {
+                            infos.insert(m.id, (m.name, m.links.website_url));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    let blocked = blocked
+        .iter()
+        .map(|f| blocked_file_info(f, infos.get(&f.mod_id)))
+        .collect();
+
+    ModpackInstallReport {
+        instance_id: instance_id.to_string(),
+        resolved_via_modrinth,
+        blocked,
+    }
+}
+
+/// Build one report row from a blocked file plus optional (name, site URL)
+/// project info. Without a site link the `/projects/{id}` redirect is used,
+/// and the file name stands in for the mod name.
+fn blocked_file_info(f: &CfFile, info: Option<&(String, Option<String>)>) -> BlockedFileInfo {
+    let (name, site) = info
+        .cloned()
+        .unwrap_or((f.file_name.clone(), None));
+    let page_url = match site.filter(|s| !s.is_empty()) {
+        Some(site) => format!("{site}/files/{}", f.id),
+        None => format!("https://www.curseforge.com/projects/{}", f.mod_id),
+    };
+    BlockedFileInfo {
+        file_name: f.file_name.clone(),
+        mod_name: name,
+        project_id: f.mod_id,
+        file_id: f.id,
+        page_url,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn file_from_json(json: serde_json::Value) -> CfFile {
+        serde_json::from_value(json).unwrap()
+    }
+
+    #[test]
+    fn sha1_is_extracted_and_lowercased() {
+        let f = file_from_json(serde_json::json!({
+            "id": 4711,
+            "modId": 238222,
+            "fileName": "jei.jar",
+            "hashes": [
+                { "value": "9AC59C11A72CB7E7EC29ED0425E9ADD32F60A2BE", "algo": 1 },
+                { "value": "ffffffffffffffffffffffffffffffff", "algo": 2 }
+            ]
+        }));
+        assert_eq!(
+            f.sha1().as_deref(),
+            Some("9ac59c11a72cb7e7ec29ed0425e9add32f60a2be")
+        );
+    }
+
+    #[test]
+    fn missing_sha1_yields_none() {
+        // Only an MD5 hash: resolution must not be attempted (no sha1 → Manual).
+        let f = file_from_json(serde_json::json!({
+            "id": 1,
+            "fileName": "x.jar",
+            "hashes": [{ "value": "ffffffffffffffffffffffffffffffff", "algo": 2 }]
+        }));
+        assert_eq!(f.sha1(), None);
+    }
+
+    #[test]
+    fn bulk_files_with_null_download_urls_deserialize() {
+        let bulk: CfBulkFiles = serde_json::from_value(serde_json::json!({
+            "data": [
+                {
+                    "id": 100, "modId": 5, "fileName": "open.jar",
+                    "downloadUrl": "https://edge.forgecdn.net/files/0/100/open.jar",
+                    "hashes": [{ "value": "a".repeat(40), "algo": 1 }]
+                },
+                {
+                    "id": 200, "modId": 6, "fileName": "blocked.jar",
+                    "downloadUrl": null,
+                    "hashes": [{ "value": "b".repeat(40), "algo": 1 }]
+                }
+            ]
+        }))
+        .unwrap();
+        assert_eq!(bulk.data.len(), 2);
+        assert!(bulk.data[0].download_url.is_some());
+        assert!(bulk.data[1].download_url.is_none());
+        assert_eq!(bulk.data[1].mod_id, 6);
+    }
+
+    #[test]
+    fn blocked_info_uses_site_link_when_known() {
+        let f = file_from_json(serde_json::json!({
+            "id": 4711, "modId": 238222, "fileName": "jei.jar"
+        }));
+        let info = (
+            "Just Enough Items".to_string(),
+            Some("https://www.curseforge.com/minecraft/mc-mods/jei".to_string()),
+        );
+        let row = blocked_file_info(&f, Some(&info));
+        assert_eq!(row.mod_name, "Just Enough Items");
+        assert_eq!(
+            row.page_url,
+            "https://www.curseforge.com/minecraft/mc-mods/jei/files/4711"
+        );
+    }
+
+    #[test]
+    fn blocked_info_falls_back_to_projects_redirect() {
+        let f = file_from_json(serde_json::json!({
+            "id": 4711, "modId": 238222, "fileName": "jei.jar"
+        }));
+        // No project info at all.
+        let row = blocked_file_info(&f, None);
+        assert_eq!(row.mod_name, "jei.jar");
+        assert_eq!(row.page_url, "https://www.curseforge.com/projects/238222");
+        // Project info present but with an empty site link.
+        let info = ("JEI".to_string(), Some(String::new()));
+        let row = blocked_file_info(&f, Some(&info));
+        assert_eq!(row.mod_name, "JEI");
+        assert_eq!(row.page_url, "https://www.curseforge.com/projects/238222");
+    }
+
+    #[tokio::test]
+    async fn blocked_file_without_sha1_is_manual() {
+        let root = std::env::temp_dir().join(format!("ezmapa_cf_test_{}", uuid::Uuid::new_v4()));
+        let state = crate::state::AppState::new(root.clone());
+        let f = file_from_json(serde_json::json!({
+            "id": 1, "modId": 2, "fileName": "x.jar", "downloadUrl": null
+        }));
+        // No sha1 → Manual without ever touching the resolver/network.
+        assert!(matches!(plan_blocked_file(&state, &f).await, BlockedPlan::Manual));
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn modloader_ids_parse() {
+        use crate::models::Loader;
+        assert!(matches!(parse_modloader("forge-47.2.0"), (Loader::Forge, Some(v)) if v == "47.2.0"));
+        assert!(matches!(parse_modloader("neoforge-21.1.90"), (Loader::Neoforge, Some(v)) if v == "21.1.90"));
+        assert!(matches!(parse_modloader("fabric-0.16.0"), (Loader::Fabric, Some(v)) if v == "0.16.0"));
+        assert!(matches!(parse_modloader("unknown"), (Loader::Vanilla, None)));
+    }
 }
