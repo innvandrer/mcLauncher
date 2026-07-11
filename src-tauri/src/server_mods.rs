@@ -191,7 +191,8 @@ pub fn parse_status_mods(v: &serde_json::Value) -> Option<ServerModList> {
                 Ok(ok) => ok,
                 Err(_) => return None,
             }
-        } else if let Some(list) = fd.get("mods").and_then(|x| x.as_array()) {
+        } else {
+            let list = fd.get("mods").and_then(|x| x.as_array())?;
             let mods = list
                 .iter()
                 .filter_map(|m| {
@@ -212,8 +213,6 @@ pub fn parse_status_mods(v: &serde_json::Value) -> Option<ServerModList> {
                 .collect::<Vec<_>>();
             let truncated = fd.get("truncated").and_then(|x| x.as_bool()).unwrap_or(false);
             (truncated, mods)
-        } else {
-            return None;
         };
 
         // NeoForge kept the `forgeData` field; its presence in the mod list is

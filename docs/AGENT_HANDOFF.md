@@ -349,19 +349,15 @@ sysctl and Windows RAM paths compile-checked only (Linux path unit-tested).
   marker matching on real log-line shapes, before/after stat splits and
   missing-group handling.
 
-## Release v0.3.0 (prepared, NOT published — blocked on repo access)
+## Release v0.3.0 (published)
 
 - Version bumped 0.2.6 → 0.3.0 in package.json, package-lock.json,
   src-tauri/tauri.conf.json, src-tauri/Cargo.toml (+ Cargo.lock).
 - RELEASE_NOTES.md rewritten for 0.3.0 (the release workflow uses it as the
   GitHub release body and updater notes).
-- Release commit + annotated tag `v0.3.0` created locally on the feature
-  branch. Publishing = push the branch and the tag: the `Release` workflow
-  (.github/workflows/release.yml) triggers on `v*` tags, builds the signed
-  Windows installer (needs the TAURI_SIGNING_* secrets), and publishes the
-  GitHub release. Normal flow: merge the branch to main first, then
-  `git push origin v0.3.0` (retag on the merge commit if you want the tag
-  on main: `git tag -f v0.3.0 <merge-sha> && git push -f origin v0.3.0`).
+- Merged to `main`; tag `v0.3.0` points at the merge commit. The `Release`
+  workflow (.github/workflows/release.yml) builds the signed Windows installer
+  and publishes assets + `latest.json` on tag push.
 
 ## Known follow-ups / done-ness notes
 
@@ -370,9 +366,3 @@ sysctl and Windows RAM paths compile-checked only (Linux path unit-tested).
   and the planned Norwegian locale for `src/lib/strings.ts`.
 - `crosssource/mod.rs` still has a module-level `#![allow(dead_code)]`
   (a few API surfaces like `cached()`/`CrossRef` have no consumer yet).
-- PUSH: `git push` AND the GitHub MCP integration both get 403 on this repo
-  (App/installation has read-only access; the remote branch
-  `claude/ezmapa-feature-planning-lfaqgt` was deleted at some point). All
-  work exists as local commits; patch files were sent to the user as backup.
-  Fix repo write access, then `git push -u origin
-  claude/ezmapa-feature-planning-lfaqgt`.
