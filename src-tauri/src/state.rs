@@ -34,6 +34,13 @@ impl AppDirs {
     pub fn natives(&self) -> PathBuf {
         self.root.join("natives")
     }
+    /// Scratch space for install-time staging (e.g. running the Forge/NeoForge
+    /// installer). Kept under our own data root rather than the system temp dir
+    /// so it never lands in a protected location like `C:\Windows\Temp`, which
+    /// the installers cannot write to.
+    pub fn cache(&self) -> PathBuf {
+        self.root.join("cache")
+    }
 
     pub fn settings_file(&self) -> PathBuf {
         self.root.join("settings.json")

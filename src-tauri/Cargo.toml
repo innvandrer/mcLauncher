@@ -1,6 +1,6 @@
 [package]
 name = "ezmapa-launcher"
-version = "0.3.0"
+version = "0.3.1"
 description = "EZMapa — a modern Minecraft launcher"
 authors = ["EZMapa contributors"]
 edition = "2021"
