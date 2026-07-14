@@ -9,6 +9,22 @@ use std::collections::HashMap;
 use std::path::Path;
 
 // ---------------------------------------------------------------------------
+// Input validation
+// ---------------------------------------------------------------------------
+
+/// Reject webview-supplied ids / file names that aren't a single plain path
+/// component (`..`, separators, absolute paths). Commands join these strings
+/// onto data directories, so anything else could escape the intended folder —
+/// the delete/rename commands especially must never traverse.
+pub(crate) fn require_safe_name(kind: &str, value: &str) -> Result<()> {
+    if crate::archive::is_safe_name(value) {
+        Ok(())
+    } else {
+        Err(Error::Other(format!("Invalid {kind}: {value:?}")))
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Generic JSON helpers
 // ---------------------------------------------------------------------------
 
@@ -341,6 +357,7 @@ pub fn list_instances(state: &AppState) -> Vec<Instance> {
 }
 
 pub fn get_instance(state: &AppState, id: &str) -> Result<Instance> {
+    require_safe_name("instance id", id)?;
     let manifest = state.dirs.instance_manifest(id);
     let bytes = std::fs::read(&manifest)
         .map_err(|_| Error::NotFound(format!("instance {id}")))?;
@@ -348,6 +365,7 @@ pub fn get_instance(state: &AppState, id: &str) -> Result<Instance> {
 }
 
 pub fn save_instance(state: &AppState, instance: &Instance) -> Result<()> {
+    require_safe_name("instance id", &instance.id)?;
     write_json(&state.dirs.instance_manifest(&instance.id), instance)
 }
 
@@ -395,6 +413,7 @@ pub fn create_instance(
 }
 
 pub fn delete_instance(state: &AppState, id: &str) -> Result<()> {
+    require_safe_name("instance id", id)?;
     let dir = state.dirs.instance_dir(id);
     if dir.exists() {
         std::fs::remove_dir_all(&dir)?;
@@ -521,6 +540,7 @@ fn zip_dir_into(
 
 /// Zip an instance's whole directory (manifest + game files) to `dest`.
 pub fn export_instance(state: &AppState, id: &str, dest: &Path) -> Result<()> {
+    require_safe_name("instance id", id)?;
     let dir = state.dirs.instance_dir(id);
     if !dir.exists() {
         return Err(Error::NotFound(format!("instance {id}")));
@@ -759,6 +779,8 @@ pub fn set_mod_enabled(
     file_name: &str,
     enabled: bool,
 ) -> Result<()> {
+    require_safe_name("instance id", instance_id)?;
+    require_safe_name("mod file name", file_name)?;
     let dir = state.dirs.game_dir(instance_id).join("mods");
     let enabled_path = dir.join(file_name);
     let disabled_path = dir.join(format!("{file_name}{DISABLED_SUFFIX}"));
@@ -771,6 +793,8 @@ pub fn set_mod_enabled(
 }
 
 pub fn delete_mod(state: &AppState, instance_id: &str, file_name: &str) -> Result<()> {
+    require_safe_name("instance id", instance_id)?;
+    require_safe_name("mod file name", file_name)?;
     let dir = state.dirs.game_dir(instance_id).join("mods");
     for candidate in [dir.join(file_name), dir.join(format!("{file_name}{DISABLED_SUFFIX}"))] {
         if candidate.exists() {
@@ -882,6 +906,8 @@ pub fn list_resource_packs(state: &AppState, instance_id: &str) -> Vec<ResourceP
 }
 
 pub fn delete_resource_pack(state: &AppState, instance_id: &str, file_name: &str) -> Result<()> {
+    require_safe_name("instance id", instance_id)?;
+    require_safe_name("resource pack file name", file_name)?;
     let path = state.dirs.game_dir(instance_id).join("resourcepacks").join(file_name);
     if path.is_dir() {
         std::fs::remove_dir_all(&path)?;
@@ -924,6 +950,8 @@ pub fn list_shaders(state: &AppState, instance_id: &str) -> Vec<ShaderEntry> {
 }
 
 pub fn delete_shader(state: &AppState, instance_id: &str, file_name: &str) -> Result<()> {
+    require_safe_name("instance id", instance_id)?;
+    require_safe_name("shader file name", file_name)?;
     let path = state.dirs.game_dir(instance_id).join("shaderpacks").join(file_name);
     if path.is_dir() {
         std::fs::remove_dir_all(&path)?;
@@ -966,6 +994,8 @@ pub fn list_worlds(state: &AppState, instance_id: &str) -> Vec<WorldEntry> {
 }
 
 pub fn delete_world(state: &AppState, instance_id: &str, name: &str) -> Result<()> {
+    require_safe_name("instance id", instance_id)?;
+    require_safe_name("world name", name)?;
     let path = state.dirs.game_dir(instance_id).join("saves").join(name);
     if path.is_dir() {
         std::fs::remove_dir_all(&path)?;

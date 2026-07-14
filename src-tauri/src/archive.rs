@@ -26,9 +26,47 @@ pub fn safe_join(base: &Path, relative: &str) -> Option<PathBuf> {
     Some(out)
 }
 
+/// True when `name` is a single plain path component — no `..`, no separators,
+/// no absolute root or Windows drive prefix, not empty.
+///
+/// Used to validate webview-supplied identifiers (instance ids, world names,
+/// mod/pack/snapshot file names) before they are joined onto data directories,
+/// so no Tauri command can be steered outside the folder it operates in.
+pub fn is_safe_name(name: &str) -> bool {
+    let mut comps = Path::new(name).components();
+    matches!(
+        (comps.next(), comps.next()),
+        (Some(Component::Normal(_)), None)
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn safe_names_are_single_plain_components() {
+        assert!(is_safe_name("survival-abc12345"));
+        assert!(is_safe_name("sodium-0.5.8.jar"));
+        assert!(is_safe_name("My World"));
+        assert!(is_safe_name("..jar")); // odd but harmless: one normal component
+    }
+
+    #[test]
+    fn unsafe_names_are_rejected() {
+        assert!(!is_safe_name(""));
+        assert!(!is_safe_name("."));
+        assert!(!is_safe_name(".."));
+        assert!(!is_safe_name("../evil"));
+        assert!(!is_safe_name("a/b"));
+        assert!(!is_safe_name("/etc/passwd"));
+        assert!(!is_safe_name("saves/.."));
+        #[cfg(windows)]
+        {
+            assert!(!is_safe_name("a\\b"));
+            assert!(!is_safe_name("C:\\evil"));
+        }
+    }
 
     #[test]
     fn keeps_normal_nested_paths() {

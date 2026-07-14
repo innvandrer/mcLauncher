@@ -230,6 +230,7 @@ pub async fn duplicate_instance(state: State<'_, AppState>, id: String) -> Resul
 
 #[tauri::command]
 pub async fn open_instance_folder(state: State<'_, AppState>, id: String) -> Result<()> {
+    instances::require_safe_name("instance id", &id)?;
     let dir = state.inner().dirs.game_dir(&id);
     std::fs::create_dir_all(&dir)?;
     open_path(&dir);
@@ -686,6 +687,8 @@ pub async fn delete_world(
 
 #[tauri::command]
 pub async fn open_world_folder(state: State<'_, AppState>, instance_id: String, name: String) -> Result<()> {
+    instances::require_safe_name("instance id", &instance_id)?;
+    instances::require_safe_name("world name", &name)?;
     let path = state.inner().dirs.game_dir(&instance_id).join("saves").join(&name);
     std::fs::create_dir_all(&path)?;
     open_path(&path);
@@ -706,6 +709,8 @@ pub async fn list_screenshots(
 
 #[tauri::command]
 pub async fn open_screenshot(state: State<'_, AppState>, instance_id: String, file_name: String) -> Result<()> {
+    instances::require_safe_name("instance id", &instance_id)?;
+    instances::require_safe_name("screenshot file name", &file_name)?;
     let path = state.inner().dirs.game_dir(&instance_id).join("screenshots").join(&file_name);
     open_path(&path);
     Ok(())
@@ -752,6 +757,8 @@ pub async fn set_mod_source(
     provider: String,
 ) -> Result<String> {
     let state = state.inner();
+    instances::require_safe_name("instance id", &instance_id)?;
+    instances::require_safe_name("mod file name", &file_name)?;
     let dir = state.dirs.game_dir(&instance_id).join("mods");
     let path = [
         dir.join(&file_name),

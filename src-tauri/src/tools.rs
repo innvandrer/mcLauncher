@@ -119,6 +119,8 @@ pub fn list_snapshots(state: &AppState, instance_id: &str) -> Vec<Snapshot> {
 
 /// Zip up a single world folder under `saves/` into the snapshots directory.
 pub fn create_snapshot(state: &AppState, instance_id: &str, world: &str) -> Result<Snapshot> {
+    crate::instances::require_safe_name("instance id", instance_id)?;
+    crate::instances::require_safe_name("world name", world)?;
     let world_dir = state.dirs.game_dir(instance_id).join("saves").join(world);
     if !world_dir.is_dir() {
         return Err(Error::Other(format!("World “{world}” not found.")));
@@ -172,6 +174,8 @@ fn zip_dir_recursive<W: Write + std::io::Seek>(
 
 /// Restore a snapshot, overwriting the current world folder of the same name.
 pub fn restore_snapshot(state: &AppState, instance_id: &str, file_name: &str) -> Result<()> {
+    crate::instances::require_safe_name("instance id", instance_id)?;
+    crate::instances::require_safe_name("snapshot file name", file_name)?;
     let zip_path = snapshots_dir(state, instance_id).join(file_name);
     if !zip_path.is_file() {
         return Err(Error::Other("Snapshot not found.".into()));
@@ -216,6 +220,8 @@ pub fn restore_snapshot(state: &AppState, instance_id: &str, file_name: &str) ->
 }
 
 pub fn delete_snapshot(state: &AppState, instance_id: &str, file_name: &str) -> Result<()> {
+    crate::instances::require_safe_name("instance id", instance_id)?;
+    crate::instances::require_safe_name("snapshot file name", file_name)?;
     let zip_path = snapshots_dir(state, instance_id).join(file_name);
     if zip_path.is_file() {
         std::fs::remove_file(&zip_path)?;
