@@ -487,11 +487,11 @@ pub async fn launch(
         startup_tracker,
     );
 
-    state
-        .running
-        .lock()
-        .unwrap()
-        .insert(instance.id.clone(), pid);
+    {
+        let mut running = state.running.lock().unwrap();
+        running.insert(instance.id.clone(), pid);
+        crate::running::save(&state.dirs, &running);
+    }
     let _ = app.emit(
         "instance://state",
         InstanceState {
@@ -541,6 +541,7 @@ pub async fn launch(
         }
         if let Ok(mut m) = running_map.lock() {
             m.remove(&inst_id);
+            crate::running::save(&dirs, &m);
         }
         let code = status.ok().and_then(|s| s.code());
         if close_on_launch {

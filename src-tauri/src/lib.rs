@@ -19,6 +19,7 @@ mod mojang;
 mod net;
 mod jvmtune;
 mod preflight;
+mod running;
 mod server_mods;
 mod servers;
 mod shortcuts;
@@ -73,6 +74,7 @@ pub fn run() {
             migrate_legacy_data_dir(&data_dir);
             std::fs::create_dir_all(&data_dir).ok();
             app.manage(AppState::new(data_dir));
+            running::reconcile_on_startup(&app.handle().clone(), app.state::<AppState>().inner());
 
             // System tray
             #[cfg(desktop)]
