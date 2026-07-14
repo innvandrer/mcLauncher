@@ -430,6 +430,14 @@ pub async fn launch(
         use std::os::windows::process::CommandExt;
         cmd.creation_flags(CREATE_NO_WINDOW);
     }
+    // Put the JVM in its own process group (pgid = its own pid) so `stop()`
+    // can signal the whole tree — including any native subprocesses the game
+    // or a mod spawns — instead of just the JVM itself.
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        cmd.process_group(0);
+    }
 
     // Pre-launch hook (waits for the command, but off the async runtime — a
     // long-running hook must not pin a worker thread).
@@ -578,8 +586,11 @@ pub fn stop(state: &AppState, instance_id: &str) -> Result<()> {
     }
     #[cfg(not(windows))]
     {
+        // The JVM was spawned into its own process group (see `launch`), so
+        // signalling `-pid` (the group) reaches the game and any native
+        // subprocesses it spawned, not just the JVM's own pid.
         let _ = std::process::Command::new("kill")
-            .arg(pid.to_string())
+            .args(["-TERM", "--", &format!("-{pid}")])
             .output();
     }
     Ok(())
@@ -607,5 +618,43 @@ fn run_shell(command: &str, dir: &std::path::Path) {
             .args(["-c", command])
             .current_dir(dir)
             .status();
+    }
+}
+
+#[cfg(all(test, unix))]
+mod process_group_tests {
+    /// `stop()`'s group-kill (`kill -TERM -- -pid`) only reaches the right
+    /// processes if the child's process group id actually equals its own
+    /// pid, per `process_group(0)`'s documented behavior. That's the one
+    /// precondition worth pinning down with a test — it's deterministic and
+    /// doesn't depend on the host's signal-delivery behavior, which sandboxed
+    /// dev containers can virtualize in ways a real target machine won't (and
+    /// this crate's CI only runs on windows-latest, so a cfg(unix) test never
+    /// executes there regardless — this validates the Unix half locally).
+    #[test]
+    fn process_group_zero_makes_the_child_its_own_group_leader() {
+        use std::os::unix::process::CommandExt;
+
+        let mut child = std::process::Command::new("sleep")
+            .arg("5")
+            .process_group(0)
+            .spawn()
+            .expect("spawn child");
+        let pid = child.id();
+
+        let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).expect("read /proc/pid/stat");
+        // Field 5 is pgid; field 2 (comm) may itself contain spaces/parens,
+        // so split on the closing paren of comm rather than by whitespace.
+        let after_comm = stat.rsplit_once(')').map(|(_, rest)| rest).unwrap_or(&stat);
+        let pgid: u32 = after_comm
+            .split_whitespace()
+            .nth(2) // state, ppid, pgid -> index 2
+            .and_then(|s| s.parse().ok())
+            .expect("parse pgid from /proc/pid/stat");
+
+        assert_eq!(pgid, pid, "process_group(0) must make the child its own group leader");
+
+        let _ = child.kill();
+        let _ = child.wait();
     }
 }
