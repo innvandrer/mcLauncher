@@ -1,7 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type {
-  AuthPrompt,
   Instance,
   InstanceStateEvent,
   JavaInstall,
@@ -354,8 +353,6 @@ export const events = {
     listen<string>("instance://removed", (e) => cb(e.payload)),
   onModpackReport: (cb: (r: ModpackInstallReport) => void): Promise<UnlistenFn> =>
     listen<ModpackInstallReport>("modpack://report", (e) => cb(e.payload)),
-  onAuthPrompt: (cb: (p: AuthPrompt) => void): Promise<UnlistenFn> =>
-    listen<AuthPrompt>("auth://prompt", (e) => cb(e.payload)),
   onShaderInstalled: (
     cb: (p: { instanceId: string; fileName: string; version: string }) => void,
   ): Promise<UnlistenFn> =>

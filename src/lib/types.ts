@@ -97,13 +97,6 @@ export interface InstanceStateEvent {
   exitCode?: number | null;
 }
 
-export interface AuthPrompt {
-  userCode: string;
-  verificationUri: string;
-  message: string;
-  expiresIn: number;
-}
-
 export interface ModEntry {
   fileName: string;
   enabled: boolean;

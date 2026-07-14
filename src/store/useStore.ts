@@ -5,7 +5,6 @@ import { api, errMessage, events } from "@/lib/api";
 import { applyTheme, isImageIcon } from "@/lib/utils";
 import { plural, t } from "@/lib/strings";
 import type {
-  AuthPrompt,
   Instance,
   LogLine,
   ModpackInstallReport,
@@ -41,7 +40,6 @@ interface State {
   taskStarted: Record<string, number>;
   logs: Record<string, LogLine[]>;
   toasts: Toast[];
-  authPrompt: AuthPrompt | null;
   busy: boolean;
 
   /** Blocked-download reports from modpack installs, keyed by instance id. */
@@ -88,7 +86,6 @@ interface State {
   addOffline: (username: string) => Promise<void>;
   setActiveAccount: (id: string) => Promise<void>;
   removeAccount: (id: string) => Promise<void>;
-  dismissAuthPrompt: () => void;
 
   saveSettings: (settings: Settings) => Promise<void>;
 
@@ -123,7 +120,6 @@ export const useStore = create<State>((set, get) => ({
   taskStarted: {},
   logs: {},
   toasts: [],
-  authPrompt: null,
   busy: false,
 
   packExport: null,
@@ -291,7 +287,6 @@ export const useStore = create<State>((set, get) => ({
           get().refreshInstances();
         }
       });
-      events.onAuthPrompt((p) => set({ authPrompt: p }));
       events.onShaderInstalled((p) => {
         get().toast(
           "success",
@@ -460,12 +455,12 @@ export const useStore = create<State>((set, get) => ({
     set({ busy: true });
     try {
       const accounts = await api.loginMicrosoft();
-      set({ accounts, authPrompt: null });
+      set({ accounts });
       get().toast("success", "Signed in to Microsoft account");
     } catch (e) {
       get().toast("error", errMessage(e));
     } finally {
-      set({ busy: false, authPrompt: null });
+      set({ busy: false });
     }
   },
 
@@ -493,8 +488,6 @@ export const useStore = create<State>((set, get) => ({
       get().toast("error", errMessage(e));
     }
   },
-
-  dismissAuthPrompt: () => set({ authPrompt: null }),
 
   saveSettings: async (settings) => {
     await api.saveSettings(settings);

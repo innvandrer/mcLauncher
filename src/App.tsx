@@ -6,7 +6,6 @@ import { ErrorBoundary } from "./components/ErrorBoundary";
 import { Toaster } from "./components/Toaster";
 import { CommandPalette } from "./components/CommandPalette";
 import { DropZone } from "./components/DropZone";
-import { AuthPromptModal } from "./components/AuthPromptModal";
 import { BlockedModsModal } from "./components/BlockedModsModal";
 import { PackExportModal } from "./components/PackExport";
 import { UpdateModal } from "./components/UpdateModal";
@@ -75,7 +74,6 @@ export default function App() {
       <Toaster />
       <CommandPalette />
       <DropZone />
-      <AuthPromptModal />
       <BlockedModsModal />
       <PackExportModal />
       <UpdateModal />
