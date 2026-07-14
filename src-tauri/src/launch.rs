@@ -211,9 +211,22 @@ pub async fn launch(
         let needs_refresh = account.access_token.is_empty()
             || account.expires_at <= chrono::Utc::now().timestamp();
         if needs_refresh {
-            if let Some(rt) = account.refresh_token.clone() {
-                account = auth::refresh(state, &rt).await?;
-                instances::upsert_account(state, account.clone())?;
+            match account.refresh_token.clone().filter(|rt| !rt.is_empty()) {
+                Some(rt) => {
+                    account = auth::refresh(state, &rt).await?;
+                    instances::upsert_account(state, account.clone())?;
+                }
+                // An expired session with no refresh token can't be renewed:
+                // fail with clear guidance now instead of launching with a
+                // stale token and letting server joins fail confusingly.
+                None => {
+                    return Err(crate::error::Error::Auth(
+                        "Your Microsoft session has expired and can't be renewed \
+                         automatically. Sign out of your Microsoft account in \
+                         EZMapa, sign in again, then try launching."
+                            .into(),
+                    ));
+                }
             }
         }
         if account.access_token.is_empty() {

@@ -62,25 +62,10 @@ fn gc_flags(java_major: u32) -> &'static str {
 }
 
 /// The Java major Mojang requires for a Minecraft version (used when no
-/// explicit runtime is pinned): 21 from 1.20.5, 17 from 1.17, 8 before.
+/// explicit runtime is pinned). Shared table in `java::required_major_for_mc`;
+/// snapshots (which the table can't classify) default to the newest, 21.
 fn required_major_for_mc(mc_version: &str) -> u32 {
-    let mut parts = mc_version.split('.');
-    let major: u32 = parts.next().and_then(|p| p.parse().ok()).unwrap_or(1);
-    let minor: u32 = parts.next().and_then(|p| p.parse().ok()).unwrap_or(0);
-    let patch: u32 = parts
-        .next()
-        .and_then(|p| p.split(['-', '_']).next().unwrap_or("").parse().ok())
-        .unwrap_or(0);
-    if major != 1 {
-        return 21;
-    }
-    if minor > 20 || (minor == 20 && patch >= 5) {
-        21
-    } else if minor >= 17 {
-        17
-    } else {
-        8
-    }
+    crate::java::required_major_for_mc(mc_version).unwrap_or(21)
 }
 
 /// Heap suggestion from pack size, capped against system RAM: never more than
@@ -244,11 +229,15 @@ mod tests {
     #[test]
     fn required_java_majors() {
         assert_eq!(required_major_for_mc("1.16.5"), 8);
-        assert_eq!(required_major_for_mc("1.17"), 17);
+        // 1.17 ships on Java 16 (the shared table is authoritative; this
+        // module previously said 17).
+        assert_eq!(required_major_for_mc("1.17"), 16);
         assert_eq!(required_major_for_mc("1.20.4"), 17);
         assert_eq!(required_major_for_mc("1.20.5"), 21);
         assert_eq!(required_major_for_mc("1.21.1"), 21);
         assert_eq!(required_major_for_mc("1.12.2"), 8);
+        // Snapshots can't be classified — default to the newest runtime.
+        assert_eq!(required_major_for_mc("24w14a"), 21);
     }
 
     #[test]

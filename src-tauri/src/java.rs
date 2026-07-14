@@ -21,6 +21,41 @@ pub struct JavaInstall {
     pub major: u32,
 }
 
+/// Take the leading run of ASCII digits off a version segment (`"2-rc1"` ->
+/// `Some(2)`, `"14a"` -> `Some(14)`), so release-candidate/snapshot-flavoured
+/// segments still parse instead of failing the whole lookup.
+fn leading_number(s: &str) -> Option<u32> {
+    let digits: String = s.chars().take_while(|c| c.is_ascii_digit()).collect();
+    digits.parse().ok()
+}
+
+/// The Java major version Mojang requires for a given Minecraft release, via
+/// the same breakpoints the official launcher uses (1.20.5+ → 21, 1.18+ → 17,
+/// 1.17 → 16, older → 8). Returns `None` for version strings that don't look
+/// like a standard `1.x[.y]` release (e.g. snapshots), so callers can skip
+/// version-dependent logic rather than risk a false positive.
+///
+/// Single source of truth — shared by the preflight check and the JVM tuner
+/// (they previously carried two diverging copies of this table).
+pub fn required_major_for_mc(mc_version: &str) -> Option<u32> {
+    let mut segs = mc_version.split('.');
+    let major = leading_number(segs.next()?)?;
+    if major != 1 {
+        return None;
+    }
+    let minor = segs.next().and_then(leading_number).unwrap_or(0);
+    let patch = segs.next().and_then(leading_number).unwrap_or(0);
+    Some(if minor > 20 || (minor == 20 && patch >= 5) {
+        21
+    } else if minor >= 18 {
+        17
+    } else if minor == 17 {
+        16
+    } else {
+        8
+    })
+}
+
 fn parse_major(version: &str) -> u32 {
     let v = version.trim().trim_matches('"');
     if let Some(rest) = v.strip_prefix("1.") {
@@ -234,6 +269,47 @@ fn find_java_in(root: &Path) -> Option<PathBuf> {
         }
     }
     None
+}
+
+#[cfg(test)]
+mod required_major_tests {
+    use super::*;
+
+    #[test]
+    fn java_major_pre_1_17_is_8() {
+        assert_eq!(required_major_for_mc("1.16.5"), Some(8));
+        assert_eq!(required_major_for_mc("1.7.10"), Some(8));
+    }
+
+    #[test]
+    fn java_major_1_17_is_16() {
+        assert_eq!(required_major_for_mc("1.17"), Some(16));
+        assert_eq!(required_major_for_mc("1.17.1"), Some(16));
+    }
+
+    #[test]
+    fn java_major_1_18_through_1_20_4_is_17() {
+        assert_eq!(required_major_for_mc("1.18"), Some(17));
+        assert_eq!(required_major_for_mc("1.20"), Some(17));
+        assert_eq!(required_major_for_mc("1.20.4"), Some(17));
+    }
+
+    #[test]
+    fn java_major_1_20_5_and_later_is_21() {
+        assert_eq!(required_major_for_mc("1.20.5"), Some(21));
+        assert_eq!(required_major_for_mc("1.21"), Some(21));
+        assert_eq!(required_major_for_mc("1.21.1"), Some(21));
+    }
+
+    #[test]
+    fn java_major_handles_release_candidate_suffix() {
+        assert_eq!(required_major_for_mc("1.20.2-rc1"), Some(17));
+    }
+
+    #[test]
+    fn java_major_none_for_snapshots() {
+        assert_eq!(required_major_for_mc("24w14a"), None);
+    }
 }
 
 fn unzip(archive: &Path, dest: &Path) -> Result<()> {
