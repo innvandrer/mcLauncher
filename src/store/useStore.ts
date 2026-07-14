@@ -381,10 +381,14 @@ export const useStore = create<State>((set, get) => ({
 
   deleteInstance: async (id) => {
     const inst = get().instances.find((i) => i.id === id);
-    await api.deleteInstance(id);
-    set({ selectedInstanceId: null });
-    await get().refreshInstances();
-    get().toast("info", `Deleted “${inst?.name ?? id}”`);
+    try {
+      await api.deleteInstance(id);
+      set({ selectedInstanceId: null });
+      await get().refreshInstances();
+      get().toast("info", `Deleted “${inst?.name ?? id}”`);
+    } catch (e) {
+      get().toast("error", errMessage(e));
+    }
   },
 
   duplicateInstance: async (id) => {

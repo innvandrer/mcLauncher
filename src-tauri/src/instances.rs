@@ -414,6 +414,14 @@ pub fn create_instance(
 
 pub fn delete_instance(state: &AppState, id: &str) -> Result<()> {
     require_safe_name("instance id", id)?;
+    // The game process holds open file handles into this directory while
+    // running; removing it out from under a live JVM can corrupt saves and
+    // fails outright on Windows (locked files). Stop it first.
+    if state.running.lock().unwrap().contains_key(id) {
+        return Err(Error::Other(
+            "This instance is currently running. Stop it before deleting.".into(),
+        ));
+    }
     let dir = state.dirs.instance_dir(id);
     if dir.exists() {
         std::fs::remove_dir_all(&dir)?;
@@ -1233,6 +1241,35 @@ mod index_tests {
         record_installs(&state, id, &[("m.jar".into(), "42".into())], "curseforge");
         let idx = load_index(&state, id);
         assert!(idx.items.get("m.jar").unwrap().fallback.is_none());
+
+        std::fs::remove_dir_all(&root).ok();
+    }
+}
+
+#[cfg(test)]
+mod lifecycle_tests {
+    use super::*;
+    use crate::state::AppState;
+
+    fn temp_state() -> (AppState, std::path::PathBuf) {
+        let root = std::env::temp_dir().join(format!("ezmapa_lifecycle_test_{}", uuid::Uuid::new_v4()));
+        (AppState::new(root.clone()), root)
+    }
+
+    #[test]
+    fn delete_instance_is_blocked_while_running() {
+        let (state, root) = temp_state();
+        let inst = create_instance(&state, "Test", "1.21.1", crate::models::Loader::Vanilla, None, None)
+            .unwrap();
+        state.running.lock().unwrap().insert(inst.id.clone(), 1234);
+
+        let err = delete_instance(&state, &inst.id).unwrap_err();
+        assert!(err.to_string().contains("currently running"));
+        assert!(state.dirs.instance_dir(&inst.id).exists(), "folder must survive a blocked delete");
+
+        state.running.lock().unwrap().remove(&inst.id);
+        delete_instance(&state, &inst.id).unwrap();
+        assert!(!state.dirs.instance_dir(&inst.id).exists());
 
         std::fs::remove_dir_all(&root).ok();
     }
