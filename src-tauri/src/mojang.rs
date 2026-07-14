@@ -87,8 +87,6 @@ pub struct VersionJson {
     pub minecraft_arguments: Option<String>,
     #[serde(default, rename = "inheritsFrom")]
     pub inherits_from: Option<String>,
-    #[serde(default)]
-    pub processors: Vec<ProcessorJson>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -180,17 +178,10 @@ pub enum ArgValue {
     Many(Vec<String>),
 }
 
-// Ny struktur for en prosessor-definisjon i Forge/NeoForge JSON
-#[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ProcessorJson {
-    pub jar: String, // Maven-koordinat for prosessor-JAR
-    pub main: String, // Hovedklasse for prosessoren
-    pub args: Vec<String>, // Argumenter for prosessoren
-    #[serde(default)]
-    pub classpath: Vec<String>, // Ekstra classpath-elementer for prosessoren
-    // Andre felt som "outputs", "side", etc. kan legges til ved behov
-}
+// Note: Forge/NeoForge "processors" deliberately have no representation here.
+// They live in the installer's install_profile.json (not the version JSON) and
+// are executed by the official installer during `--installClient` — by the
+// time we copy the produced version JSON out of staging, all patching is done.
 
 // ---------------------------------------------------------------------------
 // Resolved version (after merging inheritance) — what `launch` consumes.
@@ -210,15 +201,6 @@ pub struct Resolved {
     pub game_args: Vec<Argument>,
     pub jvm_args: Vec<Argument>,
     pub legacy_args: Option<String>,
-    // Nytt felt for løste prosessorer, klar for kjøring
-    pub processors: Vec<Processor>,
-}
-
-// En "løst" prosessor, klar for kjøring (maven-koordinater er løst til stier)
-#[derive(Debug, Clone)]
-pub struct Processor {
-    pub main_class: String,
-    pub args: Vec<String>, // Argumenter med plassholdere løst
 }
 
 // ---------------------------------------------------------------------------
@@ -373,10 +355,6 @@ pub async fn resolve_version(state: &AppState, version_id: &str) -> Result<Resol
             game_args: args.game,
             jvm_args: args.jvm,
             legacy_args: v.minecraft_arguments,
-            processors: v.processors.into_iter().map(|p| Processor {
-                main_class: p.main,
-                args: p.args,
-            }).collect(),
         })
     }
 }
@@ -419,10 +397,6 @@ fn merge(parent: Resolved, child: VersionJson) -> Resolved {
         game_args,
         jvm_args,
         legacy_args: child.minecraft_arguments.or(parent.legacy_args),
-        processors: child.processors.into_iter().map(|p| Processor {
-            main_class: p.main,
-            args: p.args,
-        }).collect(),
     }
 }
 

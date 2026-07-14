@@ -345,42 +345,10 @@ pub async fn launch(
 
     let features: HashMap<String, bool> = HashMap::new();
 
-    // --- Steg 2: Kjør Forge/NeoForge Processors -----------------------------
-    if !resolved.processors.is_empty() {
-        let _ = app.emit(
-            "instance://log",
-            LogLine {
-                instance_id: instance.id.clone(),
-                line: "[EZMapa] Kjører Forge-prosessorer (patcher spillet)...".into(),
-                is_err: false,
-            },
-        );
-
-        for proc in &resolved.processors {
-            let mut proc_args = Vec::new();
-            for arg in &proc.args {
-                proc_args.push(substitute(arg, &vars));
-            }
-
-            let mut cmd = std::process::Command::new(&java_path);
-            // Forge-prosessorer trenger tilgang til hele classpath for å patche korrekt
-            cmd.arg("-cp").arg(&classpath);
-            cmd.arg(&proc.main_class);
-            cmd.args(&proc_args);
-            cmd.current_dir(&game_dir);
-
-            #[cfg(windows)]
-            {
-                use std::os::windows::process::CommandExt;
-                cmd.creation_flags(CREATE_NO_WINDOW);
-            }
-
-            let status = cmd.status().map_err(|e| Error::Other(format!("Prosessor feilet: {e}")))?;
-            if !status.success() {
-                return Err(Error::Other(format!("Prosessor {} feilet med kode {:?}", proc.main_class, status.code())));
-            }
-        }
-    }
+    // Forge/NeoForge processors are NOT run here: they live in the installer's
+    // install_profile.json and the official installer executes them during
+    // `--installClient` (see `forge::run_installer`), so the version JSON we
+    // resolve is already fully patched.
 
     // --- JVM arguments -------------------------------------------------------
     let mut jvm: Vec<String> = Vec::new();
