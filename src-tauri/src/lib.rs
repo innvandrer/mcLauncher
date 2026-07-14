@@ -47,21 +47,7 @@ fn migrate_legacy_data_dir(data_dir: &std::path::Path) {
         return;
     }
     // Fall back to a recursive copy when rename fails (e.g. cross-volume).
-    let _ = copy_dir_all(&legacy, data_dir);
-}
-
-fn copy_dir_all(from: &std::path::Path, to: &std::path::Path) -> std::io::Result<()> {
-    std::fs::create_dir_all(to)?;
-    for entry in std::fs::read_dir(from)? {
-        let entry = entry?;
-        let dest = to.join(entry.file_name());
-        if entry.file_type()?.is_dir() {
-            copy_dir_all(&entry.path(), &dest)?;
-        } else {
-            std::fs::copy(entry.path(), dest)?;
-        }
-    }
-    Ok(())
+    let _ = instances::copy_dir(&legacy, data_dir);
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]

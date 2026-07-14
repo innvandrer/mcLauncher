@@ -439,7 +439,11 @@ pub async fn duplicate_instance(state: &AppState, id: &str) -> Result<Instance> 
     Ok(new)
 }
 
-fn copy_dir(from: &Path, to: &Path) -> Result<()> {
+/// Recursive overwrite-copy of a directory tree. Shared with the legacy
+/// data-dir migration in `lib.rs`; `forge::copy_dir_all` stays separate on
+/// purpose (it skips existing destination files to avoid re-copying shared
+/// libraries).
+pub(crate) fn copy_dir(from: &Path, to: &Path) -> Result<()> {
     if !from.exists() {
         return Ok(());
     }
@@ -495,6 +499,10 @@ pub fn record_session_dirs(dirs: &crate::state::AppDirs, id: &str, started: i64,
     if seconds == 0 {
         return;
     }
+    // Watcher threads for different instances can exit at the same moment;
+    // serialize the read-modify-write so one session isn't lost to the race.
+    static SESSIONS_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _guard = SESSIONS_LOCK.lock().unwrap_or_else(|p| p.into_inner());
     let path = dirs.sessions_file();
     let mut sessions: Vec<Session> = std::fs::read(&path)
         .ok()
@@ -524,7 +532,6 @@ fn zip_dir_into(
     dir: &Path,
     opts: zip::write::SimpleFileOptions,
 ) -> Result<()> {
-    use std::io::Write;
     for entry in std::fs::read_dir(dir)?.flatten() {
         let path = entry.path();
         let rel = path.strip_prefix(base).unwrap_or(&path);
@@ -533,9 +540,10 @@ fn zip_dir_into(
             zw.add_directory(format!("{rel_str}/"), opts)?;
             zip_dir_into(zw, base, &path, opts)?;
         } else {
+            // Stream instead of fs::read — region files can be hundreds of MB.
             zw.start_file(rel_str, opts)?;
-            let bytes = std::fs::read(&path)?;
-            zw.write_all(&bytes)?;
+            let mut f = std::fs::File::open(&path)?;
+            std::io::copy(&mut f, zw)?;
         }
     }
     Ok(())
@@ -573,6 +581,8 @@ pub async fn import_instance(state: &AppState, src: &Path) -> Result<Instance> {
             .await??;
     // Reset runtime stats — an import is a fresh instance.
     manifest.last_played = None;
+    manifest.total_play_seconds = 0;
+    manifest.created = chrono::Utc::now().timestamp();
     save_instance(state, &manifest)?;
     Ok(manifest)
 }

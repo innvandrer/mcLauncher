@@ -259,9 +259,11 @@ fn write_zip_sync(
         zip.write_all(content.as_bytes())?;
     }
     for (name, src) in bundled {
-        if let Ok(bytes) = std::fs::read(src) {
+        // Stream instead of buffering; skipped per file on open failure to
+        // match the previous best-effort behavior.
+        if let Ok(mut f) = std::fs::File::open(src) {
             zip.start_file(name.clone(), opts)?;
-            zip.write_all(&bytes)?;
+            std::io::copy(&mut f, &mut zip)?;
         }
     }
     zip.finish()?;

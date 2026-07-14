@@ -18,8 +18,11 @@ pub struct DiscordPresence(Arc<Mutex<Option<DiscordIpcClient>>>);
 impl DiscordPresence {
     pub fn new() -> Self {
         let me = Self(Arc::new(Mutex::new(None)));
-        // Show "in the launcher" right away (also performs the initial connect).
-        me.set_idle();
+        // Show "in the launcher" right away, but do the initial IPC connect on
+        // a background thread — `new()` runs during app setup, which shouldn't
+        // wait on Discord's pipe.
+        let bg = me.clone();
+        std::thread::spawn(move || bg.set_idle());
         me
     }
 

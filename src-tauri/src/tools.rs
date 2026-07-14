@@ -163,11 +163,10 @@ fn zip_dir_recursive<W: Write + std::io::Seek>(
         if path.is_dir() {
             zip_dir_recursive(zip, base, &path, prefix, opts)?;
         } else if path.is_file() {
+            // Stream instead of buffering — region files can be hundreds of MB.
             zip.start_file(name, *opts)?;
             let mut f = std::fs::File::open(&path)?;
-            let mut buf = Vec::new();
-            f.read_to_end(&mut buf)?;
-            zip.write_all(&buf)?;
+            std::io::copy(&mut f, zip)?;
         }
     }
     Ok(())
