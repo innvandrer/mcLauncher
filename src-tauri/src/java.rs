@@ -222,32 +222,94 @@ pub async fn ensure(state: &AppState, major: u32) -> Result<String> {
     download(state, major).await
 }
 
+/// The fields we need from one entry of Adoptium's
+/// `GET /v3/assets/latest/{feature_version}/{jvm_impl}` response.
+#[derive(serde::Deserialize)]
+struct AdoptiumAsset {
+    binary: AdoptiumBinary,
+}
+
+#[derive(serde::Deserialize)]
+struct AdoptiumBinary {
+    package: AdoptiumPackage,
+}
+
+#[derive(serde::Deserialize)]
+struct AdoptiumPackage {
+    /// Archive file name, e.g. `OpenJDK21U-jre_x64_linux_hotspot_21.0.5_11.tar.gz`.
+    name: String,
+    /// Download URL.
+    link: String,
+    /// SHA-256 of the archive, hex-encoded.
+    checksum: String,
+}
+
 async fn download(state: &AppState, major: u32) -> Result<String> {
+    // The assets API (unlike the bare binary redirect) tells us the archive's
+    // file name and sha256 up front, so the download can be verified before
+    // anything gets extracted — and the name tells us the archive format:
+    // Adoptium ships .zip on Windows but .tar.gz on Linux/macOS.
     let url = format!(
-        "https://api.adoptium.net/v3/binary/latest/{major}/ga/{}/{}/jre/hotspot/normal/eclipse",
-        adoptium_os(),
-        adoptium_arch()
+        "https://api.adoptium.net/v3/assets/latest/{major}/hotspot\
+         ?architecture={}&image_type=jre&os={}&vendor=eclipse",
+        adoptium_arch(),
+        adoptium_os()
     );
-    let bytes = state
-        .http
-        .get(&url)
-        .send()
-        .await?
-        .error_for_status()?
-        .bytes()
-        .await?;
+    let assets: Vec<AdoptiumAsset> = crate::net::get_json(&state.http, &url).await?;
+    let pkg = assets
+        .into_iter()
+        .next()
+        .ok_or_else(|| {
+            Error::Other(format!(
+                "No Temurin {major} JRE is available for {}/{}",
+                adoptium_os(),
+                adoptium_arch()
+            ))
+        })?
+        .binary
+        .package;
 
     let java_root = state.dirs.java();
     std::fs::create_dir_all(&java_root)?;
-    let archive_path = java_root.join(format!("temurin-{major}.zip"));
-    tokio::fs::write(&archive_path, &bytes).await?;
+    let archive_path = java_root.join(&pkg.name);
+
+    // Stream the (tens of MB) archive to disk while hashing, then verify the
+    // published checksum before extracting.
+    use sha2::{Digest, Sha256};
+    let mut resp = state.http.get(&pkg.link).send().await?.error_for_status()?;
+    let mut hasher = Sha256::new();
+    {
+        use tokio::io::AsyncWriteExt;
+        let mut f = tokio::fs::File::create(&archive_path).await?;
+        while let Some(chunk) = resp.chunk().await? {
+            hasher.update(&chunk);
+            f.write_all(&chunk).await?;
+        }
+        f.flush().await?;
+    }
+    let actual = hex::encode(hasher.finalize());
+    if !actual.eq_ignore_ascii_case(pkg.checksum.trim()) {
+        let _ = tokio::fs::remove_file(&archive_path).await;
+        return Err(Error::Checksum {
+            file: pkg.name.clone(),
+            expected: pkg.checksum.clone(),
+            actual,
+        });
+    }
 
     let dest = java_root.join(format!("temurin-{major}"));
     let dest_clone = dest.clone();
     let archive_clone = archive_path.clone();
-    tokio::task::spawn_blocking(move || unzip(&archive_clone, &dest_clone))
-        .await
-        .map_err(|e| Error::Other(format!("extraction task failed: {e}")))??;
+    let is_tar_gz = pkg.name.ends_with(".tar.gz") || pkg.name.ends_with(".tgz");
+    tokio::task::spawn_blocking(move || {
+        if is_tar_gz {
+            untar_gz(&archive_clone, &dest_clone)
+        } else {
+            unzip(&archive_clone, &dest_clone)
+        }
+    })
+    .await
+    .map_err(|e| Error::Other(format!("extraction task failed: {e}")))??;
     let _ = tokio::fs::remove_file(&archive_path).await;
 
     // Locate java(.exe) within the extracted tree.
@@ -309,6 +371,53 @@ mod required_major_tests {
     #[test]
     fn java_major_none_for_snapshots() {
         assert_eq!(required_major_for_mc("24w14a"), None);
+    }
+}
+
+/// Extract a `.tar.gz` runtime archive (the format Adoptium ships for Linux
+/// and macOS). `tar::Archive::unpack` refuses entries that would escape
+/// `dest` and preserves the executable bits `bin/java` needs.
+fn untar_gz(archive: &Path, dest: &Path) -> Result<()> {
+    let file = std::fs::File::open(archive)?;
+    let gz = flate2::read::GzDecoder::new(file);
+    let mut tar = tar::Archive::new(gz);
+    std::fs::create_dir_all(dest)?;
+    tar.unpack(dest)?;
+    Ok(())
+}
+
+#[cfg(test)]
+mod archive_tests {
+    use super::*;
+
+    #[test]
+    fn untar_gz_extracts_a_runtime_layout_find_java_can_locate() {
+        let root = std::env::temp_dir().join(format!("ezmapa_tar_test_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        let archive = root.join("jre.tar.gz");
+
+        // Build a minimal Temurin-shaped tar.gz: <release>/bin/java(.exe).
+        {
+            let f = std::fs::File::create(&archive).unwrap();
+            let gz = flate2::write::GzEncoder::new(f, flate2::Compression::default());
+            let mut tar = tar::Builder::new(gz);
+            let data = b"not really a jvm";
+            let mut header = tar::Header::new_gnu();
+            header.set_size(data.len() as u64);
+            header.set_mode(0o755);
+            header.set_cksum();
+            tar.append_data(&mut header, format!("jdk-21.0.5+11-jre/bin/{JAVA_EXE}"), &data[..])
+                .unwrap();
+            tar.into_inner().unwrap().finish().unwrap();
+        }
+
+        let dest = root.join("out");
+        untar_gz(&archive, &dest).unwrap();
+        assert!(dest.join("jdk-21.0.5+11-jre").join("bin").join(JAVA_EXE).is_file());
+        // The one-level-deep search used after extraction must find it.
+        assert!(find_java_in(&dest).is_some());
+
+        std::fs::remove_dir_all(&root).ok();
     }
 }
 

@@ -178,6 +178,26 @@ pub async fn install_neoforge(
     run_installer(app, state, &task_id, "NeoForge", &installer_url, &expected_id, "forge").await
 }
 
+/// Fetch the maven `.sha1` sidecar for an artifact URL. Returns `None` when
+/// it can't be fetched or doesn't look like a sha1 (callers then skip
+/// verification rather than failing the install).
+async fn fetch_maven_sha1(state: &AppState, artifact_url: &str) -> Option<String> {
+    let text = state
+        .http
+        .get(format!("{artifact_url}.sha1"))
+        .send()
+        .await
+        .ok()?
+        .error_for_status()
+        .ok()?
+        .text()
+        .await
+        .ok()?;
+    // Some maven servers publish "<hash>" and some "<hash>  <filename>".
+    let hash = text.split_whitespace().next()?.to_lowercase();
+    (hash.len() == 40 && hash.bytes().all(|b| b.is_ascii_hexdigit())).then_some(hash)
+}
+
 async fn run_installer(
     app: &AppHandle,
     state: &AppState,
@@ -202,6 +222,22 @@ async fn run_installer(
         .error_for_status()?
         .bytes()
         .await?;
+
+    // Verify the installer against the maven-published `.sha1` sidecar before
+    // executing it. A mismatch is a hard error (truncated or tampered
+    // download); an unavailable sidecar is tolerated so a repository hiccup
+    // can't brick loader installs — it protects integrity, not the host.
+    if let Some(expected) = fetch_maven_sha1(state, installer_url).await {
+        use sha1::{Digest, Sha1};
+        let actual = hex::encode(Sha1::digest(&installer_bytes));
+        if !actual.eq_ignore_ascii_case(&expected) {
+            return Err(Error::Checksum {
+                file: format!("{label} installer"),
+                expected,
+                actual,
+            });
+        }
+    }
 
     // Stage under our own data root, not the system temp dir. `std::env::temp_dir()`
     // can resolve to a protected location (e.g. `C:\Windows\Temp` when the app runs
