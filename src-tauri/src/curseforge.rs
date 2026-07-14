@@ -765,7 +765,17 @@ pub async fn install_modpack(
              Download the pack manually from {page} and import the zip instead."
         )));
     };
-    let tmp_path = std::env::temp_dir().join(format!("ezmapa_cf_{}.zip", pack_file.id));
+    // Stage under our own cache dir, not the system temp dir: `%TEMP%` can
+    // resolve to a protected location when the app runs elevated (the same
+    // AccessDenied class the 0.3.1 installer-staging fix addressed), and a
+    // uuid suffix keeps concurrent installs of the same pack from colliding.
+    let cache_dir = state.dirs.cache();
+    std::fs::create_dir_all(&cache_dir)?;
+    let tmp_path = cache_dir.join(format!(
+        "cfpack-{}-{}.zip",
+        pack_file.id,
+        uuid::Uuid::new_v4()
+    ));
     net::download_one(&state.http, &DownloadItem::new(pack_url, tmp_path.clone(), None)).await?;
 
     // Parse manifest.json from the archive.
