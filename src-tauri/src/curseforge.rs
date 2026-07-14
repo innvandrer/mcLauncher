@@ -719,6 +719,52 @@ pub async fn install_file(
     install_cf_file(state, instance_id, content_type, loader, game_version, resp.data).await
 }
 
+/// Parse `manifest.json` out of a downloaded pack zip. Blocking I/O — call
+/// via `spawn_blocking`.
+fn read_cf_manifest(path: &std::path::Path) -> Result<CfManifest> {
+    let f = std::fs::File::open(path)?;
+    let mut archive = zip::ZipArchive::new(f)?;
+    let mut mf = archive.by_name("manifest.json")?;
+    let mut buf = Vec::new();
+    std::io::Read::read_to_end(&mut mf, &mut buf)?;
+    Ok(serde_json::from_slice(&buf)?)
+}
+
+/// Extract the pack's `<overrides>/` entries into the game dir. Blocking I/O —
+/// call via `spawn_blocking`.
+fn extract_cf_overrides(
+    archive_path: &std::path::Path,
+    overrides: &str,
+    game_dir: &std::path::Path,
+) -> Result<()> {
+    let prefix = format!("{overrides}/");
+    let f = std::fs::File::open(archive_path)?;
+    let mut archive = zip::ZipArchive::new(f)?;
+    for i in 0..archive.len() {
+        let mut zf = archive.by_index(i)?;
+        let zname = zf.name().to_string();
+        if let Some(rest) = zname.strip_prefix(&prefix) {
+            if rest.is_empty() {
+                continue;
+            }
+            // Reject entries whose name would escape the instance dir (zip slip).
+            let Some(dest) = crate::archive::safe_join(game_dir, rest) else {
+                continue;
+            };
+            if zname.ends_with('/') {
+                std::fs::create_dir_all(&dest)?;
+            } else {
+                if let Some(p) = dest.parent() {
+                    std::fs::create_dir_all(p)?;
+                }
+                let mut out = std::fs::File::create(&dest)?;
+                std::io::copy(&mut zf, &mut out)?;
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Install a CurseForge modpack as a *new* instance: download the pack zip,
 /// parse manifest.json, create an instance with the right loader + version,
 /// extract overrides, then resolve and download the listed mod files.
@@ -765,17 +811,29 @@ pub async fn install_modpack(
              Download the pack manually from {page} and import the zip instead."
         )));
     };
-    let tmp_path = std::env::temp_dir().join(format!("ezmapa_cf_{}.zip", pack_file.id));
+    // Stage under our own cache dir, not the system temp dir: `%TEMP%` can
+    // resolve to a protected location when the app runs elevated (the same
+    // AccessDenied class the 0.3.1 installer-staging fix addressed), and a
+    // uuid suffix keeps concurrent installs of the same pack from colliding.
+    let cache_dir = state.dirs.cache();
+    std::fs::create_dir_all(&cache_dir)?;
+    let tmp_path = cache_dir.join(format!(
+        "cfpack-{}-{}.zip",
+        pack_file.id,
+        uuid::Uuid::new_v4()
+    ));
     net::download_one(&state.http, &DownloadItem::new(pack_url, tmp_path.clone(), None)).await?;
 
-    // Parse manifest.json from the archive.
+    // Parse manifest.json from the archive (blocking zip I/O off the runtime).
     let manifest: CfManifest = {
-        let f = std::fs::File::open(&tmp_path)?;
-        let mut archive = zip::ZipArchive::new(f)?;
-        let mut mf = archive.by_name("manifest.json")?;
-        let mut buf = Vec::new();
-        std::io::Read::read_to_end(&mut mf, &mut buf)?;
-        serde_json::from_slice(&buf)?
+        let path = tmp_path.clone();
+        match tokio::task::spawn_blocking(move || read_cf_manifest(&path)).await? {
+            Ok(m) => m,
+            Err(e) => {
+                std::fs::remove_file(&tmp_path).ok();
+                return Err(e);
+            }
+        }
     };
 
     let mc_version = manifest.minecraft.version.clone();
@@ -801,35 +859,22 @@ pub async fn install_modpack(
     let _ = app.emit("instance://created", instance.clone());
     let game_dir = state.dirs.game_dir(&instance.id);
 
-    // Extract the overrides folder into the game dir.
-    {
-        let prefix = format!("{}/", manifest.overrides);
-        let f = std::fs::File::open(&tmp_path)?;
-        let mut archive = zip::ZipArchive::new(f)?;
-        for i in 0..archive.len() {
-            let mut zf = archive.by_index(i)?;
-            let zname = zf.name().to_string();
-            if let Some(rest) = zname.strip_prefix(&prefix) {
-                if rest.is_empty() {
-                    continue;
-                }
-                // Reject entries whose name would escape the instance dir (zip slip).
-                let Some(dest) = crate::archive::safe_join(&game_dir, rest) else {
-                    continue;
-                };
-                if zname.ends_with('/') {
-                    std::fs::create_dir_all(&dest)?;
-                } else {
-                    if let Some(p) = dest.parent() {
-                        std::fs::create_dir_all(p)?;
-                    }
-                    let mut out = std::fs::File::create(&dest)?;
-                    std::io::copy(&mut zf, &mut out)?;
-                }
-            }
-        }
-    }
+    // Extract the overrides folder into the game dir (blocking zip I/O off the
+    // runtime). A bad archive rolls the half-created instance back, matching
+    // the .mrpack install path.
+    let extracted = {
+        let path = tmp_path.clone();
+        let overrides = manifest.overrides.clone();
+        let game_dir = game_dir.clone();
+        tokio::task::spawn_blocking(move || extract_cf_overrides(&path, &overrides, &game_dir))
+            .await?
+    };
     std::fs::remove_file(&tmp_path).ok();
+    if let Err(e) = extracted {
+        let _ = crate::instances::delete_instance(state, &instance.id);
+        let _ = app.emit("instance://removed", instance.id.clone());
+        return Err(e);
+    }
 
     // Bulk-resolve download URLs for the listed mod files. Files whose author
     // blocked third-party distribution (null downloadUrl) are re-sourced from

@@ -211,9 +211,22 @@ pub async fn launch(
         let needs_refresh = account.access_token.is_empty()
             || account.expires_at <= chrono::Utc::now().timestamp();
         if needs_refresh {
-            if let Some(rt) = account.refresh_token.clone() {
-                account = auth::refresh(state, &rt).await?;
-                instances::upsert_account(state, account.clone())?;
+            match account.refresh_token.clone().filter(|rt| !rt.is_empty()) {
+                Some(rt) => {
+                    account = auth::refresh(state, &rt).await?;
+                    instances::upsert_account(state, account.clone())?;
+                }
+                // An expired session with no refresh token can't be renewed:
+                // fail with clear guidance now instead of launching with a
+                // stale token and letting server joins fail confusingly.
+                None => {
+                    return Err(crate::error::Error::Auth(
+                        "Your Microsoft session has expired and can't be renewed \
+                         automatically. Sign out of your Microsoft account in \
+                         EZMapa, sign in again, then try launching."
+                            .into(),
+                    ));
+                }
             }
         }
         if account.access_token.is_empty() {
@@ -332,42 +345,10 @@ pub async fn launch(
 
     let features: HashMap<String, bool> = HashMap::new();
 
-    // --- Steg 2: Kjør Forge/NeoForge Processors -----------------------------
-    if !resolved.processors.is_empty() {
-        let _ = app.emit(
-            "instance://log",
-            LogLine {
-                instance_id: instance.id.clone(),
-                line: "[EZMapa] Kjører Forge-prosessorer (patcher spillet)...".into(),
-                is_err: false,
-            },
-        );
-
-        for proc in &resolved.processors {
-            let mut proc_args = Vec::new();
-            for arg in &proc.args {
-                proc_args.push(substitute(arg, &vars));
-            }
-
-            let mut cmd = std::process::Command::new(&java_path);
-            // Forge-prosessorer trenger tilgang til hele classpath for å patche korrekt
-            cmd.arg("-cp").arg(&classpath);
-            cmd.arg(&proc.main_class);
-            cmd.args(&proc_args);
-            cmd.current_dir(&game_dir);
-
-            #[cfg(windows)]
-            {
-                use std::os::windows::process::CommandExt;
-                cmd.creation_flags(CREATE_NO_WINDOW);
-            }
-
-            let status = cmd.status().map_err(|e| Error::Other(format!("Prosessor feilet: {e}")))?;
-            if !status.success() {
-                return Err(Error::Other(format!("Prosessor {} feilet med kode {:?}", proc.main_class, status.code())));
-            }
-        }
-    }
+    // Forge/NeoForge processors are NOT run here: they live in the installer's
+    // install_profile.json and the official installer executes them during
+    // `--installClient` (see `forge::run_installer`), so the version JSON we
+    // resolve is already fully patched.
 
     // --- JVM arguments -------------------------------------------------------
     let mut jvm: Vec<String> = Vec::new();
@@ -450,7 +431,8 @@ pub async fn launch(
         cmd.creation_flags(CREATE_NO_WINDOW);
     }
 
-    // Pre-launch hook (blocking).
+    // Pre-launch hook (waits for the command, but off the async runtime — a
+    // long-running hook must not pin a worker thread).
     if let Some(pre) = instance.pre_launch.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
         let _ = app.emit(
             "instance://log",
@@ -460,7 +442,9 @@ pub async fn launch(
                 is_err: false,
             },
         );
-        run_shell(pre, &game_dir);
+        let pre = pre.to_string();
+        let hook_dir = game_dir.clone();
+        tokio::task::spawn_blocking(move || run_shell(&pre, &hook_dir)).await?;
     }
 
     let mut child = cmd.spawn().map_err(|e| {

@@ -225,11 +225,12 @@ pub async fn delete_instance(state: State<'_, AppState>, id: String) -> Result<(
 
 #[tauri::command]
 pub async fn duplicate_instance(state: State<'_, AppState>, id: String) -> Result<Instance> {
-    instances::duplicate_instance(state.inner(), &id)
+    instances::duplicate_instance(state.inner(), &id).await
 }
 
 #[tauri::command]
 pub async fn open_instance_folder(state: State<'_, AppState>, id: String) -> Result<()> {
+    instances::require_safe_name("instance id", &id)?;
     let dir = state.inner().dirs.game_dir(&id);
     std::fs::create_dir_all(&dir)?;
     open_path(&dir);
@@ -686,6 +687,8 @@ pub async fn delete_world(
 
 #[tauri::command]
 pub async fn open_world_folder(state: State<'_, AppState>, instance_id: String, name: String) -> Result<()> {
+    instances::require_safe_name("instance id", &instance_id)?;
+    instances::require_safe_name("world name", &name)?;
     let path = state.inner().dirs.game_dir(&instance_id).join("saves").join(&name);
     std::fs::create_dir_all(&path)?;
     open_path(&path);
@@ -706,6 +709,8 @@ pub async fn list_screenshots(
 
 #[tauri::command]
 pub async fn open_screenshot(state: State<'_, AppState>, instance_id: String, file_name: String) -> Result<()> {
+    instances::require_safe_name("instance id", &instance_id)?;
+    instances::require_safe_name("screenshot file name", &file_name)?;
     let path = state.inner().dirs.game_dir(&instance_id).join("screenshots").join(&file_name);
     open_path(&path);
     Ok(())
@@ -752,6 +757,8 @@ pub async fn set_mod_source(
     provider: String,
 ) -> Result<String> {
     let state = state.inner();
+    instances::require_safe_name("instance id", &instance_id)?;
+    instances::require_safe_name("mod file name", &file_name)?;
     let dir = state.dirs.game_dir(&instance_id).join("mods");
     let path = [
         dir.join(&file_name),
@@ -820,12 +827,12 @@ pub async fn export_instance(
     id: String,
     dest: String,
 ) -> Result<()> {
-    instances::export_instance(state.inner(), &id, Path::new(&dest))
+    instances::export_instance(state.inner(), &id, Path::new(&dest)).await
 }
 
 #[tauri::command]
 pub async fn import_instance(state: State<'_, AppState>, src: String) -> Result<Instance> {
-    instances::import_instance(state.inner(), Path::new(&src))
+    instances::import_instance(state.inner(), Path::new(&src)).await
 }
 
 /// Export an instance as a Modrinth modpack (`.mrpack`). `embed` lists the
@@ -1039,7 +1046,9 @@ pub async fn instance_disk_usage(
     state: State<'_, AppState>,
     instance_id: String,
 ) -> Result<tools::DiskUsage> {
-    Ok(tools::instance_disk_usage(state.inner(), &instance_id))
+    // Walking a many-GB instance is blocking filesystem work.
+    let dirs = state.inner().dirs.clone();
+    Ok(tokio::task::spawn_blocking(move || tools::instance_disk_usage(&dirs, &instance_id)).await?)
 }
 
 #[tauri::command]
@@ -1047,7 +1056,7 @@ pub async fn list_snapshots(
     state: State<'_, AppState>,
     instance_id: String,
 ) -> Result<Vec<tools::Snapshot>> {
-    Ok(tools::list_snapshots(state.inner(), &instance_id))
+    Ok(tools::list_snapshots(&state.inner().dirs, &instance_id))
 }
 
 #[tauri::command]
@@ -1056,7 +1065,9 @@ pub async fn create_snapshot(
     instance_id: String,
     world: String,
 ) -> Result<tools::Snapshot> {
-    tools::create_snapshot(state.inner(), &instance_id, &world)
+    // Zipping a world can take a while — keep it off the async runtime.
+    let dirs = state.inner().dirs.clone();
+    tokio::task::spawn_blocking(move || tools::create_snapshot(&dirs, &instance_id, &world)).await?
 }
 
 #[tauri::command]
@@ -1065,7 +1076,9 @@ pub async fn restore_snapshot(
     instance_id: String,
     file_name: String,
 ) -> Result<()> {
-    tools::restore_snapshot(state.inner(), &instance_id, &file_name)
+    let dirs = state.inner().dirs.clone();
+    tokio::task::spawn_blocking(move || tools::restore_snapshot(&dirs, &instance_id, &file_name))
+        .await?
 }
 
 #[tauri::command]
@@ -1074,7 +1087,7 @@ pub async fn delete_snapshot(
     instance_id: String,
     file_name: String,
 ) -> Result<()> {
-    tools::delete_snapshot(state.inner(), &instance_id, &file_name)
+    tools::delete_snapshot(&state.inner().dirs, &instance_id, &file_name)
 }
 
 #[tauri::command]

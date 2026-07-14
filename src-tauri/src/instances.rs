@@ -9,6 +9,22 @@ use std::collections::HashMap;
 use std::path::Path;
 
 // ---------------------------------------------------------------------------
+// Input validation
+// ---------------------------------------------------------------------------
+
+/// Reject webview-supplied ids / file names that aren't a single plain path
+/// component (`..`, separators, absolute paths). Commands join these strings
+/// onto data directories, so anything else could escape the intended folder —
+/// the delete/rename commands especially must never traverse.
+pub(crate) fn require_safe_name(kind: &str, value: &str) -> Result<()> {
+    if crate::archive::is_safe_name(value) {
+        Ok(())
+    } else {
+        Err(Error::Other(format!("Invalid {kind}: {value:?}")))
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Generic JSON helpers
 // ---------------------------------------------------------------------------
 
@@ -341,6 +357,7 @@ pub fn list_instances(state: &AppState) -> Vec<Instance> {
 }
 
 pub fn get_instance(state: &AppState, id: &str) -> Result<Instance> {
+    require_safe_name("instance id", id)?;
     let manifest = state.dirs.instance_manifest(id);
     let bytes = std::fs::read(&manifest)
         .map_err(|_| Error::NotFound(format!("instance {id}")))?;
@@ -348,6 +365,7 @@ pub fn get_instance(state: &AppState, id: &str) -> Result<Instance> {
 }
 
 pub fn save_instance(state: &AppState, instance: &Instance) -> Result<()> {
+    require_safe_name("instance id", &instance.id)?;
     write_json(&state.dirs.instance_manifest(&instance.id), instance)
 }
 
@@ -395,6 +413,7 @@ pub fn create_instance(
 }
 
 pub fn delete_instance(state: &AppState, id: &str) -> Result<()> {
+    require_safe_name("instance id", id)?;
     let dir = state.dirs.instance_dir(id);
     if dir.exists() {
         std::fs::remove_dir_all(&dir)?;
@@ -402,7 +421,7 @@ pub fn delete_instance(state: &AppState, id: &str) -> Result<()> {
     Ok(())
 }
 
-pub fn duplicate_instance(state: &AppState, id: &str) -> Result<Instance> {
+pub async fn duplicate_instance(state: &AppState, id: &str) -> Result<Instance> {
     let src = get_instance(state, id)?;
     let new = create_instance(
         state,
@@ -412,12 +431,19 @@ pub fn duplicate_instance(state: &AppState, id: &str) -> Result<Instance> {
         src.loader_version.clone(),
         src.icon.clone(),
     )?;
-    // Copy the game directory contents (mods, configs, saves, ...).
-    copy_dir(&state.dirs.game_dir(id), &state.dirs.game_dir(&new.id))?;
+    // Copy the game directory contents (mods, configs, saves, ...). Saves can
+    // run to gigabytes, so keep the copy off the async runtime.
+    let from = state.dirs.game_dir(id);
+    let to = state.dirs.game_dir(&new.id);
+    tokio::task::spawn_blocking(move || copy_dir(&from, &to)).await??;
     Ok(new)
 }
 
-fn copy_dir(from: &Path, to: &Path) -> Result<()> {
+/// Recursive overwrite-copy of a directory tree. Shared with the legacy
+/// data-dir migration in `lib.rs`; `forge::copy_dir_all` stays separate on
+/// purpose (it skips existing destination files to avoid re-copying shared
+/// libraries).
+pub(crate) fn copy_dir(from: &Path, to: &Path) -> Result<()> {
     if !from.exists() {
         return Ok(());
     }
@@ -473,6 +499,10 @@ pub fn record_session_dirs(dirs: &crate::state::AppDirs, id: &str, started: i64,
     if seconds == 0 {
         return;
     }
+    // Watcher threads for different instances can exit at the same moment;
+    // serialize the read-modify-write so one session isn't lost to the race.
+    static SESSIONS_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _guard = SESSIONS_LOCK.lock().unwrap_or_else(|p| p.into_inner());
     let path = dirs.sessions_file();
     let mut sessions: Vec<Session> = std::fs::read(&path)
         .ok()
@@ -502,7 +532,6 @@ fn zip_dir_into(
     dir: &Path,
     opts: zip::write::SimpleFileOptions,
 ) -> Result<()> {
-    use std::io::Write;
     for entry in std::fs::read_dir(dir)?.flatten() {
         let path = entry.path();
         let rel = path.strip_prefix(base).unwrap_or(&path);
@@ -511,32 +540,56 @@ fn zip_dir_into(
             zw.add_directory(format!("{rel_str}/"), opts)?;
             zip_dir_into(zw, base, &path, opts)?;
         } else {
+            // Stream instead of fs::read — region files can be hundreds of MB.
             zw.start_file(rel_str, opts)?;
-            let bytes = std::fs::read(&path)?;
-            zw.write_all(&bytes)?;
+            let mut f = std::fs::File::open(&path)?;
+            std::io::copy(&mut f, zw)?;
         }
     }
     Ok(())
 }
 
 /// Zip an instance's whole directory (manifest + game files) to `dest`.
-pub fn export_instance(state: &AppState, id: &str, dest: &Path) -> Result<()> {
+/// The zip work runs off the async runtime — instances can be gigabytes.
+pub async fn export_instance(state: &AppState, id: &str, dest: &Path) -> Result<()> {
+    require_safe_name("instance id", id)?;
     let dir = state.dirs.instance_dir(id);
     if !dir.exists() {
         return Err(Error::NotFound(format!("instance {id}")));
     }
-    let file = std::fs::File::create(dest)?;
-    let mut zw = zip::ZipWriter::new(file);
-    let opts =
-        zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
-    zip_dir_into(&mut zw, &dir, &dir, opts)?;
-    zw.finish()?;
-    Ok(())
+    let dest = dest.to_path_buf();
+    tokio::task::spawn_blocking(move || {
+        let file = std::fs::File::create(&dest)?;
+        let mut zw = zip::ZipWriter::new(file);
+        let opts = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Deflated);
+        zip_dir_into(&mut zw, &dir, &dir, opts)?;
+        zw.finish()?;
+        Ok(())
+    })
+    .await?
 }
 
 /// Import an instance from a zip produced by [`export_instance`], assigning it a
-/// fresh id so it never clobbers an existing instance.
-pub fn import_instance(state: &AppState, src: &Path) -> Result<Instance> {
+/// fresh id so it never clobbers an existing instance. Extraction runs off the
+/// async runtime.
+pub async fn import_instance(state: &AppState, src: &Path) -> Result<Instance> {
+    let src = src.to_path_buf();
+    let instances_root = state.dirs.instances();
+    let mut manifest =
+        tokio::task::spawn_blocking(move || extract_instance_import(&src, &instances_root))
+            .await??;
+    // Reset runtime stats — an import is a fresh instance.
+    manifest.last_played = None;
+    manifest.total_play_seconds = 0;
+    manifest.created = chrono::Utc::now().timestamp();
+    save_instance(state, &manifest)?;
+    Ok(manifest)
+}
+
+/// Blocking core of [`import_instance`]: read the manifest, mint a fresh id,
+/// extract everything under it. Returns the manifest with the new id set.
+fn extract_instance_import(src: &Path, instances_root: &Path) -> Result<Instance> {
     let file = std::fs::File::open(src)?;
     let mut archive = zip::ZipArchive::new(file)?;
 
@@ -552,7 +605,7 @@ pub fn import_instance(state: &AppState, src: &Path) -> Result<Instance> {
 
     let short = uuid::Uuid::new_v4().to_string();
     let new_id = format!("{}-{}", slugify(&manifest.name), &short[0..8]);
-    let dest_dir = state.dirs.instance_dir(&new_id);
+    let dest_dir = instances_root.join(&new_id);
 
     for i in 0..archive.len() {
         let mut zf = archive.by_index(i)?;
@@ -571,10 +624,7 @@ pub fn import_instance(state: &AppState, src: &Path) -> Result<Instance> {
         }
     }
 
-    // Rewrite the manifest with the new id (and reset runtime stats).
-    manifest.id = new_id.clone();
-    manifest.last_played = None;
-    save_instance(state, &manifest)?;
+    manifest.id = new_id;
     Ok(manifest)
 }
 
@@ -759,6 +809,8 @@ pub fn set_mod_enabled(
     file_name: &str,
     enabled: bool,
 ) -> Result<()> {
+    require_safe_name("instance id", instance_id)?;
+    require_safe_name("mod file name", file_name)?;
     let dir = state.dirs.game_dir(instance_id).join("mods");
     let enabled_path = dir.join(file_name);
     let disabled_path = dir.join(format!("{file_name}{DISABLED_SUFFIX}"));
@@ -771,6 +823,8 @@ pub fn set_mod_enabled(
 }
 
 pub fn delete_mod(state: &AppState, instance_id: &str, file_name: &str) -> Result<()> {
+    require_safe_name("instance id", instance_id)?;
+    require_safe_name("mod file name", file_name)?;
     let dir = state.dirs.game_dir(instance_id).join("mods");
     for candidate in [dir.join(file_name), dir.join(format!("{file_name}{DISABLED_SUFFIX}"))] {
         if candidate.exists() {
@@ -882,6 +936,8 @@ pub fn list_resource_packs(state: &AppState, instance_id: &str) -> Vec<ResourceP
 }
 
 pub fn delete_resource_pack(state: &AppState, instance_id: &str, file_name: &str) -> Result<()> {
+    require_safe_name("instance id", instance_id)?;
+    require_safe_name("resource pack file name", file_name)?;
     let path = state.dirs.game_dir(instance_id).join("resourcepacks").join(file_name);
     if path.is_dir() {
         std::fs::remove_dir_all(&path)?;
@@ -924,6 +980,8 @@ pub fn list_shaders(state: &AppState, instance_id: &str) -> Vec<ShaderEntry> {
 }
 
 pub fn delete_shader(state: &AppState, instance_id: &str, file_name: &str) -> Result<()> {
+    require_safe_name("instance id", instance_id)?;
+    require_safe_name("shader file name", file_name)?;
     let path = state.dirs.game_dir(instance_id).join("shaderpacks").join(file_name);
     if path.is_dir() {
         std::fs::remove_dir_all(&path)?;
@@ -966,6 +1024,8 @@ pub fn list_worlds(state: &AppState, instance_id: &str) -> Vec<WorldEntry> {
 }
 
 pub fn delete_world(state: &AppState, instance_id: &str, name: &str) -> Result<()> {
+    require_safe_name("instance id", instance_id)?;
+    require_safe_name("world name", name)?;
     let path = state.dirs.game_dir(instance_id).join("saves").join(name);
     if path.is_dir() {
         std::fs::remove_dir_all(&path)?;

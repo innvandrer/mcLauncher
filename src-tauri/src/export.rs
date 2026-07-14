@@ -244,7 +244,8 @@ fn export_version_id(instance: &Instance) -> String {
 
 /// Write a zip: `texts` are generated in-memory files, `bundled` are copied
 /// from disk (best-effort per file, matching the previous export behavior).
-fn write_zip(
+/// Blocking I/O — call via [`write_zip`].
+fn write_zip_sync(
     dest: &Path,
     texts: &[(String, String)],
     bundled: &[(String, PathBuf)],
@@ -258,13 +259,25 @@ fn write_zip(
         zip.write_all(content.as_bytes())?;
     }
     for (name, src) in bundled {
-        if let Ok(bytes) = std::fs::read(src) {
+        // Stream instead of buffering; skipped per file on open failure to
+        // match the previous best-effort behavior.
+        if let Ok(mut f) = std::fs::File::open(src) {
             zip.start_file(name.clone(), opts)?;
-            zip.write_all(&bytes)?;
+            std::io::copy(&mut f, &mut zip)?;
         }
     }
     zip.finish()?;
     Ok(())
+}
+
+/// Async wrapper for [`write_zip_sync`] — bundled overrides can be large, so
+/// the archive is written off the async runtime.
+async fn write_zip(
+    dest: PathBuf,
+    texts: Vec<(String, String)>,
+    bundled: Vec<(String, PathBuf)>,
+) -> Result<()> {
+    tokio::task::spawn_blocking(move || write_zip_sync(&dest, &texts, &bundled)).await?
 }
 
 // ---------------------------------------------------------------------------
@@ -365,10 +378,11 @@ pub async fn export_mrpack(
 
     let index_json = serde_json::to_string_pretty(&index)?;
     write_zip(
-        dest,
-        &[("modrinth.index.json".to_string(), index_json)],
-        &bundled,
+        dest.to_path_buf(),
+        vec![("modrinth.index.json".to_string(), index_json)],
+        bundled,
     )
+    .await
 }
 
 // ---------------------------------------------------------------------------
@@ -514,13 +528,14 @@ pub async fn export_curseforge_pack(
     let manifest_json = serde_json::to_string_pretty(&manifest)?;
     let modlist = build_modlist(&entries);
     write_zip(
-        dest,
-        &[
+        dest.to_path_buf(),
+        vec![
             ("manifest.json".to_string(), manifest_json),
             ("modlist.html".to_string(), modlist),
         ],
-        &bundled,
+        bundled,
     )
+    .await
 }
 
 #[cfg(test)]

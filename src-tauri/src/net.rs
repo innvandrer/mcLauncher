@@ -71,7 +71,12 @@ pub async fn download_one_counted(
     let mut resp = http.get(&item.url).send().await?.error_for_status()?;
 
     let mut hasher = item.sha1.as_ref().map(|_| Sha1::new());
-    let tmp = item.path.with_extension("part");
+    // Append ".part" to the full file name (`foo.jar` -> `foo.jar.part`).
+    // `with_extension` would *replace* the extension, so two files differing
+    // only by extension (foo.jar / foo.zip) would fight over one temp path.
+    let mut tmp = item.path.as_os_str().to_os_string();
+    tmp.push(".part");
+    let tmp = PathBuf::from(tmp);
     {
         let mut f = tokio::fs::File::create(&tmp).await?;
         while let Some(chunk) = resp.chunk().await? {
@@ -242,6 +247,31 @@ pub fn emit_progress(
         "task://progress",
         TaskProgress::simple(id, label, stage, current, total, done, error),
     );
+}
+
+/// Percent-encode a string for use in a URL query value (RFC 3986 unreserved
+/// characters pass through). Shared by the OAuth flow and search-link builder,
+/// which previously carried identical private copies.
+pub(crate) fn percent_encode(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() * 3);
+    for b in s.bytes() {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(b as char)
+            }
+            other => out.push_str(&format!("%{other:02X}")),
+        }
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn percent_encoding() {
+        assert_eq!(super::percent_encode("simple-id_1.2~x"), "simple-id_1.2~x");
+        assert_eq!(super::percent_encode("a b/c"), "a%20b%2Fc");
+    }
 }
 
 /// Fetch and deserialize JSON from a URL.

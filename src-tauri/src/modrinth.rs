@@ -611,8 +611,17 @@ async fn fetch_mrpack_archive(
         .cloned()
         .ok_or_else(|| Error::NotFound("mrpack file".into()))?;
 
-    let tmp_path = std::env::temp_dir()
-        .join(format!("ezmapa_{}.mrpack", &version.id[..version.id.len().min(8)]));
+    // Stage under our own cache dir, not the system temp dir: `%TEMP%` can
+    // resolve to a protected location when the app runs elevated (the same
+    // AccessDenied class the 0.3.1 installer-staging fix addressed), and a
+    // uuid suffix keeps concurrent installs of the same pack from colliding.
+    let cache_dir = state.dirs.cache();
+    std::fs::create_dir_all(&cache_dir)?;
+    let tmp_path = cache_dir.join(format!(
+        "mrpack-{}-{}.mrpack",
+        &version.id[..version.id.len().min(8)],
+        uuid::Uuid::new_v4()
+    ));
     net::download_one(
         &state.http,
         &DownloadItem::new(mrpack_file.url.clone(), tmp_path.clone(), mrpack_file.hashes.sha1.clone()),
@@ -622,9 +631,30 @@ async fn fetch_mrpack_archive(
     Ok((tmp_path, version.name))
 }
 
+/// Read `modrinth.index.json` out of an `.mrpack` on disk. Blocking I/O —
+/// call via `spawn_blocking` (see [`read_mrpack_index`]).
+fn read_mrpack_index_sync(path: &std::path::Path) -> Result<MrpackIndex> {
+    let file = std::fs::File::open(path)?;
+    let mut archive = zip::ZipArchive::new(file)?;
+    let mut idx = archive.by_name("modrinth.index.json").map_err(|_| {
+        Error::Other("Not a Modrinth modpack: missing modrinth.index.json.".into())
+    })?;
+    let mut buf = Vec::new();
+    std::io::Read::read_to_end(&mut idx, &mut buf)?;
+    Ok(serde_json::from_slice(&buf)?)
+}
+
+/// Async wrapper for [`read_mrpack_index_sync`] that keeps the zip parsing off
+/// the async runtime.
+async fn read_mrpack_index(path: &std::path::Path) -> Result<MrpackIndex> {
+    let path = path.to_path_buf();
+    tokio::task::spawn_blocking(move || read_mrpack_index_sync(&path)).await?
+}
+
 /// Parse a `.mrpack` archive: extract `overrides/` (and `client-overrides/`)
 /// into `game_dir` and return (parsed index, download items for `files`).
-fn unpack_mrpack(
+/// Blocking I/O — call via `spawn_blocking` (see [`unpack_mrpack`]).
+fn unpack_mrpack_sync(
     archive_path: &std::path::Path,
     game_dir: &std::path::Path,
 ) -> Result<(MrpackIndex, Vec<DownloadItem>)> {
@@ -683,6 +713,17 @@ fn unpack_mrpack(
     Ok((index, items))
 }
 
+/// Async wrapper for [`unpack_mrpack_sync`] — extracting a large pack is
+/// heavy blocking I/O that must stay off the async runtime.
+async fn unpack_mrpack(
+    archive_path: &std::path::Path,
+    game_dir: &std::path::Path,
+) -> Result<(MrpackIndex, Vec<DownloadItem>)> {
+    let archive_path = archive_path.to_path_buf();
+    let game_dir = game_dir.to_path_buf();
+    tokio::task::spawn_blocking(move || unpack_mrpack_sync(&archive_path, &game_dir)).await?
+}
+
 /// Download and install a Modrinth modpack (.mrpack) into an existing instance.
 /// Returns the pack name/version string.
 pub async fn install_mrpack(
@@ -696,8 +737,9 @@ pub async fn install_mrpack(
     let (tmp_path, fallback_name) = fetch_mrpack_archive(state, project_id, version_id).await?;
     let game_dir = state.dirs.game_dir(instance_id);
 
-    let (index, items) = unpack_mrpack(&tmp_path, &game_dir)?;
+    let unpacked = unpack_mrpack(&tmp_path, &game_dir).await;
     std::fs::remove_file(&tmp_path).ok();
+    let (index, items) = unpacked?;
 
     let pack_name = if index.name.is_empty() { fallback_name } else { index.name };
     net::download_many(
@@ -735,15 +777,9 @@ async fn target_mod_files(
     version_id: &str,
 ) -> Result<(String, Vec<String>)> {
     let (tmp_path, _) = fetch_mrpack_archive(state, project_id, Some(version_id)).await?;
-    let meta: MrpackIndex = {
-        let file = std::fs::File::open(&tmp_path)?;
-        let mut archive = zip::ZipArchive::new(file)?;
-        let mut idx = archive.by_name("modrinth.index.json")?;
-        let mut buf = Vec::new();
-        std::io::Read::read_to_end(&mut idx, &mut buf)?;
-        serde_json::from_slice(&buf)?
-    };
+    let meta = read_mrpack_index(&tmp_path).await;
     std::fs::remove_file(&tmp_path).ok();
+    let meta = meta?;
     let files = meta
         .files
         .iter()
@@ -1017,6 +1053,39 @@ fn choose_update(
     }
 }
 
+/// One `version_files/update` batch, optionally constrained by loader and
+/// game version. Empty hash lists skip the request entirely.
+async fn modrinth_update_batch(
+    state: &AppState,
+    hashes: Vec<String>,
+    loader: Option<&str>,
+    game_version: Option<&str>,
+) -> Result<HashMap<String, ProjectVersion>> {
+    if hashes.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let mut body = serde_json::json!({ "hashes": hashes, "algorithm": "sha1" });
+    if let Some(l) = loader {
+        if !l.is_empty() && l != "vanilla" {
+            body["loaders"] = serde_json::json!([l]);
+        }
+    }
+    if let Some(v) = game_version {
+        if !v.is_empty() {
+            body["game_versions"] = serde_json::json!([v]);
+        }
+    }
+    Ok(state
+        .http
+        .post(format!("{API}/version_files/update"))
+        .json(&body)
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?)
+}
+
 /// Check installed mods, resource packs, and shaders against BOTH Modrinth and
 /// CurseForge and return, per file, the newest version available for the
 /// instance's loader + game version (with its source platform).
@@ -1034,28 +1103,21 @@ pub async fn check_updates(
         return Ok(Vec::new());
     }
 
-    let hashes: Vec<String> = by_hash.keys().cloned().collect();
-    let mut body = serde_json::json!({ "hashes": hashes, "algorithm": "sha1" });
-    if let Some(l) = loader {
-        if !l.is_empty() && l != "vanilla" {
-            body["loaders"] = serde_json::json!([l]);
+    // Two Modrinth batches: the mod-loader filter only applies to mods.
+    // Resource-pack and shader versions are tagged `minecraft`/`iris`/
+    // `optifine` on Modrinth — never `fabric`/`forge` — so filtering their
+    // hashes by the instance loader would hide every update they have.
+    let mut mod_hashes = Vec::new();
+    let mut pack_hashes = Vec::new();
+    for (hash, local) in &by_hash {
+        if local.content_type == "mod" {
+            mod_hashes.push(hash.clone());
+        } else {
+            pack_hashes.push(hash.clone());
         }
     }
-    if let Some(v) = game_version {
-        if !v.is_empty() {
-            body["game_versions"] = serde_json::json!([v]);
-        }
-    }
-
-    let resp: HashMap<String, ProjectVersion> = state
-        .http
-        .post(format!("{API}/version_files/update"))
-        .json(&body)
-        .send()
-        .await?
-        .error_for_status()?
-        .json()
-        .await?;
+    let mut resp = modrinth_update_batch(state, mod_hashes, loader, game_version).await?;
+    resp.extend(modrinth_update_batch(state, pack_hashes, None, game_version).await?);
 
     // CurseForge candidates for the same files (empty without an API key).
     let cf_candidates = match game_version.filter(|v| !v.is_empty()) {
@@ -1244,16 +1306,7 @@ async fn instance_from_mrpack_archive(
     let settings = crate::instances::load_settings(state);
 
     // Parse the index once up front (without a game dir) to read dependencies.
-    let meta: MrpackIndex = {
-        let file = std::fs::File::open(archive_path)?;
-        let mut archive = zip::ZipArchive::new(file)?;
-        let mut idx = archive.by_name("modrinth.index.json").map_err(|_| {
-            Error::Other("Not a Modrinth modpack: missing modrinth.index.json.".into())
-        })?;
-        let mut buf = Vec::new();
-        std::io::Read::read_to_end(&mut idx, &mut buf)?;
-        serde_json::from_slice(&buf)?
-    };
+    let meta = read_mrpack_index(archive_path).await?;
 
     let mc_version = meta
         .dependencies
@@ -1283,7 +1336,7 @@ async fn instance_from_mrpack_archive(
     let _ = app.emit("instance://created", instance.clone());
 
     let game_dir = state.dirs.game_dir(&instance.id);
-    let (_index, items) = match unpack_mrpack(archive_path, &game_dir) {
+    let (_index, items) = match unpack_mrpack(archive_path, &game_dir).await {
         Ok(v) => v,
         Err(e) => {
             // Roll back the half-created instance so a bad archive doesn't

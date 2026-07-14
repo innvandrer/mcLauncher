@@ -22,9 +22,6 @@ tauri-plugin-opener = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-process = "2"
 
-[target."cfg(not(any(target_os = \"android\", target_os = \"ios\")))".dependencies]
-tauri-plugin-updater = "2"
-
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
@@ -47,6 +44,10 @@ md-5 = "0.10"
 hex = "0.4"
 
 zip = { version = "2", default-features = false, features = ["deflate"] }
+# Adoptium ships .tar.gz JRE archives on Linux/macOS (zip is Windows-only).
+# Both crates are already in the tree transitively (zip's deflate uses flate2).
+flate2 = "1"
+tar = "0.4"
 
 thiserror = "2"
 uuid = { version = "1", features = ["v4"] }
@@ -54,6 +55,12 @@ chrono = { version = "0.4", features = ["serde", "clock"], default-features = fa
 dirs = "5"
 discord-rich-presence = "1.1.0"
 keyring = { version = "3", features = ["windows-native", "apple-native", "linux-native-sync-persistent", "crypto-rust"] }
+
+# Desktop-only dependencies. NOTE: this table header captures every dependency
+# below it, so keep it at the END of the dependency section — putting general
+# dependencies after it silently desktop-gates them (mobile builds then fail).
+[target."cfg(not(any(target_os = \"android\", target_os = \"ios\")))".dependencies]
+tauri-plugin-updater = "2"
 
 [features]
 # This feature is used for production builds or when a dev server is not

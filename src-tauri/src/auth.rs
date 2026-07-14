@@ -34,18 +34,7 @@ fn client_id() -> String {
 
 // ── URL helpers ──────────────────────────────────────────────────────────────
 
-fn percent_encode(s: &str) -> String {
-    let mut out = String::with_capacity(s.len() * 3);
-    for b in s.bytes() {
-        match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
-                out.push(b as char)
-            }
-            other => out.push_str(&format!("%{other:02X}")),
-        }
-    }
-    out
-}
+use crate::net::percent_encode;
 
 /// Decode a percent-encoded query value. `+` is treated as a space (the
 /// standard for `application/x-www-form-urlencoded` query strings).

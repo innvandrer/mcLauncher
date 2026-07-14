@@ -620,7 +620,7 @@ pub async fn analyze_server(
                 version: m.version.clone(),
                 search_url: format!(
                     "https://modrinth.com/mods?q={}",
-                    urlencode(&m.id)
+                    crate::net::percent_encode(&m.id)
                 ),
             }),
         }
@@ -628,19 +628,6 @@ pub async fn analyze_server(
     crate::net::emit_progress(app, &task_id, "Analyzing server mods", "resolve", total, total, true, None);
 
     Ok(plan)
-}
-
-fn urlencode(s: &str) -> String {
-    let mut out = String::new();
-    for b in s.bytes() {
-        match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
-                out.push(b as char)
-            }
-            _ => out.push_str(&format!("%{b:02X}")),
-        }
-    }
-    out
 }
 
 /// The result of building an instance from a server's mod list.
@@ -1010,9 +997,4 @@ mod tests {
         assert_ne!(normalize_slug("ironchest"), normalize_slug("iron-chests"));
     }
 
-    #[test]
-    fn urlencoding() {
-        assert_eq!(urlencode("simple-id_1.2~x"), "simple-id_1.2~x");
-        assert_eq!(urlencode("a b/c"), "a%20b%2Fc");
-    }
 }
