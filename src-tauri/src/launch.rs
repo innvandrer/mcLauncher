@@ -431,7 +431,8 @@ pub async fn launch(
         cmd.creation_flags(CREATE_NO_WINDOW);
     }
 
-    // Pre-launch hook (blocking).
+    // Pre-launch hook (waits for the command, but off the async runtime — a
+    // long-running hook must not pin a worker thread).
     if let Some(pre) = instance.pre_launch.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
         let _ = app.emit(
             "instance://log",
@@ -441,7 +442,9 @@ pub async fn launch(
                 is_err: false,
             },
         );
-        run_shell(pre, &game_dir);
+        let pre = pre.to_string();
+        let hook_dir = game_dir.clone();
+        tokio::task::spawn_blocking(move || run_shell(&pre, &hook_dir)).await?;
     }
 
     let mut child = cmd.spawn().map_err(|e| {

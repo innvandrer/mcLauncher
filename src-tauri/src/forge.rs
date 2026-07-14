@@ -233,21 +233,19 @@ async fn run_installer(
         4,
     );
 
-    let mut cmd = std::process::Command::new(&java_path);
-    cmd.args([
-        "-jar",
-        installer_path.to_str().unwrap(),
-        "--installClient",
-        staging.to_str().unwrap(),
-    ]);
+    // The installer runs for a minute or more — use tokio's process wrapper so
+    // it doesn't pin an async worker thread for the whole install.
+    let mut cmd = tokio::process::Command::new(&java_path);
+    cmd.arg("-jar")
+        .arg(&installer_path)
+        .arg("--installClient")
+        .arg(&staging);
     #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
-    }
+    cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
 
     let output = cmd
         .output()
+        .await
         .map_err(|e| Error::Other(format!("Failed to launch {label} installer: {e}")))?;
 
     if !output.status.success() {
@@ -258,9 +256,12 @@ async fn run_installer(
 
     emit_progress(app, task_id, &format!("Installing {label}"), "Copying artifacts", 3, 4);
 
+    // The staged libraries can run to hundreds of megabytes — copy them off
+    // the async runtime.
     let staging_libs = staging.join("libraries");
     if staging_libs.exists() {
-        copy_dir_all(&staging_libs, &state.dirs.libraries())?;
+        let lib_root = state.dirs.libraries();
+        tokio::task::spawn_blocking(move || copy_dir_all(&staging_libs, &lib_root)).await??;
     }
 
     let staging_versions = staging.join("versions");

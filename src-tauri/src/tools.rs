@@ -3,7 +3,7 @@
 //! as a Tauri command in `commands.rs`.
 
 use crate::error::{Error, Result};
-use crate::state::AppState;
+use crate::state::{AppDirs, AppState};
 use serde::Serialize;
 use std::io::{Read, Write};
 use std::path::Path;
@@ -41,8 +41,8 @@ fn dir_size(path: &Path) -> u64 {
     total
 }
 
-pub fn instance_disk_usage(state: &AppState, instance_id: &str) -> DiskUsage {
-    let game = state.dirs.game_dir(instance_id);
+pub fn instance_disk_usage(dirs: &AppDirs, instance_id: &str) -> DiskUsage {
+    let game = dirs.game_dir(instance_id);
     // Walk the game directory once: size each top-level entry, attribute the
     // known content folders, and fold everything else into `other`. (The old
     // version walked mods/saves/resourcepacks/shaders and then the whole tree
@@ -82,12 +82,12 @@ pub struct Snapshot {
     pub created: i64,
 }
 
-fn snapshots_dir(state: &AppState, instance_id: &str) -> std::path::PathBuf {
-    state.dirs.instance_dir(instance_id).join("snapshots")
+fn snapshots_dir(dirs: &AppDirs, instance_id: &str) -> std::path::PathBuf {
+    dirs.instance_dir(instance_id).join("snapshots")
 }
 
-pub fn list_snapshots(state: &AppState, instance_id: &str) -> Vec<Snapshot> {
-    let dir = snapshots_dir(state, instance_id);
+pub fn list_snapshots(dirs: &AppDirs, instance_id: &str) -> Vec<Snapshot> {
+    let dir = snapshots_dir(dirs, instance_id);
     let mut out = Vec::new();
     if let Ok(rd) = std::fs::read_dir(&dir) {
         for e in rd.flatten() {
@@ -118,14 +118,15 @@ pub fn list_snapshots(state: &AppState, instance_id: &str) -> Vec<Snapshot> {
 }
 
 /// Zip up a single world folder under `saves/` into the snapshots directory.
-pub fn create_snapshot(state: &AppState, instance_id: &str, world: &str) -> Result<Snapshot> {
+/// Blocking I/O — commands call this via `spawn_blocking`.
+pub fn create_snapshot(dirs: &AppDirs, instance_id: &str, world: &str) -> Result<Snapshot> {
     crate::instances::require_safe_name("instance id", instance_id)?;
     crate::instances::require_safe_name("world name", world)?;
-    let world_dir = state.dirs.game_dir(instance_id).join("saves").join(world);
+    let world_dir = dirs.game_dir(instance_id).join("saves").join(world);
     if !world_dir.is_dir() {
         return Err(Error::Other(format!("World “{world}” not found.")));
     }
-    let dir = snapshots_dir(state, instance_id);
+    let dir = snapshots_dir(dirs, instance_id);
     std::fs::create_dir_all(&dir)?;
     let stamp = chrono::Utc::now().timestamp();
     // Sanitize the world name for use in a file name.
@@ -173,14 +174,15 @@ fn zip_dir_recursive<W: Write + std::io::Seek>(
 }
 
 /// Restore a snapshot, overwriting the current world folder of the same name.
-pub fn restore_snapshot(state: &AppState, instance_id: &str, file_name: &str) -> Result<()> {
+/// Blocking I/O — commands call this via `spawn_blocking`.
+pub fn restore_snapshot(dirs: &AppDirs, instance_id: &str, file_name: &str) -> Result<()> {
     crate::instances::require_safe_name("instance id", instance_id)?;
     crate::instances::require_safe_name("snapshot file name", file_name)?;
-    let zip_path = snapshots_dir(state, instance_id).join(file_name);
+    let zip_path = snapshots_dir(dirs, instance_id).join(file_name);
     if !zip_path.is_file() {
         return Err(Error::Other("Snapshot not found.".into()));
     }
-    let saves = state.dirs.game_dir(instance_id).join("saves");
+    let saves = dirs.game_dir(instance_id).join("saves");
 
     let file = std::fs::File::open(&zip_path)?;
     let mut archive = zip::ZipArchive::new(file)?;
@@ -219,10 +221,10 @@ pub fn restore_snapshot(state: &AppState, instance_id: &str, file_name: &str) ->
     Ok(())
 }
 
-pub fn delete_snapshot(state: &AppState, instance_id: &str, file_name: &str) -> Result<()> {
+pub fn delete_snapshot(dirs: &AppDirs, instance_id: &str, file_name: &str) -> Result<()> {
     crate::instances::require_safe_name("instance id", instance_id)?;
     crate::instances::require_safe_name("snapshot file name", file_name)?;
-    let zip_path = snapshots_dir(state, instance_id).join(file_name);
+    let zip_path = snapshots_dir(dirs, instance_id).join(file_name);
     if zip_path.is_file() {
         std::fs::remove_file(&zip_path)?;
     }

@@ -421,7 +421,7 @@ pub fn delete_instance(state: &AppState, id: &str) -> Result<()> {
     Ok(())
 }
 
-pub fn duplicate_instance(state: &AppState, id: &str) -> Result<Instance> {
+pub async fn duplicate_instance(state: &AppState, id: &str) -> Result<Instance> {
     let src = get_instance(state, id)?;
     let new = create_instance(
         state,
@@ -431,8 +431,11 @@ pub fn duplicate_instance(state: &AppState, id: &str) -> Result<Instance> {
         src.loader_version.clone(),
         src.icon.clone(),
     )?;
-    // Copy the game directory contents (mods, configs, saves, ...).
-    copy_dir(&state.dirs.game_dir(id), &state.dirs.game_dir(&new.id))?;
+    // Copy the game directory contents (mods, configs, saves, ...). Saves can
+    // run to gigabytes, so keep the copy off the async runtime.
+    let from = state.dirs.game_dir(id);
+    let to = state.dirs.game_dir(&new.id);
+    tokio::task::spawn_blocking(move || copy_dir(&from, &to)).await??;
     Ok(new)
 }
 
@@ -539,24 +542,44 @@ fn zip_dir_into(
 }
 
 /// Zip an instance's whole directory (manifest + game files) to `dest`.
-pub fn export_instance(state: &AppState, id: &str, dest: &Path) -> Result<()> {
+/// The zip work runs off the async runtime — instances can be gigabytes.
+pub async fn export_instance(state: &AppState, id: &str, dest: &Path) -> Result<()> {
     require_safe_name("instance id", id)?;
     let dir = state.dirs.instance_dir(id);
     if !dir.exists() {
         return Err(Error::NotFound(format!("instance {id}")));
     }
-    let file = std::fs::File::create(dest)?;
-    let mut zw = zip::ZipWriter::new(file);
-    let opts =
-        zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
-    zip_dir_into(&mut zw, &dir, &dir, opts)?;
-    zw.finish()?;
-    Ok(())
+    let dest = dest.to_path_buf();
+    tokio::task::spawn_blocking(move || {
+        let file = std::fs::File::create(&dest)?;
+        let mut zw = zip::ZipWriter::new(file);
+        let opts = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Deflated);
+        zip_dir_into(&mut zw, &dir, &dir, opts)?;
+        zw.finish()?;
+        Ok(())
+    })
+    .await?
 }
 
 /// Import an instance from a zip produced by [`export_instance`], assigning it a
-/// fresh id so it never clobbers an existing instance.
-pub fn import_instance(state: &AppState, src: &Path) -> Result<Instance> {
+/// fresh id so it never clobbers an existing instance. Extraction runs off the
+/// async runtime.
+pub async fn import_instance(state: &AppState, src: &Path) -> Result<Instance> {
+    let src = src.to_path_buf();
+    let instances_root = state.dirs.instances();
+    let mut manifest =
+        tokio::task::spawn_blocking(move || extract_instance_import(&src, &instances_root))
+            .await??;
+    // Reset runtime stats — an import is a fresh instance.
+    manifest.last_played = None;
+    save_instance(state, &manifest)?;
+    Ok(manifest)
+}
+
+/// Blocking core of [`import_instance`]: read the manifest, mint a fresh id,
+/// extract everything under it. Returns the manifest with the new id set.
+fn extract_instance_import(src: &Path, instances_root: &Path) -> Result<Instance> {
     let file = std::fs::File::open(src)?;
     let mut archive = zip::ZipArchive::new(file)?;
 
@@ -572,7 +595,7 @@ pub fn import_instance(state: &AppState, src: &Path) -> Result<Instance> {
 
     let short = uuid::Uuid::new_v4().to_string();
     let new_id = format!("{}-{}", slugify(&manifest.name), &short[0..8]);
-    let dest_dir = state.dirs.instance_dir(&new_id);
+    let dest_dir = instances_root.join(&new_id);
 
     for i in 0..archive.len() {
         let mut zf = archive.by_index(i)?;
@@ -591,10 +614,7 @@ pub fn import_instance(state: &AppState, src: &Path) -> Result<Instance> {
         }
     }
 
-    // Rewrite the manifest with the new id (and reset runtime stats).
-    manifest.id = new_id.clone();
-    manifest.last_played = None;
-    save_instance(state, &manifest)?;
+    manifest.id = new_id;
     Ok(manifest)
 }
 

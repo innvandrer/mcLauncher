@@ -225,7 +225,7 @@ pub async fn delete_instance(state: State<'_, AppState>, id: String) -> Result<(
 
 #[tauri::command]
 pub async fn duplicate_instance(state: State<'_, AppState>, id: String) -> Result<Instance> {
-    instances::duplicate_instance(state.inner(), &id)
+    instances::duplicate_instance(state.inner(), &id).await
 }
 
 #[tauri::command]
@@ -827,12 +827,12 @@ pub async fn export_instance(
     id: String,
     dest: String,
 ) -> Result<()> {
-    instances::export_instance(state.inner(), &id, Path::new(&dest))
+    instances::export_instance(state.inner(), &id, Path::new(&dest)).await
 }
 
 #[tauri::command]
 pub async fn import_instance(state: State<'_, AppState>, src: String) -> Result<Instance> {
-    instances::import_instance(state.inner(), Path::new(&src))
+    instances::import_instance(state.inner(), Path::new(&src)).await
 }
 
 /// Export an instance as a Modrinth modpack (`.mrpack`). `embed` lists the
@@ -1046,7 +1046,9 @@ pub async fn instance_disk_usage(
     state: State<'_, AppState>,
     instance_id: String,
 ) -> Result<tools::DiskUsage> {
-    Ok(tools::instance_disk_usage(state.inner(), &instance_id))
+    // Walking a many-GB instance is blocking filesystem work.
+    let dirs = state.inner().dirs.clone();
+    Ok(tokio::task::spawn_blocking(move || tools::instance_disk_usage(&dirs, &instance_id)).await?)
 }
 
 #[tauri::command]
@@ -1054,7 +1056,7 @@ pub async fn list_snapshots(
     state: State<'_, AppState>,
     instance_id: String,
 ) -> Result<Vec<tools::Snapshot>> {
-    Ok(tools::list_snapshots(state.inner(), &instance_id))
+    Ok(tools::list_snapshots(&state.inner().dirs, &instance_id))
 }
 
 #[tauri::command]
@@ -1063,7 +1065,9 @@ pub async fn create_snapshot(
     instance_id: String,
     world: String,
 ) -> Result<tools::Snapshot> {
-    tools::create_snapshot(state.inner(), &instance_id, &world)
+    // Zipping a world can take a while — keep it off the async runtime.
+    let dirs = state.inner().dirs.clone();
+    tokio::task::spawn_blocking(move || tools::create_snapshot(&dirs, &instance_id, &world)).await?
 }
 
 #[tauri::command]
@@ -1072,7 +1076,9 @@ pub async fn restore_snapshot(
     instance_id: String,
     file_name: String,
 ) -> Result<()> {
-    tools::restore_snapshot(state.inner(), &instance_id, &file_name)
+    let dirs = state.inner().dirs.clone();
+    tokio::task::spawn_blocking(move || tools::restore_snapshot(&dirs, &instance_id, &file_name))
+        .await?
 }
 
 #[tauri::command]
@@ -1081,7 +1087,7 @@ pub async fn delete_snapshot(
     instance_id: String,
     file_name: String,
 ) -> Result<()> {
-    tools::delete_snapshot(state.inner(), &instance_id, &file_name)
+    tools::delete_snapshot(&state.inner().dirs, &instance_id, &file_name)
 }
 
 #[tauri::command]
