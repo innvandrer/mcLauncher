@@ -215,3 +215,39 @@ an automatic backup before `delete_world`, ESLint/`cargo fmt` in CI, i18n extrac
 4. #2 (spawn_blocking sweep) and #5 (delete the processor path) together — both live
    in the launch/install path and are easiest to verify in one pass.
 5. #9 and #4 when cross-platform work starts.
+
+---
+
+## Resolution (applied on this branch)
+
+Every finding above was addressed in the commits following this document.
+Verified with `cargo clippy -- -D warnings` and `cargo test` (103 passing)
+plus `tsc` and `vite build` on the frontend.
+
+| Finding | Commit | Notes |
+| --- | --- | --- |
+| #1 Cargo.toml dep gating | `babf9fd` | Updater table moved below general deps, with a warning comment |
+| #6 Java-version tables disagree | `babf9fd` | Single `java::required_major_for_mc` (1.17 → 16), tests moved with it |
+| #7 Expired session launches | `babf9fd` | Expired + no refresh token now errors with re-sign-in guidance |
+| #3 Pack/shader updates loader-filtered | `04176f2` | Two `version_files/update` batches: mods filtered, packs/shaders not |
+| #8 Path traversal in command args | `84fdfff` | `archive::is_safe_name` applied to ids/world/file names at the boundaries |
+| #10 Modpacks in system temp | `07243be` | Staged under `dirs.cache()` with uuid suffixes |
+| #5 Dead Forge processor path | `562c341` | Removed, with a comment explaining why processors never appear here |
+| #2 Blocking work on async runtime | `39335b5` | tokio::process for the installer; spawn_blocking for zip/copy/hook work; CF pack extraction failures now roll back the instance |
+| #9 Unverified installer/JRE downloads | `83c9668` | Installer checked against maven `.sha1`; JRE streamed + sha256-verified via the assets API |
+| #4 tar.gz JRE archives (Linux/macOS) | `83c9668` | Extractor picked from the package name; `tar`/`flate2` handle .tar.gz |
+| Minor batch | `ae00f4f` | `.part` naming, sessions.json lock, import stat reset, streaming zip writers, copy_dir/percent_encode dedup, async Discord init, devtools permission dropped |
+
+Left as-is, deliberately:
+- **Silent auto-update on startup** — documented product behavior (README:
+  "updates itself in the background"); changing it to a prompt is a product
+  decision, not a bug fix.
+- **`save_png` / skin import / export destinations** — inherently
+  user-chosen-path features driven by native dialogs; validating them away
+  would break the feature. Noted as accepted risk.
+- **`stop()` SIGTERM (no process tree) on Unix** and **`InstanceDetailPage.tsx`
+  split** — deferred to the cross-platform milestone and a dedicated refactor
+  respectively.
+- **Hand-rolled base64 in `skin.rs`** — both codecs are tested and local to one
+  module; swapping to the `base64` crate adds a dependency for no behavior
+  change.
