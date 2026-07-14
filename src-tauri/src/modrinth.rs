@@ -1017,6 +1017,39 @@ fn choose_update(
     }
 }
 
+/// One `version_files/update` batch, optionally constrained by loader and
+/// game version. Empty hash lists skip the request entirely.
+async fn modrinth_update_batch(
+    state: &AppState,
+    hashes: Vec<String>,
+    loader: Option<&str>,
+    game_version: Option<&str>,
+) -> Result<HashMap<String, ProjectVersion>> {
+    if hashes.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let mut body = serde_json::json!({ "hashes": hashes, "algorithm": "sha1" });
+    if let Some(l) = loader {
+        if !l.is_empty() && l != "vanilla" {
+            body["loaders"] = serde_json::json!([l]);
+        }
+    }
+    if let Some(v) = game_version {
+        if !v.is_empty() {
+            body["game_versions"] = serde_json::json!([v]);
+        }
+    }
+    Ok(state
+        .http
+        .post(format!("{API}/version_files/update"))
+        .json(&body)
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?)
+}
+
 /// Check installed mods, resource packs, and shaders against BOTH Modrinth and
 /// CurseForge and return, per file, the newest version available for the
 /// instance's loader + game version (with its source platform).
@@ -1034,28 +1067,21 @@ pub async fn check_updates(
         return Ok(Vec::new());
     }
 
-    let hashes: Vec<String> = by_hash.keys().cloned().collect();
-    let mut body = serde_json::json!({ "hashes": hashes, "algorithm": "sha1" });
-    if let Some(l) = loader {
-        if !l.is_empty() && l != "vanilla" {
-            body["loaders"] = serde_json::json!([l]);
+    // Two Modrinth batches: the mod-loader filter only applies to mods.
+    // Resource-pack and shader versions are tagged `minecraft`/`iris`/
+    // `optifine` on Modrinth — never `fabric`/`forge` — so filtering their
+    // hashes by the instance loader would hide every update they have.
+    let mut mod_hashes = Vec::new();
+    let mut pack_hashes = Vec::new();
+    for (hash, local) in &by_hash {
+        if local.content_type == "mod" {
+            mod_hashes.push(hash.clone());
+        } else {
+            pack_hashes.push(hash.clone());
         }
     }
-    if let Some(v) = game_version {
-        if !v.is_empty() {
-            body["game_versions"] = serde_json::json!([v]);
-        }
-    }
-
-    let resp: HashMap<String, ProjectVersion> = state
-        .http
-        .post(format!("{API}/version_files/update"))
-        .json(&body)
-        .send()
-        .await?
-        .error_for_status()?
-        .json()
-        .await?;
+    let mut resp = modrinth_update_batch(state, mod_hashes, loader, game_version).await?;
+    resp.extend(modrinth_update_batch(state, pack_hashes, None, game_version).await?);
 
     // CurseForge candidates for the same files (empty without an API key).
     let cf_candidates = match game_version.filter(|v| !v.is_empty()) {
