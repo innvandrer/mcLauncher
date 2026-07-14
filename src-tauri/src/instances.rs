@@ -431,7 +431,7 @@ pub fn delete_instance(state: &AppState, id: &str) -> Result<()> {
 
 pub async fn duplicate_instance(state: &AppState, id: &str) -> Result<Instance> {
     let src = get_instance(state, id)?;
-    let new = create_instance(
+    let mut new = create_instance(
         state,
         &format!("{} (copy)", src.name),
         &src.mc_version,
@@ -439,11 +439,41 @@ pub async fn duplicate_instance(state: &AppState, id: &str) -> Result<Instance> 
         src.loader_version.clone(),
         src.icon.clone(),
     )?;
-    // Copy the game directory contents (mods, configs, saves, ...). Saves can
-    // run to gigabytes, so keep the copy off the async runtime.
+
+    // create_instance only takes the handful of fields needed to start a
+    // fresh instance; carry over the rest of the source's settings so a
+    // duplicate behaves like the original instead of resetting to defaults.
+    new.group = src.group.clone();
+    new.accent = src.accent.clone();
+    new.memory_mb = src.memory_mb;
+    new.java_path = src.java_path.clone();
+    new.jvm_args = src.jvm_args.clone();
+    new.window_width = src.window_width;
+    new.window_height = src.window_height;
+    new.env_vars = src.env_vars.clone();
+    new.pre_launch = src.pre_launch.clone();
+    new.post_exit = src.post_exit.clone();
+    new.pack_source = src.pack_source.clone();
+    new.loadouts = src.loadouts.clone();
+    save_instance(state, &new)?;
+
+    // Copy the game directory contents (mods, configs, saves, ...) and the
+    // content index (which provider each mod came from — loadouts and the
+    // update checker both key off it; without it a duplicate's mods would
+    // show as untracked). Saves can run to gigabytes, so keep this off the
+    // async runtime.
     let from = state.dirs.game_dir(id);
     let to = state.dirs.game_dir(&new.id);
-    tokio::task::spawn_blocking(move || copy_dir(&from, &to)).await??;
+    let index_from = index_path(state, id);
+    let index_to = index_path(state, &new.id);
+    tokio::task::spawn_blocking(move || -> Result<()> {
+        copy_dir(&from, &to)?;
+        if index_from.exists() {
+            std::fs::copy(&index_from, &index_to)?;
+        }
+        Ok(())
+    })
+    .await??;
     Ok(new)
 }
 
@@ -1270,6 +1300,36 @@ mod lifecycle_tests {
         state.running.lock().unwrap().remove(&inst.id);
         delete_instance(&state, &inst.id).unwrap();
         assert!(!state.dirs.instance_dir(&inst.id).exists());
+
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[tokio::test]
+    async fn duplicate_instance_carries_over_settings_and_index() {
+        let (state, root) = temp_state();
+        let mut src = create_instance(&state, "Original", "1.21.1", crate::models::Loader::Fabric, Some("0.16.0".into()), None)
+            .unwrap();
+        src.memory_mb = Some(6144);
+        src.java_path = Some("/opt/java21/bin/java".into());
+        src.jvm_args = Some("-Xss4m".into());
+        src.env_vars = Some("FOO=bar".into());
+        src.loadouts = vec![Loadout { name: "Performance".into(), disabled: vec!["laggy-mod".into()] }];
+        save_instance(&state, &src).unwrap();
+        record_installs(&state, &src.id, &[("sodium.jar".into(), "AANobbMI".into())], "modrinth");
+
+        let dup = duplicate_instance(&state, &src.id).await.unwrap();
+        assert_eq!(dup.memory_mb, Some(6144));
+        assert_eq!(dup.java_path.as_deref(), Some("/opt/java21/bin/java"));
+        assert_eq!(dup.jvm_args.as_deref(), Some("-Xss4m"));
+        assert_eq!(dup.env_vars.as_deref(), Some("FOO=bar"));
+        assert_eq!(dup.loadouts.len(), 1);
+        assert_eq!(dup.loadouts[0].name, "Performance");
+
+        let dup_idx = load_index(&state, &dup.id);
+        assert_eq!(
+            dup_idx.items.get("sodium.jar").map(|i| i.project_id.as_str()),
+            Some("AANobbMI"),
+        );
 
         std::fs::remove_dir_all(&root).ok();
     }
