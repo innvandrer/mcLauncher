@@ -1008,6 +1008,54 @@ pub async fn open_url(url: String) -> Result<()> {
     Ok(())
 }
 
+/// Best-effort redaction of JWT-shaped session tokens (three base64url segments
+/// joined by dots, led by the `eyJ` header marker) from text before it leaves
+/// the machine. Microsoft, Xbox (XBL/XSTS), and Minecraft access tokens are all
+/// JWTs, so a single shape check catches them whether they show up in an argv
+/// echo, a JSON body, or an `Authorization: Bearer` line. Defense-in-depth: the
+/// launcher never writes a token to the game log itself, but a mod or a crash
+/// report could, and this upload publishes the log to a third-party paste.
+fn redact_secrets(input: &str) -> String {
+    fn is_token_char(c: char) -> bool {
+        c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.')
+    }
+    // A run is a JWT when it starts with `eyJ` (base64url of `{"a…`, the
+    // standard header start) and is exactly three non-empty base64url parts.
+    // The `eyJ` gate makes false positives on version strings / filenames
+    // (e.g. `sodium-0.6.0.jar`, `1.20.1`) essentially impossible.
+    fn looks_like_jwt(run: &str) -> bool {
+        if !run.starts_with("eyJ") {
+            return false;
+        }
+        let parts: Vec<&str> = run.split('.').collect();
+        parts.len() == 3
+            && parts.iter().all(|p| {
+                p.len() >= 2 && p.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+            })
+    }
+
+    let mut out = String::with_capacity(input.len());
+    let mut run = String::new();
+    let flush = |out: &mut String, run: &mut String| {
+        if looks_like_jwt(run) {
+            out.push_str("***REDACTED***");
+        } else {
+            out.push_str(run);
+        }
+        run.clear();
+    };
+    for c in input.chars() {
+        if is_token_char(c) {
+            run.push(c);
+        } else {
+            flush(&mut out, &mut run);
+            out.push(c);
+        }
+    }
+    flush(&mut out, &mut run);
+    out
+}
+
 /// Upload game-log text to mclo.gs and return the shareable URL (for sharing
 /// crash logs without copy-pasting walls of text).
 #[tauri::command]
@@ -1020,6 +1068,8 @@ pub async fn upload_log(state: State<'_, AppState>, content: String) -> Result<S
         #[serde(default)]
         error: Option<String>,
     }
+    // Strip any session tokens before the log leaves the machine for a public paste.
+    let content = redact_secrets(&content);
     let resp: Resp = state
         .inner()
         .http
@@ -1299,4 +1349,55 @@ pub async fn fetch_player_skin(
     query: String,
 ) -> Result<skin::PlayerSkin> {
     skin::fetch_player_skin(state.inner(), &query).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn validate_http_url_rejects_non_http_schemes() {
+        assert!(validate_http_url("https://modrinth.com").is_ok());
+        assert!(validate_http_url("http://example.com/x").is_ok());
+        assert!(validate_http_url("file:///etc/passwd").is_err());
+        assert!(validate_http_url("javascript:alert(1)").is_err());
+        assert!(validate_http_url("").is_err());
+        assert!(validate_http_url("https://").is_err());
+    }
+
+    #[test]
+    fn redact_masks_jwt_shaped_tokens() {
+        // A real MC-style access token appearing as an argv echo.
+        let jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJzdGV2ZSJ9.dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk";
+        let line = format!("[main] launching with --accessToken {jwt} --uuid 069a79f4");
+        let out = redact_secrets(&line);
+        assert!(!out.contains(jwt), "token must be gone: {out}");
+        assert!(out.contains("***REDACTED***"));
+        // Non-secret context is preserved.
+        assert!(out.contains("--accessToken"));
+        assert!(out.contains("069a79f4"));
+    }
+
+    #[test]
+    fn redact_masks_jwt_inside_json_and_bearer() {
+        let jwt = "eyJ0eXAiOiJKV1QifQ.eyJhIjoxfQ.Zm9vYmFyc2lnbmF0dXJl";
+        assert_eq!(
+            redact_secrets(&format!("\"accessToken\":\"{jwt}\"")),
+            "\"accessToken\":\"***REDACTED***\"",
+        );
+        assert_eq!(
+            redact_secrets(&format!("Authorization: Bearer {jwt}")),
+            "Authorization: Bearer ***REDACTED***",
+        );
+    }
+
+    #[test]
+    fn redact_leaves_ordinary_log_text_untouched() {
+        // Version strings and mod filenames must never trip the JWT gate.
+        let log = "[INFO] Loaded sodium-fabric-0.6.0.jar for Minecraft 1.21.1 (build 47.4.0)";
+        assert_eq!(redact_secrets(log), log);
+        // A UUID (no eyJ prefix, not three dotted parts) is not a secret here.
+        let uuid = "069a79f4-44e9-4726-a5be-fca90e38aaf5";
+        assert_eq!(redact_secrets(uuid), uuid);
+    }
 }
