@@ -15,12 +15,18 @@ export const LOADER_ICON_BGS: Record<string, string> = {
 const SIZES = {
   sm: { box: "h-9 w-9 rounded-lg", emoji: "text-base", logo: "h-6 w-6" },
   card: { box: "h-14 w-14 rounded-xl", emoji: "text-2xl", logo: "h-10 w-10" },
-  detail: { box: "h-16 w-16 rounded-2xl", emoji: "text-3xl", logo: "h-12 w-12" },
+  detail: {
+    box: "h-16 w-16 rounded-2xl",
+    emoji: "text-3xl",
+    logo: "h-12 w-12",
+  },
 } as const;
 
 function isATM10(instance: Instance): boolean {
   const n = instance.name.toLowerCase();
-  return n.includes("all the mods 10") || n.includes("atm10") || n.includes("atm 10");
+  return (
+    n.includes("all the mods 10") || n.includes("atm10") || n.includes("atm 10")
+  );
 }
 
 /**
@@ -49,12 +55,19 @@ export function InstanceIcon({
   const imageUrl = isImageIcon(instance.icon) ? instance.icon! : null;
   const bg = atm
     ? "from-yellow-400/40 to-yellow-700/20"
-    : LOADER_ICON_BGS[instance.loader] ?? LOADER_ICON_BGS.vanilla;
+    : (LOADER_ICON_BGS[instance.loader] ?? LOADER_ICON_BGS.vanilla);
 
   // 1. Pack art / ATM10 image.
   if (imageUrl && !imgError) {
     return (
-      <div className={cn("overflow-hidden bg-gradient-to-br shadow-inner", s.box, bg, className)}>
+      <div
+        className={cn(
+          "overflow-hidden bg-gradient-to-br shadow-inner",
+          s.box,
+          bg,
+          className,
+        )}
+      >
         <img
           src={imageUrl}
           alt={instance.name}

@@ -37,6 +37,15 @@ jobs:
       - name: Build frontend
         run: npm run build
 
+      - name: Lint frontend
+        run: npm run lint
+
+      - name: Check frontend formatting
+        run: npm run format:check
+
+      - name: Run frontend tests
+        run: npm test
+
       - name: Clippy (deny warnings)
         working-directory: src-tauri
         run: cargo clippy -- -D warnings

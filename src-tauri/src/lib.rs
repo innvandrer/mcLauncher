@@ -20,6 +20,7 @@ mod net;
 mod jvmtune;
 mod preflight;
 mod server_mods;
+mod sharing;
 mod servers;
 mod shortcuts;
 mod startup;
@@ -137,6 +138,8 @@ pub fn run() {
             commands::list_curseforge_files,
             commands::check_mod_updates,
             commands::apply_mod_update,
+            commands::apply_mod_updates,
+            commands::rollback_last_content_update,
             commands::set_mod_source,
             commands::auto_update_instance_content,
             commands::export_instance,
@@ -144,10 +147,15 @@ pub fn run() {
             commands::export_mrpack,
             commands::export_curseforge_pack,
             commands::prepare_pack_export,
+            commands::export_share_manifest,
+            commands::import_share_manifest,
+            commands::get_share_code,
+            commands::import_share_code,
             commands::import_mrpack,
             commands::list_mods,
             commands::set_mod_enabled,
             commands::delete_mod,
+            commands::mod_removal_impact,
             commands::save_loadout,
             commands::apply_loadout,
             commands::delete_loadout,
@@ -161,6 +169,8 @@ pub fn run() {
             commands::open_world_folder,
             commands::list_screenshots,
             commands::open_screenshot,
+            commands::read_screenshot,
+            commands::offline_readiness,
             commands::instance_disk_usage,
             commands::list_snapshots,
             commands::create_snapshot,

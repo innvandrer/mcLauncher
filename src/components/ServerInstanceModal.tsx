@@ -1,5 +1,11 @@
 import { useEffect, useState } from "react";
-import { AlertTriangle, Check, ExternalLink, HelpCircle, MinusCircle } from "lucide-react";
+import {
+  AlertTriangle,
+  Check,
+  ExternalLink,
+  HelpCircle,
+  MinusCircle,
+} from "lucide-react";
 import { Button, Field, Input, Modal, Spinner } from "./ui";
 import { api, errMessage } from "@/lib/api";
 import { t } from "@/lib/strings";
@@ -62,7 +68,12 @@ export function ServerInstanceModal({
     : 0;
 
   return (
-    <Modal open={open} onClose={onClose} title={t("server.buildInstance")} size="lg">
+    <Modal
+      open={open}
+      onClose={onClose}
+      title={t("server.buildInstance")}
+      size="lg"
+    >
       <div className="space-y-4">
         <div className="flex items-start gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-xs text-amber-300">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
@@ -128,7 +139,10 @@ export function ServerInstanceModal({
                     <li key={m.modId} className="flex items-center gap-2">
                       <HelpCircle className="h-3.5 w-3.5 shrink-0 text-amber-400" />
                       <span className="min-w-0 truncate">
-                        {m.modId} <span className="text-muted-foreground">({m.version})</span>
+                        {m.modId}{" "}
+                        <span className="text-muted-foreground">
+                          ({m.version})
+                        </span>
                       </span>
                       <button
                         onClick={() => api.openUrl(m.searchUrl)}
@@ -166,7 +180,9 @@ export function ServerInstanceModal({
               <Button
                 variant="primary"
                 loading={creating}
-                disabled={plan.resolved.length === 0 && plan.unresolved.length === 0}
+                disabled={
+                  plan.resolved.length === 0 && plan.unresolved.length === 0
+                }
                 onClick={create}
               >
                 {t("server.create")}

@@ -27,10 +27,17 @@ export function DropZone() {
           setOver(false);
           const files = p.paths.filter((path) => {
             const lower = path.toLowerCase();
-            return lower.endsWith(".zip") || lower.endsWith(".mrpack");
+            return (
+              lower.endsWith(".zip") ||
+              lower.endsWith(".mrpack") ||
+              lower.endsWith(".ezmapa")
+            );
           });
           if (files.length === 0) {
-            toast("error", "Drop an instance .zip or a .mrpack modpack to import it.");
+            toast(
+              "error",
+              "Drop an instance .zip, .mrpack, or .ezmapa share file to import it.",
+            );
             return;
           }
           // Import sequentially so multiple drops don't race the refresh.
@@ -63,7 +70,8 @@ export function DropZone() {
             <p className="text-lg font-semibold">Drop to import</p>
             <p className="text-sm text-muted-foreground">
               Release an instance <span className="font-mono">.zip</span> or a{" "}
-              <span className="font-mono">.mrpack</span> modpack to add it.
+              <span className="font-mono">.mrpack</span> modpack or{" "}
+              <span className="font-mono">.ezmapa</span> share file to add it.
             </p>
           </div>
         </motion.div>

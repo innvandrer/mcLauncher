@@ -22,8 +22,11 @@ export function UpdateModal() {
       {update && (
         <div className="space-y-4">
           <p className="text-sm text-muted-foreground">
-            EZMapa <span className="font-medium text-foreground">{update.version}</span> is
-            available.{" "}
+            EZMapa{" "}
+            <span className="font-medium text-foreground">
+              {update.version}
+            </span>{" "}
+            is available.{" "}
             {updating
               ? "Downloading and installing… the app will restart automatically."
               : "Install it now? The app will restart to finish."}
@@ -36,7 +39,12 @@ export function UpdateModal() {
           )}
 
           <div className="flex gap-2">
-            <Button variant="primary" className="flex-1" loading={updating} onClick={install}>
+            <Button
+              variant="primary"
+              className="flex-1"
+              loading={updating}
+              onClick={install}
+            >
               <Download className="h-4 w-4" />
               Update &amp; restart
             </Button>

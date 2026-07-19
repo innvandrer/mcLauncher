@@ -553,6 +553,7 @@ mod tests {
             group: None,
             accent: None,
             favorite: false,
+            archived: false,
             created: 0,
             last_played: None,
             total_play_seconds: 0,
@@ -566,6 +567,8 @@ mod tests {
             post_exit: None,
             pack_source: None,
             loadouts: Vec::new(),
+            tags: Vec::new(),
+            launch_profiles: Vec::new(),
             mod_count: 0,
         }
     }

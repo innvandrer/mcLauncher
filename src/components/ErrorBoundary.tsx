@@ -20,7 +20,6 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 
   componentDidCatch(error: Error, info: ErrorInfo) {
-    // eslint-disable-next-line no-console
     console.error("Render error:", error, info.componentStack);
   }
 
@@ -28,7 +27,9 @@ export class ErrorBoundary extends Component<Props, State> {
     if (this.state.error) {
       return (
         <div className="flex h-full flex-col items-center justify-center gap-4 p-8 text-center">
-          <h2 className="text-lg font-semibold text-destructive">Something broke while rendering</h2>
+          <h2 className="text-lg font-semibold text-destructive">
+            Something broke while rendering
+          </h2>
           <pre className="max-w-2xl overflow-auto rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-left text-xs text-muted-foreground">
             {this.state.error.message}
             {"\n\n"}

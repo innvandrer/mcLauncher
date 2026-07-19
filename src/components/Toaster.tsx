@@ -17,7 +17,9 @@ export function Toaster() {
         {taskList.map((t) => {
           const pct = t.total > 0 ? Math.round((t.current / t.total) * 100) : 0;
           const speed = formatSpeed(t.speed);
-          const eta = t.done ? "" : formatEta(taskStarted[t.id] ?? Date.now(), t.current, t.total);
+          const eta = t.done
+            ? ""
+            : formatEta(taskStarted[t.id] ?? Date.now(), t.current, t.total);
           // Build the meta line: "142 / 318 · 47.3 MB · 12.1 MB/s · 18s left".
           const meta = [
             t.total > 0 ? `${t.current} / ${t.total}` : null,
@@ -93,9 +95,15 @@ export function Toaster() {
             )}
           >
             <div className="mt-0.5">
-              {t.type === "success" && <CheckCircle2 className="h-4 w-4 text-success" />}
-              {t.type === "error" && <AlertCircle className="h-4 w-4 text-destructive" />}
-              {t.type === "info" && <Info className="h-4 w-4 text-muted-foreground" />}
+              {t.type === "success" && (
+                <CheckCircle2 className="h-4 w-4 text-success" />
+              )}
+              {t.type === "error" && (
+                <AlertCircle className="h-4 w-4 text-destructive" />
+              )}
+              {t.type === "info" && (
+                <Info className="h-4 w-4 text-muted-foreground" />
+              )}
             </div>
             <p className="flex-1 text-sm leading-snug">{t.message}</p>
             <button

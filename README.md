@@ -22,7 +22,13 @@ EZMapa **updates itself** in the background, so you always run the latest versio
 - **Modpacks** — one-click install from Modrinth (`.mrpack`) or CurseForge; each
   pack creates a new, ready-to-play instance.
 - **Mod updates** — check installed mods against the provider and apply updates
-  in place.
+  through a reviewed, recoverable transaction with one-click rollback.
+- **Instance Health Center** — see preflight warnings, available updates, disk
+  usage and backup readiness in one place.
+- **Pass the Pack** — export a tiny `.ezmapa` manifest that friends can drop
+  into the launcher to reconstruct the instance from Modrinth and CurseForge.
+- **Pack Doctor** — save the current mod state and run a reversible half-disable
+  isolation pass to narrow down unknown mod crashes.
 - **Content management** — enable/disable/remove mods, manage resource packs,
   shaders, worlds and screenshots per instance.
 - **Accounts** — real **Microsoft / Minecraft** sign-in directly in the app
@@ -30,7 +36,7 @@ EZMapa **updates itself** in the background, so you always run the latest versio
   shows up in the sidebar and accounts list.
 - **Java** — detects installed JDK/JREs and **auto-downloads** the correct
   Temurin runtime per Minecraft version when needed.
-- **Smart downloads** — parallel, resumable, SHA-1 verified; shared asset and
+- **Smart downloads** — parallel, restart-safe, SHA-1 verified; shared asset and
   library cache across instances (just like Prism/MultiMC).
 - **Self-update** — checks for new releases on launch and updates itself with a
   one-click prompt (signed updates verified against an embedded public key).

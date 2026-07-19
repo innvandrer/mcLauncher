@@ -28,7 +28,13 @@ const LOADER_THEMES: Record<string, string> = {
   quilt: "from-purple-600/20 to-pink-600/5 border-purple-500/20",
 };
 
-export function InstanceCard({ instance, onOpen }: { instance: Instance; onOpen: () => void }) {
+export function InstanceCard({
+  instance,
+  onOpen,
+}: {
+  instance: Instance;
+  onOpen: () => void;
+}) {
   const running = useStore((s) => s.running.has(instance.id));
   const installTask = useStore((s) => s.tasks[`modpack:${instance.id}`]);
   const packReport = useStore((s) => s.packReports[instance.id]);
@@ -81,7 +87,7 @@ export function InstanceCard({ instance, onOpen }: { instance: Instance; onOpen:
 
   const theme = isATM10
     ? "from-yellow-600/30 to-zinc-900/80 border-yellow-500/40"
-    : (LOADER_THEMES[instance.loader] || LOADER_THEMES.vanilla);
+    : LOADER_THEMES[instance.loader] || LOADER_THEMES.vanilla;
 
   return (
     <motion.div
@@ -102,72 +108,90 @@ export function InstanceCard({ instance, onOpen }: { instance: Instance; onOpen:
         <InstanceIcon instance={instance} size="card" />
 
         <div className="flex items-center gap-0.5">
-        <button
-          onClick={toggleFavorite}
-          title={instance.favorite ? "Unpin" : "Pin to top"}
-          className={cn(
-            "rounded-md p-1.5 transition btn-focus",
-            instance.favorite
-              ? "text-amber-400 opacity-100"
-              : "text-muted-foreground opacity-0 hover:bg-muted hover:text-foreground group-hover:opacity-100",
-          )}
-        >
-          <Star className={cn("h-4 w-4", instance.favorite && "fill-current")} />
-        </button>
-        <div className="relative">
           <button
-            onClick={(e) => {
-              e.stopPropagation();
-              setMenuOpen((v) => !v);
-            }}
-            onBlur={() => setTimeout(() => setMenuOpen(false), 150)}
-            className="rounded-md p-1.5 text-muted-foreground opacity-0 transition hover:bg-muted hover:text-foreground group-hover:opacity-100 btn-focus"
+            onClick={toggleFavorite}
+            title={instance.favorite ? "Unpin" : "Pin to top"}
+            className={cn(
+              "rounded-md p-1.5 transition btn-focus",
+              instance.favorite
+                ? "text-amber-400 opacity-100"
+                : "text-muted-foreground opacity-0 hover:bg-muted hover:text-foreground group-hover:opacity-100",
+            )}
           >
-            <MoreVertical className="h-4 w-4" />
+            <Star
+              className={cn("h-4 w-4", instance.favorite && "fill-current")}
+            />
           </button>
-          {menuOpen && (
-            <div className="absolute right-0 top-9 z-20 w-44 overflow-hidden rounded-lg border bg-card py-1 shadow-xl animate-fade-in">
-              <MenuItem
-                icon={<FolderOpen className="h-4 w-4" />}
-                label="Open folder"
-                onClick={() => api.openInstanceFolder(instance.id)}
-              />
-              <MenuItem
-                icon={<Copy className="h-4 w-4" />}
-                label="Duplicate"
-                onClick={() => duplicate(instance.id)}
-              />
-              <MenuItem
-                icon={exporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
-                label="Export as .zip"
-                onClick={runZipExport}
-                disabled={exporting}
-              />
-              <MenuItem
-                icon={exporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
-                label="Export as .mrpack"
-                onClick={() => {
-                  setMenuOpen(false);
-                  void startPackExport(instance.id, instance.name, "mrpack");
-                }}
-                disabled={exporting}
-              />
-              <MenuItem
-                icon={<Trash2 className="h-4 w-4" />}
-                label="Delete"
-                danger
-                onClick={() => {
-                  if (running) {
-                    toast("error", "Stop the instance before deleting it.");
-                    return;
+          <div className="relative">
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setMenuOpen((v) => !v);
+              }}
+              onBlur={() => setTimeout(() => setMenuOpen(false), 150)}
+              className="rounded-md p-1.5 text-muted-foreground opacity-0 transition hover:bg-muted hover:text-foreground group-hover:opacity-100 btn-focus"
+            >
+              <MoreVertical className="h-4 w-4" />
+            </button>
+            {menuOpen && (
+              <div className="absolute right-0 top-9 z-20 w-44 overflow-hidden rounded-lg border bg-card py-1 shadow-xl animate-fade-in">
+                <MenuItem
+                  icon={<FolderOpen className="h-4 w-4" />}
+                  label="Open folder"
+                  onClick={() => api.openInstanceFolder(instance.id)}
+                />
+                <MenuItem
+                  icon={<Copy className="h-4 w-4" />}
+                  label="Duplicate"
+                  onClick={() => duplicate(instance.id)}
+                />
+                <MenuItem
+                  icon={
+                    exporting ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Upload className="h-4 w-4" />
+                    )
                   }
-                  if (confirm(`Delete “${instance.name}”? This cannot be undone.`))
-                    remove(instance.id);
-                }}
-              />
-            </div>
-          )}
-        </div>
+                  label="Export as .zip"
+                  onClick={runZipExport}
+                  disabled={exporting}
+                />
+                <MenuItem
+                  icon={
+                    exporting ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Upload className="h-4 w-4" />
+                    )
+                  }
+                  label="Export as .mrpack"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    void startPackExport(instance.id, instance.name, "mrpack");
+                  }}
+                  disabled={exporting}
+                />
+                <MenuItem
+                  icon={<Trash2 className="h-4 w-4" />}
+                  label="Delete"
+                  danger
+                  onClick={() => {
+                    if (running) {
+                      toast("error", "Stop the instance before deleting it.");
+                      return;
+                    }
+                    if (
+                      confirm(
+                        `Delete “${instance.name}”? This cannot be undone.`,
+                      )
+                    )
+                      remove(instance.id);
+                  }}
+                />
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
@@ -178,7 +202,9 @@ export function InstanceCard({ instance, onOpen }: { instance: Instance; onOpen:
         {isModded && (
           <>
             <span className="opacity-40">•</span>
-            <span className="font-medium text-accent">{loaderLabel(instance.loader)}</span>
+            <span className="font-medium text-accent">
+              {loaderLabel(instance.loader)}
+            </span>
           </>
         )}
       </div>
@@ -187,7 +213,9 @@ export function InstanceCard({ instance, onOpen }: { instance: Instance; onOpen:
           ? `Played ${timeAgo(instance.lastPlayed)}`
           : formatPlaytime(instance.totalPlaySeconds)}
         {isModded && instance.modCount != null && instance.modCount > 0 && (
-          <span className="ml-1 opacity-70">· {instance.modCount} mod{instance.modCount !== 1 ? "s" : ""}</span>
+          <span className="ml-1 opacity-70">
+            · {instance.modCount} mod{instance.modCount !== 1 ? "s" : ""}
+          </span>
         )}
       </p>
 
@@ -225,7 +253,9 @@ export function InstanceCard({ instance, onOpen }: { instance: Instance; onOpen:
               className="mt-1.5 inline-flex items-center rounded-full bg-emerald-500/15 px-2 py-0.5 text-[11px] font-medium text-emerald-400"
               title={t("install.viaModrinthSingle")}
             >
-              {t("install.viaModrinthBadge", { n: packReport.resolvedViaModrinth })}
+              {t("install.viaModrinthBadge", {
+                n: packReport.resolvedViaModrinth,
+              })}
             </div>
           )}
         </div>
@@ -233,7 +263,8 @@ export function InstanceCard({ instance, onOpen }: { instance: Instance; onOpen:
         <button
           onClick={(e) => {
             e.stopPropagation();
-            running ? stop(instance.id) : launch(instance.id);
+            if (running) stop(instance.id);
+            else launch(instance.id);
           }}
           className={cn(
             "mt-4 inline-flex h-9 items-center justify-center gap-2 rounded-lg text-sm font-semibold transition-all active:scale-[0.98] btn-focus",

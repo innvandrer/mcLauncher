@@ -6,6 +6,8 @@ import { errMessage } from "@/lib/api";
 import { t } from "@/lib/strings";
 import { startPackExport, type PackFormat } from "./PackExport";
 import { useStore } from "@/store/useStore";
+import { save } from "@tauri-apps/plugin-dialog";
+import { api } from "@/lib/api";
 
 type ExportFormat = "zip" | PackFormat;
 
@@ -56,6 +58,21 @@ export function ExportMenu({
     onExportEnd?.();
   };
 
+  const runShareExport = async () => {
+    setOpen(false);
+    const path = await save({
+      defaultPath: `${instanceName}.ezmapa`,
+      filters: [{ name: "EZMapa share manifest", extensions: ["ezmapa"] }],
+    });
+    if (!path) return;
+    try {
+      await api.exportShareManifest(instanceId, path);
+      toast("success", "Share file exported");
+    } catch (e) {
+      toast("error", errMessage(e));
+    }
+  };
+
   return (
     <div className={cn("relative", className)}>
       <button
@@ -100,6 +117,11 @@ export function ExportMenu({
             label="Export as .zip"
             hint="Full EZMapa instance backup"
             onClick={runZipExport}
+          />
+          <MenuItem
+            label="Pass the Pack (.ezmapa)"
+            hint="Tiny manifest that re-downloads the instance"
+            onClick={runShareExport}
           />
           <MenuItem
             label="Export as .mrpack"

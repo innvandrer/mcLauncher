@@ -27,6 +27,24 @@ interface Command {
   run: () => void;
 }
 
+function fuzzyScore(text: string, query: string): number {
+  const haystack = text.toLowerCase();
+  const needle = query.toLowerCase();
+  const direct = haystack.indexOf(needle);
+  if (direct >= 0) return 1000 - direct;
+  let cursor = 0;
+  let score = 0;
+  let previous = -2;
+  for (const character of needle) {
+    const found = haystack.indexOf(character, cursor);
+    if (found < 0) return -1;
+    score += found === previous + 1 ? 8 : 2;
+    previous = found;
+    cursor = found + 1;
+  }
+  return score;
+}
+
 /** Global ⌘K / Ctrl-K command palette: fuzzy-jump to instances, views, and
  *  actions without leaving the keyboard. */
 export function CommandPalette() {
@@ -70,11 +88,41 @@ export function CommandPalette() {
 
   const commands = useMemo<Command[]>(() => {
     const views: Command[] = [
-      { id: "v:home", label: "Go to Home", icon: <Home className="h-4 w-4" />, keywords: "home dashboard", run: () => setView("home") },
-      { id: "v:instances", label: "Go to Instances", icon: <Boxes className="h-4 w-4" />, keywords: "instances", run: () => setView("instances") },
-      { id: "v:modpacks", label: "Browse Modpacks", icon: <Package className="h-4 w-4" />, keywords: "modpacks browse install", run: () => setView("modpacks") },
-      { id: "v:accounts", label: "Go to Accounts", icon: <User className="h-4 w-4" />, keywords: "accounts login microsoft", run: () => setView("accounts") },
-      { id: "v:settings", label: "Open Settings", icon: <Settings className="h-4 w-4" />, keywords: "settings ram memory java theme", run: () => setView("settings") },
+      {
+        id: "v:home",
+        label: "Go to Home",
+        icon: <Home className="h-4 w-4" />,
+        keywords: "home dashboard",
+        run: () => setView("home"),
+      },
+      {
+        id: "v:instances",
+        label: "Go to Instances",
+        icon: <Boxes className="h-4 w-4" />,
+        keywords: "instances",
+        run: () => setView("instances"),
+      },
+      {
+        id: "v:modpacks",
+        label: "Browse Modpacks",
+        icon: <Package className="h-4 w-4" />,
+        keywords: "modpacks browse install",
+        run: () => setView("modpacks"),
+      },
+      {
+        id: "v:accounts",
+        label: "Go to Accounts",
+        icon: <User className="h-4 w-4" />,
+        keywords: "accounts login microsoft",
+        run: () => setView("accounts"),
+      },
+      {
+        id: "v:settings",
+        label: "Open Settings",
+        icon: <Settings className="h-4 w-4" />,
+        keywords: "settings ram memory java theme",
+        run: () => setView("settings"),
+      },
     ];
 
     const perInstance: Command[] = instances.flatMap((inst) => {
@@ -90,13 +138,17 @@ export function CommandPalette() {
           label: `Open ${inst.name}`,
           hint: `${inst.mcVersion} · ${inst.loader}`,
           icon,
-          keywords: `${inst.name} ${inst.mcVersion} ${inst.loader} open`,
+          keywords: `${inst.name} ${inst.mcVersion} ${inst.loader} ${inst.group ?? ""} ${(inst.tags ?? []).join(" ")} open`,
           run: () => openInstance(inst.id),
         },
         {
           id: `play:${inst.id}`,
           label: isRunning ? `Stop ${inst.name}` : `Play ${inst.name}`,
-          icon: isRunning ? <Square className="h-4 w-4" /> : <Play className="h-4 w-4" />,
+          icon: isRunning ? (
+            <Square className="h-4 w-4" />
+          ) : (
+            <Play className="h-4 w-4" />
+          ),
           keywords: `${inst.name} ${isRunning ? "stop" : "play launch run"}`,
           run: () => (isRunning ? stop(inst.id) : launch(inst.id)),
         },
@@ -137,6 +189,28 @@ export function CommandPalette() {
               .catch((e) => toast("error", errMessage(e)));
           },
         },
+        ...(inst.launchProfiles ?? []).map((profile) => ({
+          id: `profile:${inst.id}:${profile.name}`,
+          label: `Play ${inst.name} · ${profile.name}`,
+          hint: "Launch profile",
+          icon: <Rocket className="h-4 w-4" />,
+          keywords: `${inst.name} ${profile.name} profile ${profile.loadout ?? ""} ${profile.quickWorld ?? ""} ${profile.quickServer ?? ""}`,
+          run: () => {
+            const apply = profile.loadout
+              ? api.applyLoadout(inst.id, profile.loadout)
+              : Promise.resolve();
+            apply
+              .then(() =>
+                api.launchInstance(inst.id, {
+                  ...(profile.quickWorld ? { world: profile.quickWorld } : {}),
+                  ...(profile.quickServer
+                    ? { server: profile.quickServer }
+                    : {}),
+                }),
+              )
+              .catch((e) => toast("error", errMessage(e)));
+          },
+        })),
       ];
     });
 
@@ -147,7 +221,13 @@ export function CommandPalette() {
     const q = query.trim().toLowerCase();
     if (!q) return commands.slice(0, 8);
     return commands
-      .filter((c) => `${c.label} ${c.keywords}`.toLowerCase().includes(q))
+      .map((command) => ({
+        command,
+        score: fuzzyScore(`${command.label} ${command.keywords}`, q),
+      }))
+      .filter((item) => item.score >= 0)
+      .sort((a, b) => b.score - a.score)
+      .map((item) => item.command)
       .slice(0, 12);
   }, [commands, query]);
 
@@ -174,7 +254,9 @@ export function CommandPalette() {
 
   // Keep the active row scrolled into view.
   useEffect(() => {
-    const el = listRef.current?.querySelector<HTMLElement>(`[data-idx="${active}"]`);
+    const el = listRef.current?.querySelector<HTMLElement>(
+      `[data-idx="${active}"]`,
+    );
     el?.scrollIntoView({ block: "nearest" });
   }, [active]);
 
@@ -206,7 +288,9 @@ export function CommandPalette() {
                 placeholder="Search instances, actions…"
                 className="h-12 w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground"
               />
-              <kbd className="rounded border px-1.5 py-0.5 text-[10px] text-muted-foreground">ESC</kbd>
+              <kbd className="rounded border px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                ESC
+              </kbd>
             </div>
             <div ref={listRef} className="max-h-80 overflow-y-auto p-2">
               {filtered.length === 0 ? (
@@ -225,7 +309,9 @@ export function CommandPalette() {
                     onMouseMove={() => setActive(i)}
                     className={cn(
                       "flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm transition-colors",
-                      i === active ? "bg-accent/15 text-foreground" : "text-foreground/90",
+                      i === active
+                        ? "bg-accent/15 text-foreground"
+                        : "text-foreground/90",
                     )}
                   >
                     <span className="flex h-5 w-5 items-center justify-center text-muted-foreground">
@@ -233,7 +319,9 @@ export function CommandPalette() {
                     </span>
                     <span className="flex-1 truncate">{c.label}</span>
                     {c.hint && (
-                      <span className="shrink-0 text-xs text-muted-foreground">{c.hint}</span>
+                      <span className="shrink-0 text-xs text-muted-foreground">
+                        {c.hint}
+                      </span>
                     )}
                   </button>
                 ))

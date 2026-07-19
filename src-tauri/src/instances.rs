@@ -390,6 +390,7 @@ pub fn create_instance(
         group: None,
         accent: None,
         favorite: false,
+        archived: false,
         created: chrono::Utc::now().timestamp(),
         last_played: None,
         total_play_seconds: 0,
@@ -403,6 +404,8 @@ pub fn create_instance(
         post_exit: None,
         pack_source: None,
         loadouts: Vec::new(),
+        tags: Vec::new(),
+        launch_profiles: Vec::new(),
         mod_count: 0,
     };
 
@@ -661,6 +664,9 @@ struct IndexItem {
     /// hash-verified identical file actually came from.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     fallback: Option<FallbackSource>,
+    /// Primary project ids that required this file when it was installed.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    required_by: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -706,12 +712,18 @@ pub fn record_installs(state: &AppState, id: &str, items: &[(String, String)], p
     }
     let mut idx = load_index(state, id);
     for (file_name, project_id) in items {
+        let required_by = idx
+            .items
+            .get(file_name)
+            .map(|item| item.required_by.clone())
+            .unwrap_or_default();
         idx.items.insert(
             file_name.clone(),
             IndexItem {
                 project_id: project_id.clone(),
                 provider: provider.to_string(),
                 fallback: None,
+                required_by,
             },
         );
     }
@@ -732,6 +744,7 @@ pub fn record_modrinth_fallback(
         project_id: String::new(),
         provider: "curseforge".into(),
         fallback: None,
+        required_by: Vec::new(),
     });
     entry.fallback = Some(FallbackSource {
         provider: "modrinth".into(),
@@ -739,6 +752,93 @@ pub fn record_modrinth_fallback(
         version_id: mr.version_id.clone(),
     });
     let _ = write_json(&index_path(state, id), &idx);
+}
+
+/// Persist which dependency files were installed for a primary project. This
+/// enables safe-removal warnings without another network request.
+pub fn record_install_dependencies(
+    state: &AppState,
+    id: &str,
+    primary_project_id: &str,
+    dependency_files: &[String],
+) {
+    if dependency_files.is_empty() {
+        return;
+    }
+    let mut idx = load_index(state, id);
+    for file_name in dependency_files {
+        if let Some(item) = idx.items.get_mut(file_name) {
+            if !item.required_by.iter().any(|project| project == primary_project_id) {
+                item.required_by.push(primary_project_id.to_string());
+            }
+        }
+    }
+    let _ = write_json(&index_path(state, id), &idx);
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RemovalImpact {
+    pub file_name: String,
+    pub project_id: Option<String>,
+    pub required_by: Vec<String>,
+    pub safe: bool,
+}
+
+pub fn mod_removal_impact(state: &AppState, instance_id: &str, file_name: &str) -> Result<RemovalImpact> {
+    require_safe_name("instance id", instance_id)?;
+    require_safe_name("mod file name", file_name)?;
+    let idx = load_index(state, instance_id);
+    let item = idx.items.get(file_name);
+    let required_by = item.map(|entry| entry.required_by.clone()).unwrap_or_default();
+    Ok(RemovalImpact {
+        file_name: file_name.to_string(),
+        project_id: item.map(|entry| entry.project_id.clone()).filter(|id| !id.is_empty()),
+        safe: required_by.is_empty(),
+        required_by,
+    })
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ShareContentEntry {
+    pub file_name: String,
+    pub provider: String,
+    pub project_id: String,
+    pub content_type: String,
+    pub enabled: bool,
+}
+
+pub fn share_content_entries(state: &AppState, instance_id: &str) -> Vec<ShareContentEntry> {
+    let game = state.dirs.game_dir(instance_id);
+    load_index(state, instance_id)
+        .items
+        .into_iter()
+        .filter_map(|(file_name, item)| {
+            if item.project_id.is_empty() || item.provider.is_empty() {
+                return None;
+            }
+            let disabled = game.join("mods").join(format!("{file_name}.disabled"));
+            let (content_type, enabled) = if game.join("mods").join(&file_name).is_file() {
+                ("mod", true)
+            } else if disabled.is_file() {
+                ("mod", false)
+            } else if game.join("resourcepacks").join(&file_name).exists() {
+                ("resourcepack", true)
+            } else if game.join("shaderpacks").join(&file_name).exists() {
+                ("shader", true)
+            } else {
+                return None;
+            };
+            Some(ShareContentEntry {
+                file_name,
+                provider: item.provider,
+                project_id: item.project_id,
+                content_type: content_type.to_string(),
+                enabled,
+            })
+        })
+        .collect()
 }
 
 /// Map of tracked file name → provider ("modrinth"/"curseforge"), used as the
@@ -1001,6 +1101,7 @@ pub fn delete_shader(state: &AppState, instance_id: &str, file_name: &str) -> Re
 pub struct WorldEntry {
     pub name: String,
     pub modified: Option<i64>,
+    pub size: u64,
 }
 
 pub fn list_worlds(state: &AppState, instance_id: &str) -> Vec<WorldEntry> {
@@ -1015,22 +1116,13 @@ pub fn list_worlds(state: &AppState, instance_id: &str) -> Vec<WorldEntry> {
                         .unwrap_or_default()
                         .as_secs() as i64
                 });
-                out.push(WorldEntry { name, modified });
+                let size = crate::tools::dir_size(&e.path());
+                out.push(WorldEntry { name, modified, size });
             }
         }
     }
     out.sort_by_key(|w| std::cmp::Reverse(w.modified));
     out
-}
-
-pub fn delete_world(state: &AppState, instance_id: &str, name: &str) -> Result<()> {
-    require_safe_name("instance id", instance_id)?;
-    require_safe_name("world name", name)?;
-    let path = state.dirs.game_dir(instance_id).join("saves").join(name);
-    if path.is_dir() {
-        std::fs::remove_dir_all(&path)?;
-    }
-    Ok(())
 }
 
 // ---------------------------------------------------------------------------

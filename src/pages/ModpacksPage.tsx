@@ -98,7 +98,9 @@ export function ModpacksPage() {
         ) : results.length === 0 ? (
           <div className="py-16 text-center text-sm text-muted-foreground">
             No modpacks found
-            {provider === "curseforge" && " (a CurseForge API key is required — see Settings)"}.
+            {provider === "curseforge" &&
+              " (a CurseForge API key is required — see Settings)"}
+            .
           </div>
         ) : (
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2 2xl:grid-cols-3">
@@ -252,12 +254,16 @@ function PackDetailView({
             </div>
           )}
           <div className="min-w-0 flex-1">
-            <h1 className="truncate text-2xl font-bold tracking-tight">{hit.title}</h1>
+            <h1 className="truncate text-2xl font-bold tracking-tight">
+              {hit.title}
+            </h1>
             <p className="mt-0.5 text-sm text-muted-foreground">
               {hit.author && `by ${hit.author} · `}
               {formatNumber(hit.downloads)} downloads
             </p>
-            <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">{hit.description}</p>
+            <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">
+              {hit.description}
+            </p>
           </div>
         </div>
 
@@ -309,7 +315,9 @@ function PackDetailView({
             <div
               className="cf-body text-sm text-muted-foreground"
               dangerouslySetInnerHTML={{
-                __html: DOMPurify.sanitize(body, { USE_PROFILES: { html: true } }),
+                __html: DOMPurify.sanitize(body, {
+                  USE_PROFILES: { html: true },
+                }),
               }}
             />
           ) : (
@@ -317,32 +325,119 @@ function PackDetailView({
               <ReactMarkdown
                 remarkPlugins={[remarkGfm]}
                 components={{
-                  h1: ({ ...p }) => <h1 className="mb-3 mt-6 text-xl font-bold text-foreground first:mt-0" {...p} />,
-                  h2: ({ ...p }) => <h2 className="mb-2 mt-5 text-lg font-semibold text-foreground" {...p} />,
-                  h3: ({ ...p }) => <h3 className="mb-2 mt-4 text-base font-semibold text-foreground" {...p} />,
-                  h4: ({ ...p }) => <h4 className="mb-1 mt-3 text-sm font-semibold text-foreground" {...p} />,
-                  p: ({ ...p }) => <p className="mb-3 text-sm leading-relaxed text-muted-foreground" {...p} />,
-                  ul: ({ ...p }) => <ul className="mb-3 ml-5 list-disc space-y-1 text-sm text-muted-foreground" {...p} />,
-                  ol: ({ ...p }) => <ol className="mb-3 ml-5 list-decimal space-y-1 text-sm text-muted-foreground" {...p} />,
-                  li: ({ ...p }) => <li className="text-sm text-muted-foreground" {...p} />,
-                  a: ({ ...p }) => <a className="text-accent underline-offset-2 hover:underline" target="_blank" rel="noopener noreferrer" {...p} />,
-                  img: ({ ...p }) => <img className="my-2 max-w-full rounded-lg" {...p} />,
-                  blockquote: ({ ...p }) => <blockquote className="mb-3 border-l-4 border-accent/40 pl-4 italic text-sm text-muted-foreground" {...p} />,
-                  hr: ({ ...p }) => <hr className="my-5 border-border" {...p} />,
-                  strong: ({ ...p }) => <strong className="font-semibold text-foreground" {...p} />,
+                  h1: ({ ...p }) => (
+                    <h1
+                      className="mb-3 mt-6 text-xl font-bold text-foreground first:mt-0"
+                      {...p}
+                    />
+                  ),
+                  h2: ({ ...p }) => (
+                    <h2
+                      className="mb-2 mt-5 text-lg font-semibold text-foreground"
+                      {...p}
+                    />
+                  ),
+                  h3: ({ ...p }) => (
+                    <h3
+                      className="mb-2 mt-4 text-base font-semibold text-foreground"
+                      {...p}
+                    />
+                  ),
+                  h4: ({ ...p }) => (
+                    <h4
+                      className="mb-1 mt-3 text-sm font-semibold text-foreground"
+                      {...p}
+                    />
+                  ),
+                  p: ({ ...p }) => (
+                    <p
+                      className="mb-3 text-sm leading-relaxed text-muted-foreground"
+                      {...p}
+                    />
+                  ),
+                  ul: ({ ...p }) => (
+                    <ul
+                      className="mb-3 ml-5 list-disc space-y-1 text-sm text-muted-foreground"
+                      {...p}
+                    />
+                  ),
+                  ol: ({ ...p }) => (
+                    <ol
+                      className="mb-3 ml-5 list-decimal space-y-1 text-sm text-muted-foreground"
+                      {...p}
+                    />
+                  ),
+                  li: ({ ...p }) => (
+                    <li className="text-sm text-muted-foreground" {...p} />
+                  ),
+                  a: ({ ...p }) => (
+                    <a
+                      className="text-accent underline-offset-2 hover:underline"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      {...p}
+                    />
+                  ),
+                  img: ({ ...p }) => (
+                    <img className="my-2 max-w-full rounded-lg" {...p} />
+                  ),
+                  blockquote: ({ ...p }) => (
+                    <blockquote
+                      className="mb-3 border-l-4 border-accent/40 pl-4 italic text-sm text-muted-foreground"
+                      {...p}
+                    />
+                  ),
+                  hr: ({ ...p }) => (
+                    <hr className="my-5 border-border" {...p} />
+                  ),
+                  strong: ({ ...p }) => (
+                    <strong className="font-semibold text-foreground" {...p} />
+                  ),
                   em: ({ ...p }) => <em className="italic" {...p} />,
                   code: ({ className, children, ...p }) => {
                     const isBlock = className?.includes("language-");
                     return isBlock ? (
-                      <code className="block overflow-auto rounded-lg bg-muted p-3 font-mono text-xs text-foreground" {...p}>{children}</code>
+                      <code
+                        className="block overflow-auto rounded-lg bg-muted p-3 font-mono text-xs text-foreground"
+                        {...p}
+                      >
+                        {children}
+                      </code>
                     ) : (
-                      <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs text-foreground" {...p}>{children}</code>
+                      <code
+                        className="rounded bg-muted px-1 py-0.5 font-mono text-xs text-foreground"
+                        {...p}
+                      >
+                        {children}
+                      </code>
                     );
                   },
-                  pre: ({ ...p }) => <pre className="mb-3 overflow-auto rounded-lg bg-muted p-3 text-xs" {...p} />,
-                  table: ({ ...p }) => <div className="mb-3 overflow-auto"><table className="w-full text-sm border-collapse" {...p} /></div>,
-                  th: ({ ...p }) => <th className="border border-border p-2 text-left text-xs font-semibold text-foreground" {...p} />,
-                  td: ({ ...p }) => <td className="border border-border p-2 text-xs text-muted-foreground" {...p} />,
+                  pre: ({ ...p }) => (
+                    <pre
+                      className="mb-3 overflow-auto rounded-lg bg-muted p-3 text-xs"
+                      {...p}
+                    />
+                  ),
+                  table: ({ ...p }) => (
+                    <div className="mb-3 overflow-auto">
+                      <table
+                        className="w-full text-sm border-collapse"
+                        {...p}
+                      />
+                    </div>
+                  ),
+                  th: ({ ...p }) => (
+                    <th
+                      className="border border-border p-2 text-left text-xs font-semibold text-foreground"
+                      {...p}
+                    />
+                  ),
+                  td: ({ ...p }) => (
+                    <td
+                      className="border border-border p-2 text-xs text-muted-foreground"
+                      {...p}
+                    />
+                  ),
                 }}
               >
                 {body}
@@ -350,7 +445,9 @@ function PackDetailView({
             </div>
           )
         ) : (
-          <p className="text-sm text-muted-foreground">No description available.</p>
+          <p className="text-sm text-muted-foreground">
+            No description available.
+          </p>
         )}
       </div>
     </div>

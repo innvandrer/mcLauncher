@@ -36,7 +36,8 @@ export function WrappedModal({
     let cancelled = false;
     Promise.all(instances.map((i) => api.listScreenshots(i.id).catch(() => [])))
       .then((lists) => {
-        if (!cancelled) setScreenshotCount(lists.reduce((a, l) => a + l.length, 0));
+        if (!cancelled)
+          setScreenshotCount(lists.reduce((a, l) => a + l.length, 0));
       })
       .catch(() => !cancelled && setScreenshotCount(0));
     return () => {
@@ -61,7 +62,10 @@ export function WrappedModal({
     );
     const byInstance = new Map<string, number>();
     for (const s of yearSessions) {
-      byInstance.set(s.instanceId, (byInstance.get(s.instanceId) ?? 0) + s.seconds);
+      byInstance.set(
+        s.instanceId,
+        (byInstance.get(s.instanceId) ?? 0) + s.seconds,
+      );
     }
     let topId: string | null = null;
     let topSeconds = 0;
@@ -76,7 +80,9 @@ export function WrappedModal({
       sessionCount: yearSessions.length,
       daysPlayed: dayKeys.size,
       longest,
-      topName: (topId && instances.find((i) => i.id === topId)?.name) || "a former instance",
+      topName:
+        (topId && instances.find((i) => i.id === topId)?.name) ||
+        "a former instance",
       topSeconds,
       modCount: instances.reduce((a, i) => a + (i.modCount || 0), 0),
       instanceCount: instances.length,
@@ -111,13 +117,17 @@ export function WrappedModal({
   }, [open, empty, screenshotCount, stats, username, year]);
 
   const toBlob = () =>
-    new Promise<Blob | null>((resolve) => canvasRef.current?.toBlob(resolve, "image/png"));
+    new Promise<Blob | null>((resolve) =>
+      canvasRef.current?.toBlob(resolve, "image/png"),
+    );
 
   const copyImage = async () => {
     try {
       const blob = await toBlob();
       if (!blob) throw new Error("Could not render the card.");
-      await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
+      await navigator.clipboard.write([
+        new ClipboardItem({ "image/png": blob }),
+      ]);
       toast("success", "Card copied — paste it anywhere");
     } catch (e) {
       toast("error", errMessage(e));
@@ -134,7 +144,10 @@ export function WrappedModal({
       if (!dest) return;
       const blob = await toBlob();
       if (!blob) throw new Error("Could not render the card.");
-      await api.savePng(dest, Array.from(new Uint8Array(await blob.arrayBuffer())));
+      await api.savePng(
+        dest,
+        Array.from(new Uint8Array(await blob.arrayBuffer())),
+      );
       toast("success", "Wrapped card saved");
     } catch (e) {
       toast("error", errMessage(e));
@@ -225,7 +238,11 @@ function roundedRect(
   ctx.closePath();
 }
 
-function ellipsize(ctx: CanvasRenderingContext2D, text: string, maxWidth: number): string {
+function ellipsize(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  maxWidth: number,
+): string {
   if (ctx.measureText(text).width <= maxWidth) return text;
   let cut = text;
   while (cut.length > 1 && ctx.measureText(`${cut}…`).width > maxWidth) {
@@ -245,8 +262,9 @@ function drawCard(canvas: HTMLCanvasElement, d: CardData) {
 
   // The user's accent color drives the glow; the card itself is always dark.
   const accent =
-    getComputedStyle(document.documentElement).getPropertyValue("--accent").trim() ||
-    "262 83% 58%";
+    getComputedStyle(document.documentElement)
+      .getPropertyValue("--accent")
+      .trim() || "262 83% 58%";
 
   ctx.fillStyle = "#0c0e13";
   ctx.fillRect(0, 0, W, H);
@@ -295,7 +313,10 @@ function drawCard(canvas: HTMLCanvasElement, d: CardData) {
     { label: "Time in it", value: hoursLabel(d.topSeconds) },
     {
       label: "Longest session",
-      value: d.longestSeconds > 0 ? `${hoursLabel(d.longestSeconds)} · ${d.longestDate}` : "—",
+      value:
+        d.longestSeconds > 0
+          ? `${hoursLabel(d.longestSeconds)} · ${d.longestDate}`
+          : "—",
     },
     { label: "Instances", value: d.instanceCount.toLocaleString() },
     { label: "Mods installed", value: d.modCount.toLocaleString() },
@@ -330,5 +351,9 @@ function drawCard(canvas: HTMLCanvasElement, d: CardData) {
   ctx.fill();
   ctx.fillStyle = "rgba(255,255,255,0.55)";
   ctx.font = `500 17px ${FONT}`;
-  ctx.fillText("Made with EZMapa — the friendly Minecraft launcher", P + 20, H - 40);
+  ctx.fillText(
+    "Made with EZMapa — the friendly Minecraft launcher",
+    P + 20,
+    H - 40,
+  );
 }

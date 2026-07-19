@@ -24,7 +24,7 @@ pub struct DiskUsage {
 }
 
 /// Recursively sum the byte size of every file under `path`.
-fn dir_size(path: &Path) -> u64 {
+pub(crate) fn dir_size(path: &Path) -> u64 {
     let mut total = 0;
     if let Ok(rd) = std::fs::read_dir(path) {
         for entry in rd.flatten() {
@@ -147,6 +147,24 @@ pub fn create_snapshot(dirs: &AppDirs, instance_id: &str, world: &str) -> Result
 
     let size = std::fs::metadata(&zip_path).map(|m| m.len()).unwrap_or(0);
     Ok(Snapshot { file_name, world: world.to_string(), size, created: stamp })
+}
+
+/// Create a recoverable snapshot and only then remove the live world. Keeping
+/// both operations in one backend function prevents any UI caller from
+/// accidentally bypassing the safety backup.
+pub fn backup_and_delete_world(
+    dirs: &AppDirs,
+    instance_id: &str,
+    world: &str,
+) -> Result<Snapshot> {
+    let snapshot = create_snapshot(dirs, instance_id, world)?;
+    let world_dir = dirs.game_dir(instance_id).join("saves").join(world);
+    if let Err(error) = std::fs::remove_dir_all(&world_dir) {
+        return Err(Error::Other(format!(
+            "The backup was created, but the world could not be deleted: {error}"
+        )));
+    }
+    Ok(snapshot)
 }
 
 fn zip_dir_recursive<W: Write + std::io::Seek>(
@@ -382,5 +400,25 @@ mod tests {
             mod_base_key("cc-tweaked-1.21.1-forge-1.113.1.jar"),
             mod_base_key("cc-tweaked-1.21.1-forge-1.117.1.jar"),
         );
+    }
+
+    #[test]
+    fn world_delete_creates_snapshot_first() {
+        let root = std::env::temp_dir().join(format!("ezmapa-tools-test-{}", uuid::Uuid::new_v4()));
+        let dirs = AppDirs::new(root.clone());
+        let world = dirs.game_dir("instance").join("saves").join("My World");
+        std::fs::create_dir_all(&world).unwrap();
+        std::fs::write(world.join("level.dat"), b"world data").unwrap();
+
+        let snapshot = backup_and_delete_world(&dirs, "instance", "My World").unwrap();
+
+        assert!(!world.exists());
+        assert!(dirs
+            .instance_dir("instance")
+            .join("snapshots")
+            .join(snapshot.file_name)
+            .is_file());
+
+        std::fs::remove_dir_all(root).unwrap();
     }
 }

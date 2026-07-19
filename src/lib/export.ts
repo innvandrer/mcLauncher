@@ -1,7 +1,10 @@
 import { save } from "@tauri-apps/plugin-dialog";
 import { api } from "./api";
 
-export async function exportInstanceZip(id: string, name: string): Promise<string | null> {
+export async function exportInstanceZip(
+  id: string,
+  name: string,
+): Promise<string | null> {
   const path = await save({
     defaultPath: `${name}.zip`,
     filters: [{ name: "EZMapa instance", extensions: ["zip"] }],

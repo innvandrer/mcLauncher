@@ -60,7 +60,10 @@ export function PlayerAvatar({
       src={`https://mc-heads.net/avatar/${encodeURIComponent(account.id)}/${size * 2}`}
       alt={account.username}
       onError={() => setFailed(true)}
-      className={cn("rounded-lg object-cover [image-rendering:pixelated]", className)}
+      className={cn(
+        "rounded-lg object-cover [image-rendering:pixelated]",
+        className,
+      )}
       style={dim}
     />
   );

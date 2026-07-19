@@ -18,7 +18,9 @@ export function ShortcutsOverlay() {
       const t = e.target as HTMLElement | null;
       const typing =
         !!t &&
-        (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable);
+        (t.tagName === "INPUT" ||
+          t.tagName === "TEXTAREA" ||
+          t.isContentEditable);
       if (e.key === "?" && !typing && !e.ctrlKey && !e.metaKey) {
         e.preventDefault();
         setOpen((v) => !v);
@@ -29,10 +31,18 @@ export function ShortcutsOverlay() {
   }, []);
 
   return (
-    <Modal open={open} onClose={() => setOpen(false)} title="Keyboard shortcuts" size="sm">
+    <Modal
+      open={open}
+      onClose={() => setOpen(false)}
+      title="Keyboard shortcuts"
+      size="sm"
+    >
       <div className="space-y-2.5">
         {SHORTCUTS.map((s) => (
-          <div key={s.label} className="flex items-center justify-between gap-4">
+          <div
+            key={s.label}
+            className="flex items-center justify-between gap-4"
+          >
             <span className="text-sm text-muted-foreground">{s.label}</span>
             <span className="flex shrink-0 items-center gap-1">
               {s.keys.map((k) => (

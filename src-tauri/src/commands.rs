@@ -6,7 +6,7 @@ use crate::models::*;
 use crate::state::AppState;
 use crate::{
     auth, curseforge, forge, instances, java, launch, modloader, modrinth, mojang, preflight,
-    servers, skin, tools, turbo,
+    servers, sharing, skin, tools, turbo,
 };
 use serde::Serialize;
 use std::path::Path;
@@ -347,11 +347,18 @@ pub async fn install_mod(
         game_version.as_deref(),
     )
     .await?;
-    let deps_idx: Vec<(String, String)> = deps
+    let mut deps_idx: Vec<(String, String)> = vec![(file.clone(), project_id.clone())];
+    deps_idx.extend(deps
         .iter()
         .map(|d| (d.file_name.clone(), d.project_id.clone()))
-        .collect();
+    );
     instances::record_installs(state.inner(), &instance_id, &deps_idx, "modrinth");
+    instances::record_install_dependencies(
+        state.inner(),
+        &instance_id,
+        &project_id,
+        &deps.iter().map(|d| d.file_name.clone()).collect::<Vec<_>>(),
+    );
     Ok(InstallOutcome {
         file,
         dependencies: deps.into_iter().map(|d| d.file_name).collect(),
@@ -414,6 +421,15 @@ pub async fn delete_mod(
     file_name: String,
 ) -> Result<()> {
     instances::delete_mod(state.inner(), &instance_id, &file_name)
+}
+
+#[tauri::command]
+pub async fn mod_removal_impact(
+    state: State<'_, AppState>,
+    instance_id: String,
+    file_name: String,
+) -> Result<instances::RemovalImpact> {
+    instances::mod_removal_impact(state.inner(), &instance_id, &file_name)
 }
 
 // ---------------------------------------------------------------------------
@@ -487,6 +503,12 @@ fn record_cf_install(
             .map(|d| (d.file_name.clone(), d.project_id.clone())),
     );
     instances::record_installs(state, instance_id, &idx, "curseforge");
+    instances::record_install_dependencies(
+        state,
+        instance_id,
+        project_id,
+        &installed.deps.iter().map(|d| d.file_name.clone()).collect::<Vec<_>>(),
+    );
     if let Some(mr) = &installed.modrinth_fallback {
         instances::record_modrinth_fallback(state, instance_id, &installed.file_name, mr);
     }
@@ -546,6 +568,12 @@ pub async fn install_content(
     let mut idx = vec![(file.clone(), project_id.clone())];
     idx.extend(deps.iter().map(|d| (d.file_name.clone(), d.project_id.clone())));
     instances::record_installs(state.inner(), &instance_id, &idx, "modrinth");
+    instances::record_install_dependencies(
+        state.inner(),
+        &instance_id,
+        &project_id,
+        &deps.iter().map(|d| d.file_name.clone()).collect::<Vec<_>>(),
+    );
     Ok(InstallOutcome {
         file,
         dependencies: deps.into_iter().map(|d| d.file_name).collect(),
@@ -681,8 +709,12 @@ pub async fn delete_world(
     state: State<'_, AppState>,
     instance_id: String,
     name: String,
-) -> Result<()> {
-    instances::delete_world(state.inner(), &instance_id, &name)
+) -> Result<tools::Snapshot> {
+    let dirs = state.inner().dirs.clone();
+    tokio::task::spawn_blocking(move || {
+        tools::backup_and_delete_world(&dirs, &instance_id, &name)
+    })
+    .await?
 }
 
 #[tauri::command]
@@ -716,6 +748,35 @@ pub async fn open_screenshot(state: State<'_, AppState>, instance_id: String, fi
     Ok(())
 }
 
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OfflineReadiness {
+    ready: bool,
+    missing: Vec<String>,
+}
+
+#[tauri::command]
+pub async fn offline_readiness(state: State<'_, AppState>, instance_id: String) -> Result<OfflineReadiness> {
+    let instance = instances::get_instance(state.inner(), &instance_id)?;
+    let dirs = &state.inner().dirs;
+    let mut missing = Vec::new();
+    if !dirs.version_json(&instance.mc_version).is_file() || !dirs.version_jar(&instance.mc_version).is_file() { missing.push("Minecraft version files".to_string()); }
+    if std::fs::read_dir(dirs.assets().join("indexes")).map(|mut entries| entries.next().is_none()).unwrap_or(true) { missing.push("asset index".to_string()); }
+    if std::fs::read_dir(dirs.libraries()).map(|mut entries| entries.next().is_none()).unwrap_or(true) { missing.push("game libraries".to_string()); }
+    let java_ready = instance.java_path.as_ref().map(|path| std::path::Path::new(path).is_file()).unwrap_or(false)
+        || std::fs::read_dir(dirs.java()).map(|mut entries| entries.next().is_some()).unwrap_or(false);
+    if !java_ready { missing.push("Java runtime".to_string()); }
+    Ok(OfflineReadiness { ready: missing.is_empty(), missing })
+}
+
+#[tauri::command]
+pub async fn read_screenshot(state: State<'_, AppState>, instance_id: String, file_name: String) -> Result<Vec<u8>> {
+    instances::require_safe_name("instance id", &instance_id)?;
+    instances::require_safe_name("screenshot file name", &file_name)?;
+    let path = state.inner().dirs.game_dir(&instance_id).join("screenshots").join(&file_name);
+    Ok(std::fs::read(path)?)
+}
+
 // ---------------------------------------------------------------------------
 // Mod updates
 // ---------------------------------------------------------------------------
@@ -742,7 +803,26 @@ pub async fn apply_mod_update(
     instance_id: String,
     update: modrinth::ModUpdate,
 ) -> Result<()> {
-    modrinth::apply_update(state.inner(), &instance_id, update).await
+    modrinth::apply_updates_transaction(state.inner(), &instance_id, vec![update])
+        .await
+        .map(|_| ())
+}
+
+#[tauri::command]
+pub async fn apply_mod_updates(
+    state: State<'_, AppState>,
+    instance_id: String,
+    updates: Vec<modrinth::ModUpdate>,
+) -> Result<u32> {
+    modrinth::apply_updates_transaction(state.inner(), &instance_id, updates).await
+}
+
+#[tauri::command]
+pub async fn rollback_last_content_update(
+    state: State<'_, AppState>,
+    instance_id: String,
+) -> Result<u32> {
+    modrinth::rollback_last_update(state.inner(), &instance_id)
 }
 
 /// Re-pin an installed mod to the other platform ("switch source of truth"):
@@ -833,6 +913,33 @@ pub async fn export_instance(
 #[tauri::command]
 pub async fn import_instance(state: State<'_, AppState>, src: String) -> Result<Instance> {
     instances::import_instance(state.inner(), Path::new(&src)).await
+}
+
+#[tauri::command]
+pub async fn export_share_manifest(
+    state: State<'_, AppState>,
+    id: String,
+    dest: String,
+) -> Result<()> {
+    sharing::export_share_manifest(state.inner(), &id, Path::new(&dest))
+}
+
+#[tauri::command]
+pub async fn import_share_manifest(
+    state: State<'_, AppState>,
+    src: String,
+) -> Result<Instance> {
+    sharing::import_share_manifest(state.inner(), Path::new(&src)).await
+}
+
+#[tauri::command]
+pub async fn get_share_code(state: State<'_, AppState>, id: String) -> Result<String> {
+    sharing::share_code(state.inner(), &id)
+}
+
+#[tauri::command]
+pub async fn import_share_code(state: State<'_, AppState>, code: String) -> Result<Instance> {
+    sharing::import_share_code(state.inner(), &code).await
 }
 
 /// Export an instance as a Modrinth modpack (`.mrpack`). `embed` lists the

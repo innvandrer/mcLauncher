@@ -7,6 +7,42 @@
  */
 
 const en = {
+  "common.all": "All",
+  "common.close": "Close",
+  "app.loading": "Loading EZMapa…",
+  "nav.home": "Home",
+  "nav.instances": "Instances",
+  "nav.modpacks": "Modpacks",
+  "nav.accounts": "Accounts",
+  "nav.settings": "Settings",
+  "account.none": "No account",
+  "account.playing": "Playing now",
+  "account.offline": "Offline account",
+  "account.microsoft": "Microsoft account",
+  "account.add": "Click to add",
+  "instances.title": "Instances",
+  "instances.subtitle":
+    "Create, launch, and manage your Minecraft installations.",
+  "instances.create": "Create instance",
+  "instances.search": "Search instances…",
+  "instances.empty": "No instances yet. Create one to get started.",
+  "instances.noMatches": "No instances match your search.",
+  "instances.ungrouped": "Ungrouped",
+  "settings.title": "Settings",
+  "settings.appearance": "Appearance",
+  "settings.theme": "Theme",
+  "settings.dark": "Dark",
+  "settings.light": "Light",
+  "settings.accent": "Accent color",
+  "settings.language": "Language",
+  "settings.languageHint": "Changes the launcher interface language.",
+  "settings.english": "English",
+  "settings.norwegian": "Norwegian",
+  "onboarding.title": "Welcome to EZMapa",
+  "onboarding.skip": "Skip",
+  "onboarding.account": "Add account",
+  "onboarding.instance": "Create an instance",
+
   // Cross-source fallback (blocked CurseForge downloads)
   "install.viaModrinthBadge": "{n} via Modrinth",
   "install.viaModrinthToast":
@@ -54,12 +90,14 @@ const en = {
   "server.bestEffort":
     "Best effort: server-only mods are skipped, and client-only mods (minimaps, HUDs…) can't be detected from the server — the result may still need tweaks before it matches perfectly.",
   "server.analyzing": "Decoding the server's mod list and matching mods…",
-  "server.planSummary": "{resolved} of {total} mods matched · {unresolved} unresolved · {skipped} skipped",
+  "server.planSummary":
+    "{resolved} of {total} mods matched · {unresolved} unresolved · {skipped} skipped",
   "server.resolvedTitle": "Will be installed",
   "server.unresolvedTitle": "Needs manual download",
   "server.skippedTitle": "Skipped (platform / server-side only)",
   "server.approx": "closest version",
-  "server.truncated": "The server truncated its mod list — some mods may be missing from this plan.",
+  "server.truncated":
+    "The server truncated its mod list — some mods may be missing from this plan.",
   "server.nameLabel": "Instance name",
   "server.create": "Create instance",
   "server.created": "Instance created — installing mods in the background.",
@@ -95,11 +133,55 @@ export type StringKey = keyof typeof en;
 
 type Vars = Record<string, string | number>;
 
-/** Active locale table. Swap (or merge) with a `no` table when it lands. */
-const table: Record<StringKey, string> = en;
+const no: Partial<Record<StringKey, string>> = {
+  "common.all": "Alle",
+  "common.close": "Lukk",
+  "app.loading": "Laster EZMapa…",
+  "nav.home": "Hjem",
+  "nav.instances": "Instanser",
+  "nav.modpacks": "Modpakker",
+  "nav.accounts": "Kontoer",
+  "nav.settings": "Innstillinger",
+  "account.none": "Ingen konto",
+  "account.playing": "Spiller nå",
+  "account.offline": "Frakoblet konto",
+  "account.microsoft": "Microsoft-konto",
+  "account.add": "Klikk for å legge til",
+  "instances.title": "Instanser",
+  "instances.subtitle":
+    "Opprett, start og administrer Minecraft-installasjonene dine.",
+  "instances.create": "Opprett instans",
+  "instances.search": "Søk i instanser…",
+  "instances.empty": "Ingen instanser ennå. Opprett en for å komme i gang.",
+  "instances.noMatches": "Ingen instanser samsvarer med søket.",
+  "instances.ungrouped": "Uten gruppe",
+  "settings.title": "Innstillinger",
+  "settings.appearance": "Utseende",
+  "settings.theme": "Tema",
+  "settings.dark": "Mørkt",
+  "settings.light": "Lyst",
+  "settings.accent": "Aksentfarge",
+  "settings.language": "Språk",
+  "settings.languageHint": "Endrer språket i startprogrammet.",
+  "settings.english": "Engelsk",
+  "settings.norwegian": "Norsk",
+  "onboarding.title": "Velkommen til EZMapa",
+  "onboarding.skip": "Hopp over",
+  "onboarding.account": "Legg til konto",
+  "onboarding.instance": "Opprett en instans",
+};
+
+export type Locale = "en" | "no";
+let activeLocale: Locale = "en";
+
+export function setLocale(locale: string): void {
+  activeLocale = locale === "no" ? "no" : "en";
+  document.documentElement.lang = activeLocale === "no" ? "nb" : "en";
+}
 
 export function t(key: StringKey, vars?: Vars): string {
-  let out: string = table[key] ?? key;
+  let out: string =
+    (activeLocale === "no" ? no[key] : undefined) ?? en[key] ?? key;
   if (vars) {
     for (const [k, v] of Object.entries(vars)) {
       out = out.split(`{${k}}`).join(String(v));
@@ -109,6 +191,10 @@ export function t(key: StringKey, vars?: Vars): string {
 }
 
 /** Pick the singular/plural key for a count (English rules for now). */
-export function plural(n: number, singular: StringKey, pluralKey: StringKey): string {
+export function plural(
+  n: number,
+  singular: StringKey,
+  pluralKey: StringKey,
+): string {
   return t(n === 1 ? singular : pluralKey);
 }

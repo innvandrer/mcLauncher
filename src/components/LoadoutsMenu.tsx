@@ -100,7 +100,9 @@ export function LoadoutsMenu({
                   title={`Apply “${l.name}”`}
                 >
                   <span className="flex items-center gap-1.5 truncate text-sm font-medium text-foreground">
-                    {busy === l.name && <Loader2 className="h-3 w-3 animate-spin" />}
+                    {busy === l.name && (
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                    )}
                     {l.name}
                   </span>
                   <span className="text-xs text-muted-foreground">

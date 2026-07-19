@@ -13,7 +13,9 @@ export type PackFormat = "mrpack" | "cfpack" | "both";
 function needsDecision(entry: PackPreviewEntry, format: PackFormat): boolean {
   switch (format) {
     case "mrpack":
-      return entry.availability === "curseforge" || entry.availability === "none";
+      return (
+        entry.availability === "curseforge" || entry.availability === "none"
+      );
     case "cfpack":
       return entry.availability === "modrinth" || entry.availability === "none";
     case "both":
@@ -62,7 +64,8 @@ async function runExports(
   try {
     store.toast("info", t("export.exporting"));
     if (dest.mrpack) await api.exportMrpack(instanceId, dest.mrpack, embedList);
-    if (dest.cfpack) await api.exportCurseforgePack(instanceId, dest.cfpack, embedList);
+    if (dest.cfpack)
+      await api.exportCurseforgePack(instanceId, dest.cfpack, embedList);
     store.toast(
       "success",
       t(
@@ -127,7 +130,9 @@ export function PackExportModal() {
   // Reset the checkboxes (all excluded) whenever a new review opens.
   useEffect(() => {
     if (pending) {
-      setEmbed(Object.fromEntries(pending.entries.map((e) => [e.fileName, false])));
+      setEmbed(
+        Object.fromEntries(pending.entries.map((e) => [e.fileName, false])),
+      );
     }
   }, [pending]);
 
@@ -137,10 +142,16 @@ export function PackExportModal() {
       .filter(([, v]) => v)
       .map(([k]) => k);
     setPending(null);
-    await runExports(pending.instanceId, pending.format, pending.paths, embedList);
+    await runExports(
+      pending.instanceId,
+      pending.format,
+      pending.paths,
+      embedList,
+    );
   };
 
-  const allEmbedded = !!pending && pending.entries.every((e) => embed[e.fileName]);
+  const allEmbedded =
+    !!pending && pending.entries.every((e) => embed[e.fileName]);
 
   return (
     <Modal
@@ -151,7 +162,9 @@ export function PackExportModal() {
     >
       {pending && (
         <div className="space-y-4">
-          <p className="text-sm text-muted-foreground">{t("export.reviewIntro")}</p>
+          <p className="text-sm text-muted-foreground">
+            {t("export.reviewIntro")}
+          </p>
 
           <div className="flex items-start gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-xs text-amber-300">
             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
@@ -165,7 +178,10 @@ export function PackExportModal() {
               onChange={(e) =>
                 setEmbed(
                   Object.fromEntries(
-                    pending.entries.map((en) => [en.fileName, e.target.checked]),
+                    pending.entries.map((en) => [
+                      en.fileName,
+                      e.target.checked,
+                    ]),
                   ),
                 )
               }
@@ -184,7 +200,10 @@ export function PackExportModal() {
                     type="checkbox"
                     checked={embed[e.fileName] ?? false}
                     onChange={(ev) =>
-                      setEmbed((m) => ({ ...m, [e.fileName]: ev.target.checked }))
+                      setEmbed((m) => ({
+                        ...m,
+                        [e.fileName]: ev.target.checked,
+                      }))
                     }
                   />
                   <span className="truncate text-sm">{e.fileName}</span>

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { FolderOpen, Search } from "lucide-react";
+import { FlaskConical, FolderOpen, Search, ShieldCheck } from "lucide-react";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { Button, Field, Input, Modal, Select } from "./ui";
 import { LoaderLogo } from "./LoaderLogo";
@@ -9,10 +9,27 @@ import { cn, LOADERS } from "@/lib/utils";
 import type { Loader, LoaderVersion } from "@/lib/types";
 
 // Empty string = "Auto": use the loader's logo as the icon.
-const ICONS = ["🟩", "🔥", "⚙️", "🧪", "🏰", "🌲", "💎", "🚀", "🐉", "⛏️", "🧱", "✨"];
-const ALL_LOADERS: Loader[] = ["vanilla", "fabric", "quilt", "forge", "neoforge"];
-
-export function CreateInstanceModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+const ICONS = [
+  "🟩",
+  "🔥",
+  "⚙️",
+  "🧪",
+  "🏰",
+  "🌲",
+  "💎",
+  "🚀",
+  "🐉",
+  "⛏️",
+  "🧱",
+  "✨",
+];
+export function CreateInstanceModal({
+  open,
+  onClose,
+}: {
+  open: boolean;
+  onClose: () => void;
+}) {
   const versions = useStore((s) => s.versions);
   const createInstance = useStore((s) => s.createInstance);
   const importFromPath = useStore((s) => s.importInstanceFromPath);
@@ -26,6 +43,7 @@ export function CreateInstanceModal({ open, onClose }: { open: boolean; onClose:
   const [loader, setLoader] = useState<Loader>("vanilla");
   const [loaderVersions, setLoaderVersions] = useState<LoaderVersion[]>([]);
   const [loaderVersion, setLoaderVersion] = useState("");
+  const [showBetaLoaders, setShowBetaLoaders] = useState(false);
   const [loadingLoaders, setLoadingLoaders] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
@@ -39,6 +57,7 @@ export function CreateInstanceModal({ open, onClose }: { open: boolean; onClose:
       setFilter("");
       setLoader("vanilla");
       setLoaderVersion("");
+      setShowBetaLoaders(false);
     }
   }, [open, versions]);
 
@@ -50,14 +69,31 @@ export function CreateInstanceModal({ open, onClose }: { open: boolean; onClose:
       .slice(0, 300);
   }, [versions, showSnapshots, filter]);
 
+  const visibleLoaderVersions = useMemo(
+    () =>
+      showBetaLoaders
+        ? loaderVersions
+        : loaderVersions.filter((version) => version.stable),
+    [loaderVersions, showBetaLoaders],
+  );
+
+  const betaLoaderCount = useMemo(
+    () => loaderVersions.filter((version) => !version.stable).length,
+    [loaderVersions],
+  );
+
   // Load loader versions when needed.
   useEffect(() => {
     let cancelled = false;
     if (!open || loader === "vanilla" || !mcVersion) {
       setLoaderVersions([]);
+      setLoaderVersion("");
       return;
     }
     setLoadingLoaders(true);
+    setLoaderVersions([]);
+    setLoaderVersion("");
+    setShowBetaLoaders(false);
     const fetchers: Record<string, (v: string) => Promise<LoaderVersion[]>> = {
       fabric: api.listFabric,
       quilt: api.listQuilt,
@@ -65,7 +101,10 @@ export function CreateInstanceModal({ open, onClose }: { open: boolean; onClose:
       neoforge: api.listNeoforge,
     };
     const fetcher = fetchers[loader];
-    if (!fetcher) { setLoadingLoaders(false); return; }
+    if (!fetcher) {
+      setLoadingLoaders(false);
+      return;
+    }
     fetcher(mcVersion)
       .then((list) => {
         if (cancelled) return;
@@ -75,13 +114,32 @@ export function CreateInstanceModal({ open, onClose }: { open: boolean; onClose:
       })
       .catch((e) => !cancelled && toast("error", errMessage(e)))
       .finally(() => !cancelled && setLoadingLoaders(false));
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [open, loader, mcVersion, toast]);
 
+  // If previews are hidden while one is selected, move back to the newest
+  // stable build so an invisible beta can never be submitted accidentally.
+  useEffect(() => {
+    if (loadingLoaders || showBetaLoaders) return;
+    const selected = loaderVersions.find((v) => v.version === loaderVersion);
+    if (selected?.stable) return;
+    setLoaderVersion(
+      loaderVersions.find((version) => version.stable)?.version ?? "",
+    );
+  }, [loaderVersion, loaderVersions, loadingLoaders, showBetaLoaders]);
+
   const canSubmit =
-    name.trim() &&
-    mcVersion &&
-    (loader === "vanilla" || loaderVersion);
+    name.trim() && mcVersion && (loader === "vanilla" || loaderVersion);
+
+  const toggleBetaLoaders = () => {
+    const next = !showBetaLoaders;
+    setShowBetaLoaders(next);
+    if (next && !loaderVersion) {
+      setLoaderVersion(loaderVersions[0]?.version ?? "");
+    }
+  };
 
   // Alternative to building an instance by hand: pick a .mrpack modpack or an
   // exported instance .zip and import it (same flow as dropping the file).
@@ -122,14 +180,23 @@ export function CreateInstanceModal({ open, onClose }: { open: boolean; onClose:
       size="lg"
       footer={
         <>
-          <Button variant="ghost" className="mr-auto gap-2" onClick={importFromFile}>
+          <Button
+            variant="ghost"
+            className="mr-auto gap-2"
+            onClick={importFromFile}
+          >
             <FolderOpen className="h-4 w-4" />
             Import file…
           </Button>
           <Button variant="ghost" onClick={onClose}>
             Cancel
           </Button>
-          <Button variant="primary" onClick={submit} loading={submitting} disabled={!canSubmit}>
+          <Button
+            variant="primary"
+            onClick={submit}
+            loading={submitting}
+            disabled={!canSubmit}
+          >
             Create instance
           </Button>
         </>
@@ -158,7 +225,9 @@ export function CreateInstanceModal({ open, onClose }: { open: boolean; onClose:
               title="Auto — use the loader logo"
               className={cn(
                 "flex h-9 w-9 items-center justify-center rounded-lg transition btn-focus",
-                icon === "" ? "bg-accent/20 ring-2 ring-accent" : "bg-muted/60 hover:bg-muted",
+                icon === ""
+                  ? "bg-accent/20 ring-2 ring-accent"
+                  : "bg-muted/60 hover:bg-muted",
               )}
             >
               <LoaderLogo loader={loader} className="h-6 w-6" />
@@ -169,7 +238,9 @@ export function CreateInstanceModal({ open, onClose }: { open: boolean; onClose:
                 onClick={() => setIcon(e)}
                 className={cn(
                   "flex h-9 w-9 items-center justify-center rounded-lg text-lg transition btn-focus",
-                  icon === e ? "bg-accent/20 ring-2 ring-accent" : "bg-muted/60 hover:bg-muted",
+                  icon === e
+                    ? "bg-accent/20 ring-2 ring-accent"
+                    : "bg-muted/60 hover:bg-muted",
                 )}
               >
                 {e}
@@ -204,23 +275,87 @@ export function CreateInstanceModal({ open, onClose }: { open: boolean; onClose:
 
         {/* Loader version */}
         {loader !== "vanilla" && (
-          <Field label={`${LOADERS.find((l) => l.id === loader)?.label} version`}>
-            <Select
-              value={loaderVersion}
-              onChange={(e) => setLoaderVersion(e.target.value)}
-              disabled={loadingLoaders || loaderVersions.length === 0}
+          <div className="space-y-2.5">
+            <Field
+              label={`${LOADERS.find((l) => l.id === loader)?.label} version`}
             >
-              {loadingLoaders && <option>Loading…</option>}
-              {!loadingLoaders && loaderVersions.length === 0 && (
-                <option>No versions for {mcVersion}</option>
-              )}
-              {loaderVersions.map((l) => (
-                <option key={l.version} value={l.version}>
-                  {l.version} {l.stable ? "" : "(beta)"}
-                </option>
-              ))}
-            </Select>
-          </Field>
+              <Select
+                value={loaderVersion}
+                onChange={(e) => setLoaderVersion(e.target.value)}
+                disabled={loadingLoaders || visibleLoaderVersions.length === 0}
+              >
+                {loadingLoaders && <option>Loading…</option>}
+                {!loadingLoaders && loaderVersions.length === 0 && (
+                  <option>No versions for {mcVersion}</option>
+                )}
+                {!loadingLoaders &&
+                  loaderVersions.length > 0 &&
+                  visibleLoaderVersions.length === 0 && (
+                    <option>No stable builds available</option>
+                  )}
+                {visibleLoaderVersions.map((version) => (
+                  <option key={version.version} value={version.version}>
+                    {version.version}
+                    {version.stable ? "" : " — Beta"}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+
+            {!loadingLoaders && betaLoaderCount > 0 && (
+              <button
+                type="button"
+                role="switch"
+                aria-checked={showBetaLoaders}
+                onClick={toggleBetaLoaders}
+                className={cn(
+                  "btn-focus flex w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition-all",
+                  showBetaLoaders
+                    ? "border-warning/45 bg-warning/10 shadow-sm shadow-warning/10"
+                    : "border-border bg-muted/25 hover:border-warning/30 hover:bg-muted/45",
+                )}
+              >
+                <span
+                  className={cn(
+                    "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-colors",
+                    showBetaLoaders
+                      ? "bg-warning/20 text-warning"
+                      : "bg-muted text-muted-foreground",
+                  )}
+                >
+                  {showBetaLoaders ? (
+                    <FlaskConical className="h-4 w-4" />
+                  ) : (
+                    <ShieldCheck className="h-4 w-4" />
+                  )}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-sm font-medium">
+                    Include beta versions
+                  </span>
+                  <span className="block text-xs text-muted-foreground">
+                    {showBetaLoaders
+                      ? `${betaLoaderCount} experimental ${betaLoaderCount === 1 ? "build" : "builds"} available — may be unstable`
+                      : "Off by default for a more reliable instance"}
+                  </span>
+                </span>
+                <span
+                  aria-hidden="true"
+                  className={cn(
+                    "relative h-6 w-11 shrink-0 rounded-full transition-colors",
+                    showBetaLoaders ? "bg-warning" : "bg-muted-foreground/25",
+                  )}
+                >
+                  <span
+                    className={cn(
+                      "absolute top-1 h-4 w-4 rounded-full bg-white shadow-sm transition-transform",
+                      showBetaLoaders ? "translate-x-6" : "translate-x-1",
+                    )}
+                  />
+                </span>
+              </button>
+            )}
+          </div>
         )}
 
         {/* Minecraft version */}
@@ -248,8 +383,8 @@ export function CreateInstanceModal({ open, onClose }: { open: boolean; onClose:
           </div>
           {!versions ? (
             <p className="rounded-lg bg-muted/40 p-3 text-sm text-muted-foreground">
-              Couldn't load the version list (are you offline?). You can still type an exact
-              version id above and it will be used.
+              Couldn't load the version list (are you offline?). You can still
+              type an exact version id above and it will be used.
             </p>
           ) : (
             <div className="scroll-area max-h-44 rounded-lg border bg-muted/20 p-1">
@@ -259,7 +394,9 @@ export function CreateInstanceModal({ open, onClose }: { open: boolean; onClose:
                   onClick={() => setMcVersion(v.id)}
                   className={cn(
                     "flex w-full items-center justify-between rounded-md px-3 py-1.5 text-sm transition",
-                    mcVersion === v.id ? "bg-accent text-accent-foreground" : "hover:bg-muted",
+                    mcVersion === v.id
+                      ? "bg-accent text-accent-foreground"
+                      : "hover:bg-muted",
                   )}
                 >
                   <span>{v.id}</span>
