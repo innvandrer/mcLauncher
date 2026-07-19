@@ -1,11 +1,21 @@
 import { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
-import { Activity, Boxes, Clock, Package, Play, Sparkles, Trophy, Users } from "lucide-react";
+import {
+  Activity,
+  Boxes,
+  Clock,
+  Package,
+  Play,
+  Sparkles,
+  Trophy,
+  Users,
+} from "lucide-react";
 import { useStore } from "@/store/useStore";
 import { api } from "@/lib/api";
 import { InstanceIcon } from "@/components/InstanceIcon";
 import { WrappedModal } from "@/components/WrappedModal";
-import { cn, formatDuration, loaderLabel, timeAgo } from "@/lib/utils";
+import { formatDuration, loaderLabel, timeAgo } from "@/lib/utils";
+import { selectContinueInstance } from "@/lib/instances";
 import type { Instance, Loader, Session } from "@/lib/types";
 
 const SPLASHES = [
@@ -46,7 +56,10 @@ function HeroBanner({
   onOpen: () => void;
   onWrapped?: (() => void) | null;
 }) {
-  const splash = useMemo(() => SPLASHES[Math.floor(Math.random() * SPLASHES.length)], []);
+  const splash = useMemo(
+    () => SPLASHES[Math.floor(Math.random() * SPLASHES.length)],
+    [],
+  );
   return (
     <div className="relative overflow-hidden rounded-2xl border border-white/5 bg-surface/30">
       <div
@@ -68,7 +81,9 @@ function HeroBanner({
       )}
       <div className="relative flex flex-col gap-6 p-4 sm:flex-row sm:items-center sm:p-7">
         <div className="min-w-0 flex-1">
-          <p className="text-xs font-semibold uppercase tracking-wider text-accent">Welcome back</p>
+          <p className="text-xs font-semibold uppercase tracking-wider text-accent">
+            Welcome back
+          </p>
           <h1 className="mt-1 truncate text-2xl font-bold tracking-tight sm:text-3xl">
             {active ? active.username : "to EZMapa"}
           </h1>
@@ -88,7 +103,9 @@ function HeroBanner({
               >
                 <Play className="h-4 w-4 shrink-0 fill-current" />
                 <span className="truncate">
-                  {running ? `${instance.name} running` : `Continue — ${instance.name}`}
+                  {running
+                    ? `${instance.name} running`
+                    : `Continue — ${instance.name}`}
                 </span>
               </button>
               <button
@@ -96,7 +113,10 @@ function HeroBanner({
                 className="text-sm text-muted-foreground transition hover:text-foreground btn-focus"
               >
                 {instance.mcVersion}
-                {instance.loader !== "vanilla" ? ` · ${loaderLabel(instance.loader)}` : ""} →
+                {instance.loader !== "vanilla"
+                  ? ` · ${loaderLabel(instance.loader)}`
+                  : ""}{" "}
+                →
               </button>
             </div>
           )}
@@ -125,7 +145,10 @@ export function HomePage() {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [wrappedOpen, setWrappedOpen] = useState(false);
   useEffect(() => {
-    api.listSessions().then(setSessions).catch(() => {});
+    api
+      .listSessions()
+      .then(setSessions)
+      .catch(() => {});
   }, []);
 
   // Bucket play sessions into the last 14 local days for the activity chart.
@@ -133,14 +156,19 @@ export function HomePage() {
     const DAYS = 14;
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    const key = (d: Date) => `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+    const key = (d: Date) =>
+      `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
     const buckets = Array.from({ length: DAYS }, (_, i) => {
       const d = new Date(today);
       d.setDate(today.getDate() - (DAYS - 1 - i));
       return {
         key: key(d),
         tick: `${d.getDate()}`,
-        full: d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" }),
+        full: d.toLocaleDateString(undefined, {
+          weekday: "short",
+          month: "short",
+          day: "numeric",
+        }),
         seconds: 0,
       };
     });
@@ -157,7 +185,10 @@ export function HomePage() {
   }, [sessions]);
 
   const stats = useMemo(() => {
-    const totalSeconds = instances.reduce((a, i) => a + (i.totalPlaySeconds || 0), 0);
+    const totalSeconds = instances.reduce(
+      (a, i) => a + (i.totalPlaySeconds || 0),
+      0,
+    );
     const totalMods = instances.reduce((a, i) => a + (i.modCount || 0), 0);
 
     const byPlaytime = [...instances]
@@ -171,7 +202,8 @@ export function HomePage() {
 
     // Count instances per loader.
     const loaderCounts = new Map<Loader, number>();
-    for (const i of instances) loaderCounts.set(i.loader, (loaderCounts.get(i.loader) ?? 0) + 1);
+    for (const i of instances)
+      loaderCounts.set(i.loader, (loaderCounts.get(i.loader) ?? 0) + 1);
     const loaders = [...loaderCounts.entries()].sort((a, b) => b[1] - a[1]);
 
     return {
@@ -181,6 +213,7 @@ export function HomePage() {
       recent,
       loaders,
       mostPlayed: byPlaytime[0] ?? null,
+      continueInstance: selectContinueInstance(instances),
       maxPlaytime: byPlaytime[0]?.totalPlaySeconds ?? 0,
     };
   }, [instances]);
@@ -194,7 +227,8 @@ export function HomePage() {
             <Boxes className="h-7 w-7" />
           </div>
           <p className="max-w-sm text-sm">
-            No instances yet. Create one to start tracking your playtime and stats.
+            No instances yet. Create one to start tracking your playtime and
+            stats.
           </p>
           <button
             onClick={() => setView("instances")}
@@ -213,12 +247,20 @@ export function HomePage() {
       <div className="app-scroll app-gutter pb-8 pt-6">
         <HeroBanner
           active={active}
-          instance={stats.mostPlayed}
-          running={stats.mostPlayed ? running.has(stats.mostPlayed.id) : false}
+          instance={stats.continueInstance}
+          running={
+            stats.continueInstance
+              ? running.has(stats.continueInstance.id)
+              : false
+          }
           totalSeconds={stats.totalSeconds}
           instanceCount={instances.length}
-          onPlay={() => stats.mostPlayed && launch(stats.mostPlayed.id)}
-          onOpen={() => stats.mostPlayed && openInstance(stats.mostPlayed.id)}
+          onPlay={() =>
+            stats.continueInstance && launch(stats.continueInstance.id)
+          }
+          onOpen={() =>
+            stats.continueInstance && openInstance(stats.continueInstance.id)
+          }
           onWrapped={sessions.length > 0 ? () => setWrappedOpen(true) : null}
         />
         <WrappedModal
@@ -231,7 +273,9 @@ export function HomePage() {
           <StatCard
             icon={<Clock className="h-5 w-5" />}
             label="Total playtime"
-            value={stats.totalSeconds > 0 ? formatDuration(stats.totalSeconds) : "—"}
+            value={
+              stats.totalSeconds > 0 ? formatDuration(stats.totalSeconds) : "—"
+            }
           />
           <StatCard
             icon={<Boxes className="h-5 w-5" />}
@@ -253,7 +297,11 @@ export function HomePage() {
         {/* Play activity (last 14 days) */}
         {activity.total > 0 && (
           <div className="mt-6">
-            <ActivityChart buckets={activity.buckets} max={activity.max} total={activity.total} />
+            <ActivityChart
+              buckets={activity.buckets}
+              max={activity.max}
+              total={activity.total}
+            />
           </div>
         )}
 
@@ -288,8 +336,13 @@ export function HomePage() {
               <h2 className="mb-4 text-sm font-semibold">By loader</h2>
               <div className="space-y-2.5">
                 {stats.loaders.map(([loader, count]) => (
-                  <div key={loader} className="flex items-center justify-between text-sm">
-                    <span className="text-muted-foreground">{loaderLabel(loader)}</span>
+                  <div
+                    key={loader}
+                    className="flex items-center justify-between text-sm"
+                  >
+                    <span className="text-muted-foreground">
+                      {loaderLabel(loader)}
+                    </span>
                     <span className="font-medium">{count}</span>
                   </div>
                 ))}
@@ -311,7 +364,9 @@ export function HomePage() {
                     >
                       <InstanceIcon instance={inst} size="sm" />
                       <div className="min-w-0 flex-1">
-                        <div className="truncate text-sm font-medium">{inst.name}</div>
+                        <div className="truncate text-sm font-medium">
+                          {inst.name}
+                        </div>
                         <div className="truncate text-xs text-muted-foreground">
                           {timeAgo(inst.lastPlayed)}
                         </div>
@@ -331,7 +386,10 @@ export function HomePage() {
 function Header() {
   const accounts = useStore((s) => s.accounts);
   const active = accounts.find((a) => a.active);
-  const splash = useMemo(() => SPLASHES[Math.floor(Math.random() * SPLASHES.length)], []);
+  const splash = useMemo(
+    () => SPLASHES[Math.floor(Math.random() * SPLASHES.length)],
+    [],
+  );
   return (
     <header className="app-gutter pb-4 pt-6">
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
@@ -367,7 +425,11 @@ function ActivityChart({
       </h2>
       <div className="flex h-28 min-w-0 items-end gap-1 sm:gap-1.5">
         {buckets.map((b) => (
-          <div key={b.key} className="flex h-full min-w-0 flex-1 items-end" title={`${b.full}: ${b.seconds > 0 ? formatDuration(b.seconds) : "no play"}`}>
+          <div
+            key={b.key}
+            className="flex h-full min-w-0 flex-1 items-end"
+            title={`${b.full}: ${b.seconds > 0 ? formatDuration(b.seconds) : "no play"}`}
+          >
             <motion.div
               initial={{ height: 0 }}
               animate={{ height: `${(b.seconds / max) * 100}%` }}
@@ -380,7 +442,10 @@ function ActivityChart({
       </div>
       <div className="mt-1 flex min-w-0 gap-1 sm:gap-1.5">
         {buckets.map((b, i) => (
-          <span key={b.key} className="min-w-0 flex-1 truncate text-center text-[10px] text-muted-foreground">
+          <span
+            key={b.key}
+            className="min-w-0 flex-1 truncate text-center text-[10px] text-muted-foreground"
+          >
             {i % 2 === 0 ? b.tick : ""}
           </span>
         ))}
@@ -443,11 +508,17 @@ function PlaytimeBar({
   max: number;
   onClick: () => void;
 }) {
-  const pct = max > 0 ? Math.max(4, (instance.totalPlaySeconds / max) * 100) : 0;
+  const pct =
+    max > 0 ? Math.max(4, (instance.totalPlaySeconds / max) * 100) : 0;
   return (
-    <button onClick={onClick} className="group block w-full text-left btn-focus">
+    <button
+      onClick={onClick}
+      className="group block w-full text-left btn-focus"
+    >
       <div className="mb-1 flex items-center justify-between text-sm">
-        <span className="truncate font-medium group-hover:text-accent">{instance.name}</span>
+        <span className="truncate font-medium group-hover:text-accent">
+          {instance.name}
+        </span>
         <span className="shrink-0 pl-3 text-xs text-muted-foreground">
           {formatDuration(instance.totalPlaySeconds)}
         </span>
@@ -463,4 +534,3 @@ function PlaytimeBar({
     </button>
   );
 }
-

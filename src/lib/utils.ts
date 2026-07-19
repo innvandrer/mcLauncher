@@ -57,7 +57,11 @@ export function formatSpeed(bytesPerSec?: number | null): string {
 }
 
 /** Rough ETA from a started timestamp and file-count progress. */
-export function formatEta(startedMs: number, current: number, total: number): string {
+export function formatEta(
+  startedMs: number,
+  current: number,
+  total: number,
+): string {
   if (current <= 0 || total <= 0 || current >= total) return "";
   const elapsed = (Date.now() - startedMs) / 1000;
   if (elapsed < 0.5) return "";
@@ -97,10 +101,25 @@ export const AIKAR_FLAGS =
   "-XX:G1RSetUpdatingPauseTimePercent=5 -XX:SurvivorRatio=32 " +
   "-XX:+PerfDisableSharedMem -XX:MaxTenuringThreshold=1";
 
-export function applyTheme(theme: string, accent: string) {
+export function applyTheme(
+  theme: string,
+  accent: string,
+  options?: {
+    density?: string;
+    reduceTransparency?: boolean;
+    highContrast?: boolean;
+  },
+) {
   const root = document.documentElement;
-  if (theme === "light") root.classList.remove("dark");
+  const systemDark = window.matchMedia?.(
+    "(prefers-color-scheme: dark)",
+  ).matches;
+  if (theme === "light" || (theme === "system" && !systemDark))
+    root.classList.remove("dark");
   else root.classList.add("dark");
+  root.classList.toggle("compact", options?.density === "compact");
+  root.classList.toggle("reduce-transparency", !!options?.reduceTransparency);
+  root.classList.toggle("high-contrast", !!options?.highContrast);
   const hsl = ACCENTS[accent] ?? ACCENTS.violet;
   root.style.setProperty("--accent", hsl);
   root.style.setProperty("--ring", hsl);

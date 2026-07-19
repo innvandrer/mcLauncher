@@ -31,7 +31,10 @@ export function TurboButton({
       const res = await api.applyTurbo(instance.id);
       setResult(res);
       if (res.installed.length > 0) {
-        toast("success", `Turbo: installed ${res.installed.length} file${res.installed.length === 1 ? "" : "s"}`);
+        toast(
+          "success",
+          `Turbo: installed ${res.installed.length} file${res.installed.length === 1 ? "" : "s"}`,
+        );
         onApplied();
       } else if (res.skipped.length > 0) {
         toast("info", "Turbo: everything's already installed");
@@ -49,7 +52,9 @@ export function TurboButton({
     if (!result || result.installed.length === 0) return;
     setUndoing(true);
     try {
-      await Promise.all(result.installed.map((file) => api.deleteMod(instance.id, file)));
+      await Promise.all(
+        result.installed.map((file) => api.deleteMod(instance.id, file)),
+      );
       toast("success", "Turbo changes undone");
       setResult(null);
       onApplied();
@@ -68,7 +73,11 @@ export function TurboButton({
         className="inline-flex shrink-0 items-center gap-1 text-xs text-muted-foreground transition hover:text-foreground btn-focus disabled:opacity-50"
         title="Install a well-known performance mod stack (Sodium/Lithium-class)"
       >
-        {running ? <Loader2 className="h-3 w-3 animate-spin" /> : <Zap className="h-3 w-3" />}
+        {running ? (
+          <Loader2 className="h-3 w-3 animate-spin" />
+        ) : (
+          <Zap className="h-3 w-3" />
+        )}
         Turbo
       </button>
       {result && result.installed.length > 0 && (
@@ -78,7 +87,11 @@ export function TurboButton({
           className="inline-flex shrink-0 items-center gap-1 text-xs text-muted-foreground transition hover:text-foreground btn-focus disabled:opacity-50"
           title="Remove the mods Turbo just installed"
         >
-          {undoing ? <Loader2 className="h-3 w-3 animate-spin" /> : <Undo2 className="h-3 w-3" />}
+          {undoing ? (
+            <Loader2 className="h-3 w-3 animate-spin" />
+          ) : (
+            <Undo2 className="h-3 w-3" />
+          )}
           Undo
         </button>
       )}

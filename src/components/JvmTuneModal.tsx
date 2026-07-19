@@ -40,8 +40,11 @@ export function JvmTuneModal({
   }, [open, instanceId]);
 
   const diff = useMemo(() => {
-    if (!suggestion) return { removed: new Set<string>(), added: new Set<string>() };
-    const current = new Set(suggestion.currentArgs.split(/\s+/).filter(Boolean));
+    if (!suggestion)
+      return { removed: new Set<string>(), added: new Set<string>() };
+    const current = new Set(
+      suggestion.currentArgs.split(/\s+/).filter(Boolean),
+    );
     const next = new Set(suggestion.suggestedArgs.split(/\s+/).filter(Boolean));
     return {
       removed: new Set([...current].filter((x) => !next.has(x))),
@@ -49,24 +52,33 @@ export function JvmTuneModal({
     };
   }, [suggestion]);
 
-  const tokens = (args: string, highlight: Set<string>, tone: "removed" | "added") => (
+  const tokens = (
+    args: string,
+    highlight: Set<string>,
+    tone: "removed" | "added",
+  ) => (
     <div className="flex flex-wrap gap-1 rounded-lg border bg-muted/30 p-2 font-mono text-[11px] leading-5">
-      {args.split(/\s+/).filter(Boolean).map((tok, i) => (
-        <span
-          key={`${tok}-${i}`}
-          className={cn(
-            "rounded px-1",
-            highlight.has(tok)
-              ? tone === "removed"
-                ? "bg-red-500/15 text-red-400 line-through"
-                : "bg-emerald-500/15 text-emerald-400"
-              : "text-muted-foreground",
-          )}
-        >
-          {tok}
-        </span>
-      ))}
-      {args.trim() === "" && <span className="text-muted-foreground/60">(empty)</span>}
+      {args
+        .split(/\s+/)
+        .filter(Boolean)
+        .map((tok, i) => (
+          <span
+            key={`${tok}-${i}`}
+            className={cn(
+              "rounded px-1",
+              highlight.has(tok)
+                ? tone === "removed"
+                  ? "bg-red-500/15 text-red-400 line-through"
+                  : "bg-emerald-500/15 text-emerald-400"
+                : "text-muted-foreground",
+            )}
+          >
+            {tok}
+          </span>
+        ))}
+      {args.trim() === "" && (
+        <span className="text-muted-foreground/60">(empty)</span>
+      )}
     </div>
   );
 
@@ -124,11 +136,15 @@ export function JvmTuneModal({
                 {t("jvm.argsDiff")}
               </h4>
               <div>
-                <p className="mb-1 text-[11px] text-muted-foreground">{t("jvm.currentLabel")}</p>
+                <p className="mb-1 text-[11px] text-muted-foreground">
+                  {t("jvm.currentLabel")}
+                </p>
                 {tokens(suggestion.currentArgs, diff.removed, "removed")}
               </div>
               <div>
-                <p className="mb-1 text-[11px] text-muted-foreground">{t("jvm.suggestedLabel")}</p>
+                <p className="mb-1 text-[11px] text-muted-foreground">
+                  {t("jvm.suggestedLabel")}
+                </p>
                 {tokens(suggestion.suggestedArgs, diff.added, "added")}
               </div>
             </div>

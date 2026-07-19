@@ -1235,6 +1235,137 @@ pub async fn apply_update(state: &AppState, instance_id: &str, update: ModUpdate
     Ok(())
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct UpdateBackupEntry {
+    content_type: String,
+    old_file_name: String,
+    new_file_name: String,
+    enabled: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct UpdateBackupManifest {
+    created: i64,
+    entries: Vec<UpdateBackupEntry>,
+}
+
+fn update_backups_dir(state: &AppState, instance_id: &str) -> std::path::PathBuf {
+    state.dirs.instance_dir(instance_id).join("update-backups")
+}
+
+pub async fn apply_updates_transaction(
+    state: &AppState,
+    instance_id: &str,
+    updates: Vec<ModUpdate>,
+) -> Result<u32> {
+    crate::instances::require_safe_name("instance id", instance_id)?;
+    if updates.is_empty() {
+        return Ok(0);
+    }
+    let root = update_backups_dir(state, instance_id);
+    std::fs::create_dir_all(&root)?;
+    let backup = root.join(format!(
+        "{}-{}",
+        chrono::Utc::now().timestamp(),
+        uuid::Uuid::new_v4()
+    ));
+    std::fs::create_dir_all(&backup)?;
+
+    let mut entries = Vec::new();
+    for update in &updates {
+        crate::instances::require_safe_name("old update file", &update.old_file_name)?;
+        crate::instances::require_safe_name("new update file", &update.new_file_name)?;
+        let dir = content_dir(&state.dirs.game_dir(instance_id), &update.content_type);
+        let old_name = if update.content_type == "mod" && !update.enabled {
+            format!("{}.disabled", update.old_file_name)
+        } else {
+            update.old_file_name.clone()
+        };
+        let old = dir.join(&old_name);
+        if old.is_file() {
+            std::fs::copy(
+                old,
+                backup.join(format!("{}__{}", update.content_type, old_name)),
+            )?;
+        }
+        entries.push(UpdateBackupEntry {
+            content_type: update.content_type.clone(),
+            old_file_name: update.old_file_name.clone(),
+            new_file_name: update.new_file_name.clone(),
+            enabled: update.enabled,
+        });
+    }
+    std::fs::write(
+        backup.join("manifest.json"),
+        serde_json::to_vec_pretty(&UpdateBackupManifest {
+            created: chrono::Utc::now().timestamp(),
+            entries,
+        })?,
+    )?;
+
+    for update in updates.iter().cloned() {
+        if let Err(error) = apply_update(state, instance_id, update).await {
+            let _ = rollback_update_backup(state, instance_id, &backup);
+            return Err(error);
+        }
+    }
+    Ok(updates.len() as u32)
+}
+
+fn rollback_update_backup(
+    state: &AppState,
+    instance_id: &str,
+    backup: &std::path::Path,
+) -> Result<u32> {
+    let manifest: UpdateBackupManifest =
+        serde_json::from_slice(&std::fs::read(backup.join("manifest.json"))?)?;
+    let mut restored = 0;
+    for entry in manifest.entries {
+        let dir = content_dir(&state.dirs.game_dir(instance_id), &entry.content_type);
+        let old_name = if entry.content_type == "mod" && !entry.enabled {
+            format!("{}.disabled", entry.old_file_name)
+        } else {
+            entry.old_file_name.clone()
+        };
+        let new_name = if entry.content_type == "mod" && !entry.enabled {
+            format!("{}.disabled", entry.new_file_name)
+        } else {
+            entry.new_file_name.clone()
+        };
+        let stored = backup.join(format!("{}__{}", entry.content_type, old_name));
+        if new_name != old_name && dir.join(&new_name).is_file() {
+            std::fs::remove_file(dir.join(&new_name))?;
+        }
+        if stored.is_file() {
+            std::fs::create_dir_all(&dir)?;
+            std::fs::copy(stored, dir.join(&old_name))?;
+            crate::instances::migrate_index_entry(
+                state,
+                instance_id,
+                &entry.new_file_name,
+                &entry.old_file_name,
+            );
+            restored += 1;
+        }
+    }
+    Ok(restored)
+}
+
+pub fn rollback_last_update(state: &AppState, instance_id: &str) -> Result<u32> {
+    crate::instances::require_safe_name("instance id", instance_id)?;
+    let latest = std::fs::read_dir(update_backups_dir(state, instance_id))?
+        .flatten()
+        .filter(|entry| entry.path().join("manifest.json").is_file())
+        .max_by_key(|entry| entry.file_name())
+        .ok_or_else(|| Error::NotFound("content update backup".into()))?
+        .path();
+    let restored = rollback_update_backup(state, instance_id, &latest)?;
+    std::fs::remove_dir_all(latest)?;
+    Ok(restored)
+}
+
 /// Check for updates and apply them all. Returns how many items were updated.
 pub async fn auto_update_all(
     state: &AppState,
@@ -1249,11 +1380,7 @@ pub async fn auto_update_all(
     }
 
     let updates = check_updates(state, instance_id, loader, game_version).await?;
-    let count = updates.len() as u32;
-    for update in updates {
-        apply_update(state, instance_id, update).await?;
-    }
-    Ok(count)
+    apply_updates_transaction(state, instance_id, updates).await
 }
 
 /// Install a Modrinth modpack as a *new* instance: parse the pack's

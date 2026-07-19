@@ -20,6 +20,7 @@ import { ModpacksPage } from "./pages/ModpacksPage";
 import { AccountsPage } from "./pages/AccountsPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { useStore } from "./store/useStore";
+import { t } from "./lib/strings";
 
 export default function App() {
   const ready = useStore((s) => s.ready);
@@ -43,7 +44,7 @@ export default function App() {
           {!ready ? (
             <div className="flex h-full flex-col items-center justify-center gap-3 text-muted-foreground">
               <Spinner className="h-6 w-6" />
-              <span className="text-sm">Loading EZMapa…</span>
+              <span className="text-sm">{t("app.loading")}</span>
             </div>
           ) : (
             <motion.div

@@ -4,23 +4,19 @@ Working plan for the launcher, organized as **Now / Next / Later**. Items move
 up as they're scoped and down as priorities shift. Shipped items drop to the
 bottom with the release they landed in.
 
-Last reviewed against `main` at v0.3.0.
+Last reviewed for v0.4.2.
 
 ---
 
 ## Now — v0.3.x
 
-- **CI hardening (remaining)** — Clippy (`-D warnings`) and a `windows-latest`
-  runner are in CI. Still missing: `cargo fmt --check`, ESLint + Prettier for
-  the frontend, and (optionally) a Linux runner for cross-platform compile
-  checks.
+- **CI hardening (remaining)** — frontend build, ESLint, Prettier, Vitest,
+  Clippy (`-D warnings`), and Rust tests run on `windows-latest`. Still open:
+  `cargo fmt --check` and an optional Linux compile-check runner.
 - **Dead-code cleanup** — remove or wire up unused surfaces the compiler still
   flags: `crosssource/mod.rs` module-level `#![allow(dead_code)]`, a few
   `#[allow(dead_code)]` items in `mojang.rs` / `servers.rs`, and any new
   warnings after the v0.3.0 merge.
-- **World delete safety net** — manual world snapshots (backup to `.zip`,
-  restore, delete snapshot) already exist on the Worlds tab. Still missing:
-  an automatic safety backup before `delete_world` runs.
 - **v0.3.0 validation** — dogfood the five cross-source features against live
   Modrinth/CurseForge APIs, real modded servers, and actual game launches;
   file bugs from anything that only shows up outside the sandbox.
@@ -32,15 +28,12 @@ Last reviewed against `main` at v0.3.0.
   "Update all". Still open: per-item apply/skip, clearer entry points outside
   the content tabs, and reconciling that UI with the global "Auto-update
   content on launch" setting.
-- **Frontend unit tests** — Vitest (drop-in with Vite), starting with the
-  crash-analysis rules in `src/lib/crash.ts`: pure functions where a regression
-  silently gives players wrong crash advice.
-- **Localization** — `src/lib/strings.ts` exists and v0.3.0 features route
-  through `t()`, but most of the UI is still hardcoded English. Finish
-  extraction opportunistically; add Norwegian as the first locale.
-- **README accuracy** — README still claims "resumable" downloads; `net.rs`
-  writes to a `.part` temp file but restarts from scratch on failure (no HTTP
-  Range resume yet). Align docs or implement resume (see Later).
+- **Frontend unit tests** — Vitest now covers crash-analysis and instance
+  organization rules. Expand into update decisions, settings persistence, and
+  critical component interaction tests.
+- **Localization** — Norwegian now covers the main navigation, instance library,
+  onboarding, and appearance settings. Continue extracting the remaining
+  hardcoded English strings opportunistically.
 
 ## Later
 
@@ -49,8 +42,9 @@ Last reviewed against `main` at v0.3.0.
   needs release-workflow matrix entries, testing, and signing story.
 - **Download resilience** — resume partially-downloaded files after a network
   drop (HTTP Range) instead of restarting them.
-- **Accessibility pass** — keyboard navigation and screen-reader labels across
-  modals and the command palette.
+- **Accessibility pass** — shared dialogs now have focus trapping, focus
+  restoration, semantics, and reduced-motion support. Continue with the command
+  palette and icon-only controls.
 
 ---
 
@@ -58,6 +52,16 @@ Last reviewed against `main` at v0.3.0.
 
 | Release | Item |
 |---------|------|
+| v0.4.2 | Instance Health Center |
+| v0.4.2 | Reviewed transactional content updates + rollback |
+| v0.4.2 | Pass the Pack `.ezmapa` export/import |
+| v0.4.2 | Dependency-aware removal warnings |
+| v0.4.2 | Reversible Pack Doctor isolation pass |
+| v0.3.2 | Collapsible instance groups + group-aware search |
+| v0.3.2 | Automatic world snapshot before deletion |
+| v0.3.2 | Norwegian locale foundation + persisted language setting |
+| v0.3.2 | Accessible shared dialogs + reduced-motion support |
+| v0.3.2 | Frontend lint/format/test quality gates |
 | v0.3.0 | Blocked CurseForge downloads auto-resolve via Modrinth (hash-verified) |
 | v0.3.0 | Cross-platform mod/resource/shader update checking + switch source of truth |
 | v0.3.0 | CurseForge modpack export + "Export both" (`.mrpack` + CF pack) |

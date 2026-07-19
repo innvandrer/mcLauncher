@@ -12,6 +12,7 @@ import {
   ExternalLink,
   FolderOpen,
   Gauge,
+  HeartPulse,
   Globe,
   Image,
   Package,
@@ -30,12 +31,30 @@ import {
   Users,
   Wifi,
   Copy,
+  FlaskConical,
 } from "lucide-react";
-import { Button, EmptyState, Field, Input, Modal, Select, Skeleton, Spinner } from "@/components/ui";
+import {
+  Button,
+  EmptyState,
+  Field,
+  Input,
+  Modal,
+  Select,
+  Skeleton,
+  Spinner,
+} from "@/components/ui";
 import { useStore } from "@/store/useStore";
 import { api, errMessage } from "@/lib/api";
 import { t } from "@/lib/strings";
-import { ACCENTS, AIKAR_FLAGS, cn, formatBytes, formatNumber, isImageIcon, loaderLabel } from "@/lib/utils";
+import {
+  ACCENTS,
+  AIKAR_FLAGS,
+  cn,
+  formatBytes,
+  formatNumber,
+  isImageIcon,
+  loaderLabel,
+} from "@/lib/utils";
 import { InstanceIcon } from "@/components/InstanceIcon";
 import { LoaderLogo } from "@/components/LoaderLogo";
 import { ExportMenu } from "@/components/ExportMenu";
@@ -45,10 +64,13 @@ import { analyzeCrash, type CrashFinding } from "@/lib/crash";
 import { startPackExport } from "@/components/PackExport";
 import { ServerInstanceModal } from "@/components/ServerInstanceModal";
 import { JvmTuneModal } from "@/components/JvmTuneModal";
+import { HealthCenterModal } from "@/components/HealthCenterModal";
+import { PackDoctorModal } from "@/components/PackDoctorModal";
+import { InstanceOverview } from "@/components/InstanceOverview";
+import { SharePreviewModal } from "@/components/SharePreviewModal";
 import type {
   ContentVersion,
   DiskUsage,
-  InstallOutcome,
   Instance,
   ModConflict,
   ModEntry,
@@ -56,17 +78,15 @@ import type {
   ModpackUpdate,
   ModUpdate,
   PreflightWarning,
-  ResourcePackEntry,
   SavedServer,
   ScreenshotEntry,
   ServerStatus,
-  ShaderEntry,
   Snapshot,
   StartupStats,
   WorldEntry,
 } from "@/lib/types";
 
-type Tab = "content" | "servers" | "logs" | "settings";
+type Tab = "overview" | "content" | "servers" | "logs" | "settings";
 
 function contentUrl(hit: ModHit, provider: Provider): string {
   const typeSlug: Record<string, string> = {
@@ -75,7 +95,9 @@ function contentUrl(hit: ModHit, provider: Provider): string {
     shader: provider === "curseforge" ? "customization" : "shader",
     modpack: provider === "curseforge" ? "modpacks" : "modpack",
   };
-  const section = typeSlug[hit.project_type] ?? (provider === "curseforge" ? "mc-mods" : "mod");
+  const section =
+    typeSlug[hit.project_type] ??
+    (provider === "curseforge" ? "mc-mods" : "mod");
   if (provider === "curseforge") {
     return `https://www.curseforge.com/minecraft/${section}/${hit.slug}`;
   }
@@ -88,8 +110,9 @@ export function InstanceDetailPage({ id }: { id: string }) {
   const launch = useStore((s) => s.launch);
   const stop = useStore((s) => s.stop);
   const close = useStore((s) => s.closeInstance);
-  const toast = useStore((s) => s.toast);
-  const [tab, setTab] = useState<Tab>("content");
+  const [tab, setTab] = useState<Tab>("overview");
+  const [healthOpen, setHealthOpen] = useState(false);
+  const [doctorOpen, setDoctorOpen] = useState(false);
 
   if (!instance) {
     return (
@@ -102,6 +125,7 @@ export function InstanceDetailPage({ id }: { id: string }) {
   }
 
   const tabs: { id: Tab; label: string; icon: typeof Package }[] = [
+    { id: "overview", label: "Overview", icon: Gauge },
     { id: "content", label: "Content", icon: Package },
     { id: "servers", label: "Servers", icon: Server },
     { id: "logs", label: "Logs", icon: ScrollText },
@@ -120,23 +144,44 @@ export function InstanceDetailPage({ id }: { id: string }) {
         </button>
 
         <div className="flex flex-wrap items-start gap-4">
-          <InstanceIcon instance={instance} size="detail" className="shrink-0 border border-white/5" />
+          <InstanceIcon
+            instance={instance}
+            size="detail"
+            className="shrink-0 border border-white/5"
+          />
           <div className="min-w-0 flex-1">
-            <h1 className="truncate text-2xl font-bold tracking-tight">{instance.name}</h1>
+            <h1 className="truncate text-2xl font-bold tracking-tight">
+              {instance.name}
+            </h1>
             <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-sm text-muted-foreground">
               <span>{instance.mcVersion}</span>
               {instance.loader !== "vanilla" && (
                 <>
                   <span className="opacity-40">•</span>
-                  <span className="font-medium text-accent">{loaderLabel(instance.loader)}</span>
-                  {instance.loaderVersion && <span>{instance.loaderVersion}</span>}
+                  <span className="font-medium text-accent">
+                    {loaderLabel(instance.loader)}
+                  </span>
+                  {instance.loaderVersion && (
+                    <span>{instance.loaderVersion}</span>
+                  )}
                 </>
               )}
             </div>
           </div>
           <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:justify-end">
+            <Button variant="secondary" onClick={() => setHealthOpen(true)}>
+              <HeartPulse className="h-4 w-4" /> Health
+            </Button>
+            {instance.loader !== "vanilla" && (
+              <Button variant="secondary" onClick={() => setDoctorOpen(true)}>
+                <FlaskConical className="h-4 w-4" /> Pack Doctor
+              </Button>
+            )}
             <ExportMenu instanceId={id} instanceName={instance.name} />
-            <Button variant="secondary" onClick={() => api.openInstanceFolder(id)}>
+            <Button
+              variant="secondary"
+              onClick={() => api.openInstanceFolder(id)}
+            >
               <FolderOpen className="h-4 w-4" /> Folder
             </Button>
             {running ? (
@@ -162,7 +207,9 @@ export function InstanceDetailPage({ id }: { id: string }) {
                 onClick={() => setTab(t.id)}
                 className={cn(
                   "relative flex shrink-0 items-center gap-2 px-4 py-2.5 text-sm font-medium transition btn-focus",
-                  active ? "text-foreground" : "text-muted-foreground hover:text-foreground",
+                  active
+                    ? "text-foreground"
+                    : "text-muted-foreground hover:text-foreground",
                 )}
               >
                 <Icon className="h-4 w-4" />
@@ -177,18 +224,43 @@ export function InstanceDetailPage({ id }: { id: string }) {
       </header>
 
       <div className="app-gutter shrink-0">
-        <PreflightBanner instance={instance} onOpenSettings={() => setTab("settings")} />
+        <PreflightBanner
+          instance={instance}
+          onOpenSettings={() => setTab("settings")}
+        />
         <ModpackUpdateBanner instance={instance} />
       </div>
 
       <div className="app-scroll app-gutter py-5">
+        {tab === "overview" && (
+          <InstanceOverview
+            instance={instance}
+            onHealth={() => setHealthOpen(true)}
+            onDoctor={() => setDoctorOpen(true)}
+            onOpenTab={setTab}
+          />
+        )}
         {tab === "content" && <ContentTab instance={instance} />}
         {tab === "servers" && <ServersTab instance={instance} />}
         {tab === "logs" && (
-          <LogsTab id={id} instance={instance} onOpenSettings={() => setTab("settings")} />
+          <LogsTab
+            id={id}
+            instance={instance}
+            onOpenSettings={() => setTab("settings")}
+          />
         )}
         {tab === "settings" && <SettingsTab instance={instance} />}
       </div>
+      <HealthCenterModal
+        open={healthOpen}
+        onClose={() => setHealthOpen(false)}
+        instance={instance}
+      />
+      <PackDoctorModal
+        open={doctorOpen}
+        onClose={() => setDoctorOpen(false)}
+        instance={instance}
+      />
     </div>
   );
 }
@@ -213,7 +285,10 @@ function PreflightBanner({
   const [fixing, setFixing] = useState<number | null>(null);
 
   const refresh = () => {
-    api.preflightCheck(instance.id).then(setWarnings).catch(() => {});
+    api
+      .preflightCheck(instance.id)
+      .then(setWarnings)
+      .catch(() => {});
   };
 
   useEffect(() => {
@@ -237,7 +312,10 @@ function PreflightBanner({
     }
     setFixing(i);
     try {
-      if ((w.action === "increase-ram" || w.action === "lower-ram") && w.suggestedMemoryMb) {
+      if (
+        (w.action === "increase-ram" || w.action === "lower-ram") &&
+        w.suggestedMemoryMb
+      ) {
         await updateInstance({ ...instance, memoryMb: w.suggestedMemoryMb });
         toast("success", `Memory set to ${w.suggestedMemoryMb} MB`);
       } else if (w.action === "clean-duplicates") {
@@ -262,7 +340,8 @@ function PreflightBanner({
       <div className="flex items-center gap-2">
         <AlertTriangle className="h-4 w-4 shrink-0 text-amber-400" />
         <p className="text-sm font-semibold text-amber-200">
-          Preflight found {warnings.length} thing{warnings.length === 1 ? "" : "s"} worth checking
+          Preflight found {warnings.length} thing
+          {warnings.length === 1 ? "" : "s"} worth checking
         </p>
       </div>
       <div className="mt-2 space-y-2">
@@ -272,7 +351,9 @@ function PreflightBanner({
             className="flex items-start justify-between gap-3 rounded-lg bg-black/10 p-2.5"
           >
             <div className="min-w-0">
-              <p className="text-sm font-medium text-foreground/90">{w.title}</p>
+              <p className="text-sm font-medium text-foreground/90">
+                {w.title}
+              </p>
               <p className="text-xs text-muted-foreground">{w.detail}</p>
             </div>
             <Button
@@ -306,7 +387,10 @@ function ModpackUpdateBanner({ instance }: { instance: Instance }) {
     setExpanded(false);
     // Only modpack-derived instances carry a pack source; the command returns
     // null for everything else, so this is a cheap no-op otherwise.
-    api.checkModpackUpdate(instance.id).then(setUpdate).catch(() => {});
+    api
+      .checkModpackUpdate(instance.id)
+      .then(setUpdate)
+      .catch(() => {});
   }, [instance.id]);
 
   if (!update) return null;
@@ -325,7 +409,15 @@ function ModpackUpdateBanner({ instance }: { instance: Instance }) {
     }
   };
 
-  const Line = ({ label, items, color }: { label: string; items: string[]; color: string }) =>
+  const Line = ({
+    label,
+    items,
+    color,
+  }: {
+    label: string;
+    items: string[];
+    color: string;
+  }) =>
     items.length === 0 ? null : (
       <div className="mt-2">
         <p className={cn("text-xs font-semibold", color)}>
@@ -333,7 +425,9 @@ function ModpackUpdateBanner({ instance }: { instance: Instance }) {
         </p>
         <ul className="mt-0.5 space-y-0.5 text-xs text-muted-foreground">
           {items.map((f) => (
-            <li key={f} className="truncate">{f}</li>
+            <li key={f} className="truncate">
+              {f}
+            </li>
           ))}
         </ul>
       </div>
@@ -353,7 +447,11 @@ function ModpackUpdateBanner({ instance }: { instance: Instance }) {
             {update.removed.length} removed
           </p>
         </div>
-        <Button size="sm" variant="ghost" onClick={() => setExpanded((v) => !v)}>
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={() => setExpanded((v) => !v)}
+        >
           {expanded ? "Hide" : "View changes"}
         </Button>
         <Button size="sm" variant="primary" onClick={apply} loading={applying}>
@@ -364,7 +462,11 @@ function ModpackUpdateBanner({ instance }: { instance: Instance }) {
         <div className="mt-2 border-t border-accent/20 pt-1">
           <Line label="Added" items={update.added} color="text-emerald-400" />
           <Line label="Updated" items={update.updated} color="text-accent" />
-          <Line label="Removed" items={update.removed} color="text-destructive" />
+          <Line
+            label="Removed"
+            items={update.removed}
+            color="text-destructive"
+          />
         </div>
       )}
     </div>
@@ -375,21 +477,25 @@ function ModpackUpdateBanner({ instance }: { instance: Instance }) {
 // Content tab — sub-tabs for Mods, Resource Packs, Shaders, Worlds, Screenshots
 // --------------------------------------------------------------------------
 
-type ContentSection = "mods" | "resourcepacks" | "shaders" | "worlds" | "screenshots";
+type ContentSection =
+  "mods" | "resourcepacks" | "shaders" | "worlds" | "screenshots";
 
 function ContentTab({ instance }: { instance: Instance }) {
   const isModded = instance.loader !== "vanilla";
-  const [section, setSection] = useState<ContentSection>(isModded ? "mods" : "resourcepacks");
+  const [section, setSection] = useState<ContentSection>(
+    isModded ? "mods" : "resourcepacks",
+  );
 
-  const subtabs: { id: ContentSection; label: string; icon: typeof Package }[] = [
-    ...(isModded
-      ? [{ id: "mods" as ContentSection, label: "Mods", icon: Package }]
-      : []),
-    { id: "resourcepacks", label: "Resource Packs", icon: Image },
-    { id: "shaders", label: "Shaders", icon: Sparkles },
-    { id: "worlds", label: "Worlds", icon: Globe },
-    { id: "screenshots", label: "Screenshots", icon: Camera },
-  ];
+  const subtabs: { id: ContentSection; label: string; icon: typeof Package }[] =
+    [
+      ...(isModded
+        ? [{ id: "mods" as ContentSection, label: "Mods", icon: Package }]
+        : []),
+      { id: "resourcepacks", label: "Resource Packs", icon: Image },
+      { id: "shaders", label: "Shaders", icon: Sparkles },
+      { id: "worlds", label: "Worlds", icon: Globe },
+      { id: "screenshots", label: "Screenshots", icon: Camera },
+    ];
 
   return (
     <div>
@@ -423,7 +529,9 @@ function ContentTab({ instance }: { instance: Instance }) {
           modrinthType="resourcepack"
           useLoaderFilter={false}
           listItems={() => api.listResourcePacks(instance.id)}
-          deleteItem={(fileName) => api.deleteResourcePack(instance.id, fileName)}
+          deleteItem={(fileName) =>
+            api.deleteResourcePack(instance.id, fileName)
+          }
           emptyLabel="resource packs"
           placeholder={`Search Modrinth for ${instance.mcVersion} resource packs…`}
         />
@@ -515,23 +623,6 @@ function searchProvider(
   });
 }
 
-// Run a provider-aware install; returns the installed file + any dependencies.
-function installProvider(
-  provider: Provider,
-  args: {
-    instanceId: string;
-    projectId: string;
-    contentType: string;
-    loader?: string | null;
-    gameVersion?: string | null;
-  },
-): Promise<InstallOutcome> {
-  if (provider === "curseforge") {
-    return api.installCurseforgeContent(args);
-  }
-  return api.installContent(args);
-}
-
 // Number of search results per page.
 const PAGE_SIZE = 20;
 // Cap pagination so we never request offsets the providers reject.
@@ -596,14 +687,18 @@ function useContentUpdates(
     }
   };
 
-  const applyAllUpdates = async () => {
+  const applyUpdates = async (selected: ModUpdate[]) => {
     setUpdatingAll(true);
     try {
-      for (const u of updates) {
-        await api.applyModUpdate(instance.id, u);
-      }
-      toast("success", `Updated ${updates.length} item${updates.length > 1 ? "s" : ""}`);
-      setUpdates([]);
+      await api.applyModUpdates(instance.id, selected);
+      toast(
+        "success",
+        `Updated ${selected.length} item${selected.length > 1 ? "s" : ""}. Rollback is available in Health.`,
+      );
+      const applied = new Set(selected.map((update) => update.oldFileName));
+      setUpdates((current) =>
+        current.filter((update) => !applied.has(update.oldFileName)),
+      );
       onUpdated();
     } catch (e) {
       toast("error", errMessage(e));
@@ -623,7 +718,11 @@ function useContentUpdates(
         "success",
         t("updates.switched", {
           file: u.oldFileName,
-          provider: t(other === "modrinth" ? "updates.sourceModrinth" : "updates.sourceCurseforge"),
+          provider: t(
+            other === "modrinth"
+              ? "updates.sourceModrinth"
+              : "updates.sourceCurseforge",
+          ),
         }),
       );
       await checkUpdates();
@@ -632,7 +731,14 @@ function useContentUpdates(
     }
   };
 
-  return { updates, checking, updatingAll, checkUpdates, applyAllUpdates, switchSource };
+  return {
+    updates,
+    checking,
+    updatingAll,
+    checkUpdates,
+    applyUpdates,
+    switchSource,
+  };
 }
 
 /** Small colored label showing which platform an update comes from. */
@@ -641,11 +747,15 @@ function SourceBadge({ source }: { source: ModUpdate["source"] }) {
   return (
     <span
       title={t("updates.fromOtherPlatform", {
-        provider: t(isCf ? "updates.sourceCurseforge" : "updates.sourceModrinth"),
+        provider: t(
+          isCf ? "updates.sourceCurseforge" : "updates.sourceModrinth",
+        ),
       })}
       className={cn(
         "inline-flex shrink-0 items-center rounded px-1.5 py-px text-[10px] font-semibold uppercase tracking-wide",
-        isCf ? "bg-orange-500/15 text-orange-400" : "bg-emerald-500/15 text-emerald-400",
+        isCf
+          ? "bg-orange-500/15 text-orange-400"
+          : "bg-emerald-500/15 text-emerald-400",
       )}
     >
       {t(isCf ? "updates.sourceCurseforge" : "updates.sourceModrinth")}
@@ -680,9 +790,15 @@ function ContentUpdatesBanner({
 }: {
   updates: ModUpdate[];
   updatingAll: boolean;
-  onApply: () => void;
+  onApply: (updates: ModUpdate[]) => void;
   onSwitchSource?: (u: ModUpdate) => void;
 }) {
+  const [selected, setSelected] = useState<Set<string>>(
+    () => new Set(updates.map((update) => update.oldFileName)),
+  );
+  useEffect(() => {
+    setSelected(new Set(updates.map((update) => update.oldFileName)));
+  }, [updates]);
   if (updates.length === 0) return null;
   return (
     <div className="mb-3 rounded-lg border border-accent/40 bg-accent/10 p-3">
@@ -690,11 +806,25 @@ function ContentUpdatesBanner({
         {updates.length} update{updates.length > 1 ? "s" : ""} available
       </p>
       <ul className="mt-1.5 space-y-1 text-xs text-muted-foreground">
-        {updates.slice(0, 4).map((u) => {
+        {updates.map((u) => {
           const pin = u.pinnedProvider ?? u.source;
           const other = pin === "curseforge" ? "modrinth" : "curseforge";
           return (
             <li key={u.oldFileName} className="flex items-center gap-1.5">
+              <input
+                type="checkbox"
+                checked={selected.has(u.oldFileName)}
+                onChange={() =>
+                  setSelected((current) => {
+                    const next = new Set(current);
+                    if (next.has(u.oldFileName)) next.delete(u.oldFileName);
+                    else next.add(u.oldFileName);
+                    return next;
+                  })
+                }
+                className="accent-[hsl(var(--accent))]"
+                aria-label={`Include ${u.newFileName}`}
+              />
               <span className="min-w-0 truncate">
                 {u.newFileName.replace(/\.(jar|zip)$/, "")} · v{u.versionNumber}
               </span>
@@ -715,10 +845,18 @@ function ContentUpdatesBanner({
             </li>
           );
         })}
-        {updates.length > 4 && <li>+{updates.length - 4} more…</li>}
       </ul>
-      <Button size="sm" variant="primary" className="mt-2 w-full" loading={updatingAll} onClick={onApply}>
-        Update all
+      <Button
+        size="sm"
+        variant="primary"
+        className="mt-2 w-full"
+        loading={updatingAll}
+        disabled={selected.size === 0}
+        onClick={() =>
+          onApply(updates.filter((update) => selected.has(update.oldFileName)))
+        }
+      >
+        Apply {selected.size} selected
       </Button>
     </div>
   );
@@ -770,7 +908,13 @@ function InstalledIcon({
   fallback: ReactNode;
 }) {
   if (iconUrl) {
-    return <img src={iconUrl} alt="" className="h-9 w-9 shrink-0 rounded-md object-cover" />;
+    return (
+      <img
+        src={iconUrl}
+        alt=""
+        className="h-9 w-9 shrink-0 rounded-md object-cover"
+      />
+    );
   }
   return (
     <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-muted">
@@ -779,7 +923,11 @@ function InstalledIcon({
   );
 }
 
-function matchesInstalledQuery(query: string, fileName: string, projectId?: string | null): boolean {
+function matchesInstalledQuery(
+  query: string,
+  fileName: string,
+  projectId?: string | null,
+): boolean {
   const q = query.trim().toLowerCase();
   if (!q) return true;
 
@@ -810,10 +958,20 @@ function ModsPanel({ instance }: { instance: Instance }) {
   const [totalHits, setTotalHits] = useState(0);
   const [conflicts, setConflicts] = useState<ModConflict[]>([]);
   const [cleaning, setCleaning] = useState(false);
+  const [detailsMod, setDetailsMod] = useState<ModEntry | null>(null);
+  const [detailsImpact, setDetailsImpact] = useState<
+    import("@/lib/types").RemovalImpact | null
+  >(null);
 
   const refresh = () => {
-    api.listMods(instance.id).then(setInstalled).catch(() => {});
-    api.scanModConflicts(instance.id).then(setConflicts).catch(() => {});
+    api
+      .listMods(instance.id)
+      .then(setInstalled)
+      .catch(() => {});
+    api
+      .scanModConflicts(instance.id)
+      .then(setConflicts)
+      .catch(() => {});
   };
 
   // Keep the newest version of each duplicated mod, delete the older copies.
@@ -838,6 +996,7 @@ function ModsPanel({ instance }: { instance: Instance }) {
   useEffect(() => {
     setInstalledQuery("");
     refresh();
+    // `refresh` intentionally follows the selected instance only.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [instance.id]);
 
@@ -870,7 +1029,10 @@ function ModsPanel({ instance }: { instance: Instance }) {
   );
 
   const filteredInstalled = useMemo(
-    () => installed.filter((m) => matchesInstalledQuery(installedQuery, m.fileName, m.projectId)),
+    () =>
+      installed.filter((m) =>
+        matchesInstalledQuery(installedQuery, m.fileName, m.projectId),
+      ),
     [installed, installedQuery],
   );
 
@@ -881,7 +1043,9 @@ function ModsPanel({ instance }: { instance: Instance }) {
     pagedItems: pagedInstalled,
   } = useLocalPagination(filteredInstalled, `${instance.id}:${installedQuery}`);
 
-  const [versionPickTarget, setVersionPickTarget] = useState<ModHit | null>(null);
+  const [versionPickTarget, setVersionPickTarget] = useState<ModHit | null>(
+    null,
+  );
 
   const installWithVersion = async (hit: ModHit, versionId: string) => {
     setInstalling(hit.project_id);
@@ -921,20 +1085,42 @@ function ModsPanel({ instance }: { instance: Instance }) {
   };
 
   const toggle = async (m: ModEntry) => {
-    await api.setModEnabled(instance.id, m.fileName, !m.enabled).catch((e) =>
-      toast("error", errMessage(e)),
-    );
+    await api
+      .setModEnabled(instance.id, m.fileName, !m.enabled)
+      .catch((e) => toast("error", errMessage(e)));
     refresh();
   };
   const remove = async (m: ModEntry) => {
-    await api.deleteMod(instance.id, m.fileName).catch((e) =>
-      toast("error", errMessage(e)),
-    );
-    refresh();
+    try {
+      const impact = await api.modRemovalImpact(instance.id, m.fileName);
+      const warning = impact.safe
+        ? `Remove “${m.fileName}”?`
+        : `“${m.fileName}” is recorded as a required dependency of ${impact.requiredBy.length} installed project${impact.requiredBy.length === 1 ? "" : "s"}. Removing it may break the pack. Force remove?`;
+      if (!confirm(warning)) return;
+      await api.deleteMod(instance.id, m.fileName);
+      refresh();
+    } catch (e) {
+      toast("error", errMessage(e));
+    }
+  };
+  const openDetails = async (mod: ModEntry) => {
+    setDetailsMod(mod);
+    setDetailsImpact(null);
+    try {
+      setDetailsImpact(await api.modRemovalImpact(instance.id, mod.fileName));
+    } catch {
+      /* local files may not be indexed */
+    }
   };
 
-  const { updates, checking, updatingAll, checkUpdates, applyAllUpdates, switchSource } =
-    useContentUpdates(instance, "mod", refresh);
+  const {
+    updates,
+    checking,
+    updatingAll,
+    checkUpdates,
+    applyUpdates,
+    switchSource,
+  } = useContentUpdates(instance, "mod", refresh);
 
   return (
     <div className="grid grid-cols-1 gap-6 lg:grid-cols-[300px_minmax(0,1fr)]">
@@ -970,19 +1156,22 @@ function ModsPanel({ instance }: { instance: Instance }) {
           <div className="mb-3 rounded-lg border border-amber-500/40 bg-amber-500/10 p-3">
             <p className="flex items-center gap-1.5 text-sm font-medium text-amber-200">
               <AlertTriangle className="h-3.5 w-3.5" />
-              {conflicts.length} possible duplicate{conflicts.length > 1 ? "s" : ""}
+              {conflicts.length} possible duplicate
+              {conflicts.length > 1 ? "s" : ""}
             </p>
             <ul className="mt-1.5 space-y-1 text-xs text-muted-foreground">
               {conflicts.map((c) => (
                 <li key={c.name}>
-                  <span className="font-medium text-foreground/90">{c.name}</span>:{" "}
-                  {c.files.join(", ")}
+                  <span className="font-medium text-foreground/90">
+                    {c.name}
+                  </span>
+                  : {c.files.join(", ")}
                 </li>
               ))}
             </ul>
             <p className="mt-1.5 text-[11px] text-muted-foreground/70">
-              Two builds of the same mod can crash the game. This keeps the newest
-              version of each and removes the rest.
+              Two builds of the same mod can crash the game. This keeps the
+              newest version of each and removes the rest.
             </p>
             <Button
               size="sm"
@@ -999,7 +1188,7 @@ function ModsPanel({ instance }: { instance: Instance }) {
         <ContentUpdatesBanner
           updates={updates}
           updatingAll={updatingAll}
-          onApply={applyAllUpdates}
+          onApply={applyUpdates}
           onSwitchSource={switchSource}
         />
         {installed.length === 0 ? (
@@ -1025,18 +1214,23 @@ function ModsPanel({ instance }: { instance: Instance }) {
                   title={m.enabled ? "Disable" : "Enable"}
                 />
                 <InstalledIcon
-                  iconUrl={m.projectId ? iconByProjectId.get(m.projectId) : null}
-                  fallback={<Package className="h-4 w-4 text-muted-foreground" />}
+                  iconUrl={
+                    m.projectId ? iconByProjectId.get(m.projectId) : null
+                  }
+                  fallback={
+                    <Package className="h-4 w-4 text-muted-foreground" />
+                  }
                 />
-                <span
+                <button
+                  onClick={() => openDetails(m)}
                   className={cn(
-                    "flex-1 truncate text-sm",
+                    "flex-1 truncate text-left text-sm hover:text-accent",
                     !m.enabled && "text-muted-foreground line-through",
                   )}
                   title={m.fileName}
                 >
                   {m.fileName.replace(/\.jar$/, "")}
-                </span>
+                </button>
                 <span className="shrink-0 text-xs text-muted-foreground">
                   {formatBytes(m.size)}
                 </span>
@@ -1085,10 +1279,16 @@ function ModsPanel({ instance }: { instance: Instance }) {
           emptyLabel="mods"
           fallbackIcon={<Package className="h-5 w-5 text-muted-foreground" />}
           installedIds={
-            new Set(installed.map((m) => m.projectId).filter((x): x is string => !!x))
+            new Set(
+              installed.map((m) => m.projectId).filter((x): x is string => !!x),
+            )
           }
         />
-        <Pagination page={page} pageCount={pageCountFor(totalHits)} onPage={setPage} />
+        <Pagination
+          page={page}
+          pageCount={pageCountFor(totalHits)}
+          onPage={setPage}
+        />
       </section>
 
       <VersionPickerModal
@@ -1099,6 +1299,76 @@ function ModsPanel({ instance }: { instance: Instance }) {
         onClose={() => setVersionPickTarget(null)}
         onInstall={installWithVersion}
       />
+      {detailsMod && (
+        <div className="fixed inset-0 z-[75]">
+          <button
+            className="absolute inset-0 bg-black/35"
+            onClick={() => setDetailsMod(null)}
+            aria-label="Close mod details"
+          />
+          <aside className="absolute bottom-3 right-3 top-12 w-[min(390px,calc(100vw-24px))] overflow-y-auto rounded-2xl border bg-background/95 p-5 shadow-2xl glass">
+            <div className="flex items-start gap-3">
+              <InstalledIcon fallback={<Package className="h-4 w-4" />} />
+              <div className="min-w-0">
+                <h3 className="break-all font-semibold">
+                  {detailsMod.fileName.replace(/\.jar$/, "")}
+                </h3>
+                <p className="text-xs text-muted-foreground">
+                  {formatBytes(detailsMod.size)} ·{" "}
+                  {detailsMod.enabled ? "Enabled" : "Disabled"}
+                </p>
+              </div>
+              <button
+                className="ml-auto rounded-lg p-2 hover:bg-muted"
+                onClick={() => setDetailsMod(null)}
+              >
+                <Square className="h-3.5 w-3.5" />
+              </button>
+            </div>
+            <div className="mt-5 space-y-3">
+              <div className="rounded-xl border p-3">
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  Source identity
+                </p>
+                <p className="mt-1 break-all font-mono text-xs">
+                  {detailsMod.projectId ?? "Local / untracked file"}
+                </p>
+              </div>
+              <div
+                className={cn(
+                  "rounded-xl border p-3",
+                  detailsImpact && !detailsImpact.safe
+                    ? "border-amber-500/30 bg-amber-500/10"
+                    : "border-emerald-500/25 bg-emerald-500/10",
+                )}
+              >
+                <p className="text-sm font-semibold">
+                  {(detailsImpact?.safe ?? true)
+                    ? "Safe to remove"
+                    : "Required dependency"}
+                </p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {detailsImpact?.requiredBy.length
+                    ? `Required by ${detailsImpact.requiredBy.length} installed project${detailsImpact.requiredBy.length === 1 ? "" : "s"}.`
+                    : "No installed project is recorded as depending on this file."}
+                </p>
+                {detailsImpact?.requiredBy.map((id) => (
+                  <p
+                    key={id}
+                    className="mt-2 break-all rounded bg-background/40 p-2 font-mono text-[11px]"
+                  >
+                    {id}
+                  </p>
+                ))}
+              </div>
+              <p className="text-xs leading-relaxed text-muted-foreground">
+                Dependency relationships come from provider metadata captured at
+                install time. Manual files may not have a complete graph.
+              </p>
+            </div>
+          </aside>
+        </div>
+      )}
     </div>
   );
 }
@@ -1112,7 +1382,9 @@ interface ContentBrowserPanelProps {
   contentType: string;
   modrinthType: string;
   useLoaderFilter: boolean;
-  listItems: () => Promise<{ fileName: string; size: number; projectId?: string | null }[]>;
+  listItems: () => Promise<
+    { fileName: string; size: number; projectId?: string | null }[]
+  >;
   deleteItem: (fileName: string) => Promise<void>;
   emptyLabel: string;
   placeholder: string;
@@ -1141,7 +1413,10 @@ function ContentBrowserPanel({
   const [page, setPage] = useState(0);
   const [totalHits, setTotalHits] = useState(0);
 
-  const refresh = () => listItems().then(setInstalled).catch(() => {});
+  const refresh = () =>
+    listItems()
+      .then(setInstalled)
+      .catch(() => {});
   useEffect(() => {
     setInstalledQuery("");
     refresh();
@@ -1176,7 +1451,10 @@ function ContentBrowserPanel({
   );
 
   const filteredInstalled = useMemo(
-    () => installed.filter((item) => matchesInstalledQuery(installedQuery, item.fileName, item.projectId)),
+    () =>
+      installed.filter((item) =>
+        matchesInstalledQuery(installedQuery, item.fileName, item.projectId),
+      ),
     [installed, installedQuery],
   );
 
@@ -1185,9 +1463,14 @@ function ContentBrowserPanel({
     setPage: setInstalledPage,
     pageCount: installedPageCount,
     pagedItems: pagedInstalled,
-  } = useLocalPagination(filteredInstalled, `${instance.id}:${contentType}:${installedQuery}`);
+  } = useLocalPagination(
+    filteredInstalled,
+    `${instance.id}:${contentType}:${installedQuery}`,
+  );
 
-  const [versionPickTarget, setVersionPickTarget] = useState<ModHit | null>(null);
+  const [versionPickTarget, setVersionPickTarget] = useState<ModHit | null>(
+    null,
+  );
 
   const installWithVersion = async (hit: ModHit, versionId: string) => {
     setInstalling(hit.project_id);
@@ -1231,11 +1514,8 @@ function ContentBrowserPanel({
     refresh();
   };
 
-  const { updates, checking, updatingAll, checkUpdates, applyAllUpdates } = useContentUpdates(
-    instance,
-    modrinthType,
-    refresh,
-  );
+  const { updates, checking, updatingAll, checkUpdates, applyUpdates } =
+    useContentUpdates(instance, modrinthType, refresh);
 
   const FallbackIcon =
     contentType === "shader" ? (
@@ -1271,7 +1551,7 @@ function ContentBrowserPanel({
         <ContentUpdatesBanner
           updates={updates}
           updatingAll={updatingAll}
-          onApply={applyAllUpdates}
+          onApply={applyUpdates}
         />
         {installed.length === 0 ? (
           <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
@@ -1279,7 +1559,8 @@ function ContentBrowserPanel({
           </p>
         ) : filteredInstalled.length === 0 ? (
           <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
-            No installed {emptyLabel} match &ldquo;{installedQuery.trim()}&rdquo;.
+            No installed {emptyLabel} match &ldquo;{installedQuery.trim()}
+            &rdquo;.
           </p>
         ) : (
           <div className="space-y-1.5">
@@ -1289,7 +1570,9 @@ function ContentBrowserPanel({
                 className="flex items-center gap-2 rounded-lg border bg-card/60 p-2.5"
               >
                 <InstalledIcon
-                  iconUrl={item.projectId ? iconByProjectId.get(item.projectId) : null}
+                  iconUrl={
+                    item.projectId ? iconByProjectId.get(item.projectId) : null
+                  }
                   fallback={FallbackIcon}
                 />
                 <span className="flex-1 truncate text-sm" title={item.fileName}>
@@ -1343,10 +1626,16 @@ function ContentBrowserPanel({
           emptyLabel={emptyLabel}
           fallbackIcon={FallbackIcon}
           installedIds={
-            new Set(installed.map((m) => m.projectId).filter((x): x is string => !!x))
+            new Set(
+              installed.map((m) => m.projectId).filter((x): x is string => !!x),
+            )
           }
         />
-        <Pagination page={page} pageCount={pageCountFor(totalHits)} onPage={setPage} />
+        <Pagination
+          page={page}
+          pageCount={pageCountFor(totalHits)}
+          onPage={setPage}
+        />
       </section>
 
       <VersionPickerModal
@@ -1390,7 +1679,10 @@ function ModrinthResultList({
     return (
       <div className="space-y-2">
         {Array.from({ length: 5 }).map((_, i) => (
-          <div key={i} className="flex items-start gap-3 rounded-xl border bg-card/60 p-3">
+          <div
+            key={i}
+            className="flex items-start gap-3 rounded-xl border bg-card/60 p-3"
+          >
             <Skeleton className="h-11 w-11 rounded-lg" />
             <div className="flex-1 space-y-2 py-1">
               <Skeleton className="h-3.5 w-1/3" />
@@ -1430,7 +1722,9 @@ function ModrinthResultList({
                   {formatNumber(hit.downloads)} ↓
                 </span>
               </div>
-              <p className="mt-0.5 line-clamp-2 text-sm text-muted-foreground">{hit.description}</p>
+              <p className="mt-0.5 line-clamp-2 text-sm text-muted-foreground">
+                {hit.description}
+              </p>
             </div>
             <div className="flex shrink-0 items-center gap-1.5">
               {provider && (
@@ -1479,7 +1773,11 @@ function ModrinthResultList({
 // --------------------------------------------------------------------------
 
 /** True when a version targets this instance's MC version and mod loader. */
-function versionFitsInstance(v: ContentVersion, mcVersion: string, loader: string): boolean {
+function versionFitsInstance(
+  v: ContentVersion,
+  mcVersion: string,
+  loader: string,
+): boolean {
   const mcOk = v.gameVersions.includes(mcVersion);
   if (loader === "vanilla") return mcOk;
   const ld = v.loaders.map((x) => x.toLowerCase());
@@ -1511,13 +1809,16 @@ function VersionPickerModal({
 
   // The newest version that fits this instance — the one we recommend + preselect.
   const recommendedId = useMemo(() => {
-    const match = versions.find((v) => versionFitsInstance(v, mcVersion, loader));
+    const match = versions.find((v) =>
+      versionFitsInstance(v, mcVersion, loader),
+    );
     return match?.id ?? "";
   }, [versions, mcVersion, loader]);
 
   // Sort compatible versions to the top, keeping newest-first order within groups.
   const ordered = useMemo(() => {
-    const fits = (v: ContentVersion) => versionFitsInstance(v, mcVersion, loader);
+    const fits = (v: ContentVersion) =>
+      versionFitsInstance(v, mcVersion, loader);
     return [...versions].sort((a, b) => Number(fits(b)) - Number(fits(a)));
   }, [versions, mcVersion, loader]);
 
@@ -1568,7 +1869,11 @@ function VersionPickerModal({
         <div className="space-y-4">
           <div className="flex items-center gap-3">
             {hit.icon_url ? (
-              <img src={hit.icon_url} alt="" className="h-12 w-12 rounded-lg object-cover" />
+              <img
+                src={hit.icon_url}
+                alt=""
+                className="h-12 w-12 rounded-lg object-cover"
+              />
             ) : (
               <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-muted">
                 <Package className="h-5 w-5 text-muted-foreground" />
@@ -1576,7 +1881,9 @@ function VersionPickerModal({
             )}
             <div className="min-w-0">
               <p className="truncate font-medium">{hit.title}</p>
-              {hit.author && <p className="text-xs text-muted-foreground">{hit.author}</p>}
+              {hit.author && (
+                <p className="text-xs text-muted-foreground">{hit.author}</p>
+              )}
             </div>
           </div>
 
@@ -1588,21 +1895,27 @@ function VersionPickerModal({
                 Loading versions…
               </div>
             ) : versions.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No versions found.</p>
+              <p className="text-sm text-muted-foreground">
+                No versions found.
+              </p>
             ) : (
               <>
-                <Select value={versionId} onChange={(e) => setVersionId(e.target.value)}>
+                <Select
+                  value={versionId}
+                  onChange={(e) => setVersionId(e.target.value)}
+                >
                   {ordered.map((v) => {
                     const mc = v.gameVersions.includes(mcVersion)
                       ? mcVersion
-                      : v.gameVersions[0] ?? "?";
+                      : (v.gameVersions[0] ?? "?");
                     const recommended = v.id === recommendedId;
                     const fits = versionFitsInstance(v, mcVersion, loader);
                     return (
                       <option key={v.id} value={v.id}>
                         {recommended ? "★ " : ""}
                         {v.name || v.versionNumber} — MC {mc}
-                        {!fits ? " (other)" : ""} ({new Date(v.date).toLocaleDateString()})
+                        {!fits ? " (other)" : ""} (
+                        {new Date(v.date).toLocaleDateString()})
                       </option>
                     );
                   })}
@@ -1634,12 +1947,19 @@ function WorldsPanel({ instance }: { instance: Instance }) {
   const [query, setQuery] = useState("");
 
   const refresh = () => {
-    api.listWorlds(instance.id).then(setWorlds).catch(() => {});
-    api.listSnapshots(instance.id).then(setSnapshots).catch(() => {});
+    api
+      .listWorlds(instance.id)
+      .then(setWorlds)
+      .catch(() => {});
+    api
+      .listSnapshots(instance.id)
+      .then(setSnapshots)
+      .catch(() => {});
   };
   useEffect(() => {
     setQuery("");
     refresh();
+    // `refresh` intentionally follows the selected instance only.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [instance.id]);
 
@@ -1657,9 +1977,22 @@ function WorldsPanel({ instance }: { instance: Instance }) {
   } = useLocalPagination(filteredWorlds, `${instance.id}:${query}`);
 
   const remove = async (name: string) => {
-    if (!confirm(`Delete world "${name}"? This cannot be undone.`)) return;
-    await api.deleteWorld(instance.id, name).catch((e) => toast("error", errMessage(e)));
-    refresh();
+    if (
+      !confirm(
+        `Delete world "${name}"? EZMapa will create a safety backup first.`,
+      )
+    )
+      return;
+    setBusy(name);
+    try {
+      await api.deleteWorld(instance.id, name);
+      toast("info", `Deleted “${name}” — a safety backup is available below`);
+      refresh();
+    } catch (e) {
+      toast("error", errMessage(e));
+    } finally {
+      setBusy(null);
+    }
   };
 
   // Quick Play — launch straight into this world, skipping the main menu.
@@ -1701,7 +2034,11 @@ function WorldsPanel({ instance }: { instance: Instance }) {
   };
 
   const restore = async (s: Snapshot) => {
-    if (!confirm(`Restore “${s.world}” from ${new Date(s.created * 1000).toLocaleString()}? This overwrites the current world.`))
+    if (
+      !confirm(
+        `Restore “${s.world}” from ${new Date(s.created * 1000).toLocaleString()}? This overwrites the current world.`,
+      )
+    )
       return;
     setBusy(s.fileName);
     try {
@@ -1716,7 +2053,9 @@ function WorldsPanel({ instance }: { instance: Instance }) {
   };
 
   const deleteSnapshot = async (s: Snapshot) => {
-    await api.deleteSnapshot(instance.id, s.fileName).catch((e) => toast("error", errMessage(e)));
+    await api
+      .deleteSnapshot(instance.id, s.fileName)
+      .catch((e) => toast("error", errMessage(e)));
     refresh();
   };
 
@@ -1755,7 +2094,11 @@ function WorldsPanel({ instance }: { instance: Instance }) {
                 <p className="truncate font-medium text-sm">{w.name}</p>
                 {w.modified && (
                   <p className="text-xs text-muted-foreground">
-                    {new Date(w.modified * 1000).toLocaleDateString()}
+                    {new Date(w.modified * 1000).toLocaleDateString()} ·{" "}
+                    {formatBytes(w.size)} ·{" "}
+                    {snapshots.some((snapshot) => snapshot.world === w.name)
+                      ? "Backed up"
+                      : "No backup yet"}
                   </p>
                 )}
               </div>
@@ -1801,7 +2144,11 @@ function WorldsPanel({ instance }: { instance: Instance }) {
           ))
         )}
       </div>
-      <Pagination page={worldsPage} pageCount={worldsPageCount} onPage={setWorldsPage} />
+      <Pagination
+        page={worldsPage}
+        pageCount={worldsPageCount}
+        onPage={setWorldsPage}
+      />
 
       {snapshots.length > 0 && (
         <section>
@@ -1819,7 +2166,8 @@ function WorldsPanel({ instance }: { instance: Instance }) {
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-medium">{s.world}</p>
                   <p className="text-xs text-muted-foreground">
-                    {new Date(s.created * 1000).toLocaleString()} · {formatBytes(s.size)}
+                    {new Date(s.created * 1000).toLocaleString()} ·{" "}
+                    {formatBytes(s.size)}
                   </p>
                 </div>
                 <button
@@ -1854,11 +2202,14 @@ function WorldsPanel({ instance }: { instance: Instance }) {
 function ScreenshotsPanel({ instance }: { instance: Instance }) {
   const [screenshots, setScreenshots] = useState<ScreenshotEntry[]>([]);
   const [query, setQuery] = useState("");
+  const [studio, setStudio] = useState<ScreenshotEntry | null>(null);
 
   useEffect(() => {
     setQuery("");
-    api.listScreenshots(instance.id).then(setScreenshots).catch(() => {});
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    api
+      .listScreenshots(instance.id)
+      .then(setScreenshots)
+      .catch(() => {});
   }, [instance.id]);
 
   const filteredScreenshots = useMemo(() => {
@@ -1904,7 +2255,7 @@ function ScreenshotsPanel({ instance }: { instance: Instance }) {
           {pagedScreenshots.map((s) => (
             <button
               key={s.fileName}
-              onClick={() => api.openScreenshot(instance.id, s.fileName)}
+              onClick={() => setStudio(s)}
               className="group relative flex flex-col rounded-lg border bg-card/60 p-2.5 text-left transition hover:bg-card btn-focus"
               title="Open in viewer"
             >
@@ -1922,8 +2273,153 @@ function ScreenshotsPanel({ instance }: { instance: Instance }) {
           ))}
         </div>
       )}
-      <Pagination page={shotsPage} pageCount={shotsPageCount} onPage={setShotsPage} />
+      <Pagination
+        page={shotsPage}
+        pageCount={shotsPageCount}
+        onPage={setShotsPage}
+      />
+      <ScreenshotStudio
+        instance={instance}
+        screenshot={studio}
+        onClose={() => setStudio(null)}
+      />
     </div>
+  );
+}
+
+function ScreenshotStudio({
+  instance,
+  screenshot,
+  onClose,
+}: {
+  instance: Instance;
+  screenshot: ScreenshotEntry | null;
+  onClose: () => void;
+}) {
+  const toast = useStore((s) => s.toast);
+  const [url, setUrl] = useState("");
+  const [brightness, setBrightness] = useState(100);
+  const [contrast, setContrast] = useState(100);
+  const favoriteKey = screenshot
+    ? `ezmapa:screenshot-favorite:${instance.id}:${screenshot.fileName}`
+    : "";
+  const [favorite, setFavorite] = useState(false);
+  useEffect(() => {
+    if (!screenshot) return;
+    let active = true;
+    let objectUrl = "";
+    setFavorite(localStorage.getItem(favoriteKey) === "1");
+    api
+      .readScreenshot(instance.id, screenshot.fileName)
+      .then((bytes) => {
+        if (!active) return;
+        objectUrl = URL.createObjectURL(
+          new Blob([new Uint8Array(bytes)], {
+            type: screenshot.fileName.endsWith(".jpg")
+              ? "image/jpeg"
+              : "image/png",
+          }),
+        );
+        setUrl(objectUrl);
+      })
+      .catch((e) => toast("error", errMessage(e)));
+    return () => {
+      active = false;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+      setUrl("");
+    };
+  }, [favoriteKey, instance.id, screenshot, toast]);
+  const toggleFavorite = () => {
+    const next = !favorite;
+    setFavorite(next);
+    if (next) localStorage.setItem(favoriteKey, "1");
+    else localStorage.removeItem(favoriteKey);
+  };
+  const copy = async () => {
+    if (!url || !globalThis.ClipboardItem) return;
+    try {
+      const blob = await fetch(url).then((response) => response.blob());
+      await navigator.clipboard.write([
+        new ClipboardItem({ [blob.type]: blob }),
+      ]);
+      toast("success", "Screenshot copied");
+    } catch (e) {
+      toast("error", errMessage(e));
+    }
+  };
+  return (
+    <Modal
+      open={!!screenshot}
+      onClose={onClose}
+      title="Screenshot Studio"
+      size="lg"
+    >
+      {screenshot && (
+        <div className="space-y-4">
+          <div className="flex min-h-72 items-center justify-center overflow-hidden rounded-xl bg-black/60">
+            {url ? (
+              <img
+                src={url}
+                alt={screenshot.fileName}
+                className="max-h-[58vh] max-w-full object-contain"
+                style={{
+                  filter: `brightness(${brightness}%) contrast(${contrast}%)`,
+                }}
+              />
+            ) : (
+              <Spinner />
+            )}
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field label={`Brightness · ${brightness}%`}>
+              <input
+                type="range"
+                min="50"
+                max="150"
+                value={brightness}
+                onChange={(e) => setBrightness(Number(e.target.value))}
+                className="w-full accent-[hsl(var(--accent))]"
+              />
+            </Field>
+            <Field label={`Contrast · ${contrast}%`}>
+              <input
+                type="range"
+                min="50"
+                max="150"
+                value={contrast}
+                onChange={(e) => setContrast(Number(e.target.value))}
+                className="w-full accent-[hsl(var(--accent))]"
+              />
+            </Field>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              variant={favorite ? "primary" : "secondary"}
+              onClick={toggleFavorite}
+            >
+              <HeartPulse className="h-4 w-4" />
+              {favorite ? "Favorited" : "Favorite"}
+            </Button>
+            <Button variant="secondary" onClick={copy}>
+              <Copy className="h-4 w-4" />
+              Copy image
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={() =>
+                api.openScreenshot(instance.id, screenshot.fileName)
+              }
+            >
+              <ExternalLink className="h-4 w-4" />
+              Open externally
+            </Button>
+            <span className="ml-auto text-xs text-muted-foreground">
+              {screenshot.fileName} · {formatBytes(screenshot.size)}
+            </span>
+          </div>
+        </div>
+      )}
+    </Modal>
   );
 }
 
@@ -1969,14 +2465,22 @@ function ServersTab({ instance }: { instance: Instance }) {
   const toast = useStore((s) => s.toast);
   const running = useStore((s) => s.running.has(instance.id));
   const [servers, setServers] = useState<SavedServer[]>([]);
-  const [statuses, setStatuses] = useState<Record<string, ServerStatus | null>>({});
+  const [statuses, setStatuses] = useState<Record<string, ServerStatus | null>>(
+    {},
+  );
   const [pinging, setPinging] = useState<Record<string, boolean>>({});
   const [query, setQuery] = useState("");
-  const [manual, setManual] = useState<{ address: string; status: ServerStatus } | null>(null);
+  const [manual, setManual] = useState<{
+    address: string;
+    status: ServerStatus;
+  } | null>(null);
   const [manualBusy, setManualBusy] = useState(false);
   const [loaded, setLoaded] = useState(false);
   // "Create matching instance" target (modded servers only).
-  const [buildTarget, setBuildTarget] = useState<{ address: string; name: string } | null>(null);
+  const [buildTarget, setBuildTarget] = useState<{
+    address: string;
+    name: string;
+  } | null>(null);
 
   const ping = async (address: string) => {
     setPinging((m) => ({ ...m, [address]: true }));
@@ -2056,8 +2560,12 @@ function ServersTab({ instance }: { instance: Instance }) {
           Ping en server
         </h3>
         <p className="mb-2 text-xs text-muted-foreground">
-          Teksten under serveren i spillets multiplayer-meny kommer fra serverens MOTD (satt i{" "}
-          <code className="rounded bg-muted px-1 py-0.5">server.properties</code>).
+          Teksten under serveren i spillets multiplayer-meny kommer fra
+          serverens MOTD (satt i{" "}
+          <code className="rounded bg-muted px-1 py-0.5">
+            server.properties
+          </code>
+          ).
         </p>
         <div className="flex gap-2">
           <Input
@@ -2082,7 +2590,10 @@ function ServersTab({ instance }: { instance: Instance }) {
               onCopy={() => copy(manual.address)}
               onShortcut={() => shortcut(manual.address)}
               onBuildInstance={() =>
-                setBuildTarget({ address: manual.address, name: manual.address })
+                setBuildTarget({
+                  address: manual.address,
+                  name: manual.address,
+                })
               }
             />
           </div>
@@ -2108,7 +2619,10 @@ function ServersTab({ instance }: { instance: Instance }) {
         {!loaded ? (
           <div className="space-y-2">
             {Array.from({ length: 3 }).map((_, i) => (
-              <div key={i} className="flex items-start gap-3 rounded-xl border bg-card/60 p-3">
+              <div
+                key={i}
+                className="flex items-start gap-3 rounded-xl border bg-card/60 p-3"
+              >
                 <Skeleton className="h-11 w-11 rounded-lg" />
                 <div className="flex-1 space-y-2 py-1">
                   <Skeleton className="h-3.5 w-1/4" />
@@ -2180,13 +2694,18 @@ function ServerRow({
     !!status?.modInfo &&
     (status.modInfo.loader === "forge" || status.modInfo.loader === "neoforge");
   const favicon =
-    status?.favicon ?? (server.icon ? `data:image/png;base64,${server.icon}` : null);
+    status?.favicon ??
+    (server.icon ? `data:image/png;base64,${server.icon}` : null);
   const online = status?.online ?? false;
 
   return (
     <div className="flex items-start gap-3 rounded-xl border bg-card/60 p-3">
       {favicon ? (
-        <img src={favicon} alt="" className="h-11 w-11 shrink-0 rounded-lg object-cover" />
+        <img
+          src={favicon}
+          alt=""
+          className="h-11 w-11 shrink-0 rounded-lg object-cover"
+        />
       ) : (
         <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-muted">
           <Server className="h-5 w-5 text-muted-foreground" />
@@ -2195,25 +2714,33 @@ function ServerRow({
 
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
-          <span className="truncate font-medium">{server.name || server.ip}</span>
+          <span className="truncate font-medium">
+            {server.name || server.ip}
+          </span>
           {pinging ? (
             <Spinner className="h-3 w-3" />
           ) : (
             <span
               className={cn(
                 "h-2 w-2 shrink-0 rounded-full",
-                online ? latencyColor(status?.latencyMs) : "bg-muted-foreground/40",
+                online
+                  ? latencyColor(status?.latencyMs)
+                  : "bg-muted-foreground/40",
               )}
               title={online ? "Online" : "Offline"}
             />
           )}
         </div>
         {status?.motd ? (
-          <p className="line-clamp-2 text-xs text-muted-foreground">{status.motd}</p>
+          <p className="line-clamp-2 text-xs text-muted-foreground">
+            {status.motd}
+          </p>
         ) : pinging ? (
           <p className="text-xs text-muted-foreground/70">Pinger…</p>
         ) : !online ? (
-          <p className="text-xs text-muted-foreground/70">Offline eller utilgjengelig</p>
+          <p className="text-xs text-muted-foreground/70">
+            Offline eller utilgjengelig
+          </p>
         ) : null}
         <p className="truncate text-xs text-muted-foreground/70">{server.ip}</p>
       </div>
@@ -2229,7 +2756,9 @@ function ServerRow({
               </span>
             )}
             {status?.latencyMs != null && (
-              <span className="text-muted-foreground">{status.latencyMs} ms</span>
+              <span className="text-muted-foreground">
+                {status.latencyMs} ms
+              </span>
             )}
           </div>
         )}
@@ -2247,7 +2776,9 @@ function ServerRow({
             disabled={pinging}
             className="rounded-md p-1.5 text-muted-foreground transition hover:bg-muted hover:text-foreground btn-focus disabled:opacity-40"
           >
-            <RefreshCw className={cn("h-3.5 w-3.5", pinging && "animate-spin")} />
+            <RefreshCw
+              className={cn("h-3.5 w-3.5", pinging && "animate-spin")}
+            />
           </button>
           <button
             onClick={onShortcut}
@@ -2349,8 +2880,12 @@ function LogsTab({
           <div className="flex items-start gap-2.5">
             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-400" />
             <div className="flex-1">
-              <p className="text-sm font-semibold text-amber-200">{finding.title}</p>
-              <p className="mt-0.5 text-xs text-muted-foreground">{finding.detail}</p>
+              <p className="text-sm font-semibold text-amber-200">
+                {finding.title}
+              </p>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                {finding.detail}
+              </p>
               {finding.action && (
                 <Button
                   size="sm"
@@ -2358,7 +2893,9 @@ function LogsTab({
                   className="mt-2"
                   onClick={() => applyAction(finding.action!)}
                 >
-                  {finding.action === "increase-ram" ? "Add 2 GB RAM" : "Open settings"}
+                  {finding.action === "increase-ram"
+                    ? "Add 2 GB RAM"
+                    : "Open settings"}
                 </Button>
               )}
             </div>
@@ -2366,9 +2903,16 @@ function LogsTab({
         </div>
       )}
       <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-        <span className="text-sm text-muted-foreground">{logs.length} lines</span>
+        <span className="text-sm text-muted-foreground">
+          {logs.length} lines
+        </span>
         <div className="flex flex-wrap items-center gap-1">
-          <Button size="sm" variant="ghost" onClick={copyLog} disabled={logs.length === 0}>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={copyLog}
+            disabled={logs.length === 0}
+          >
             <Copy className="h-3.5 w-3.5" /> Copy
           </Button>
           <Button
@@ -2389,13 +2933,17 @@ function LogsTab({
       <div className="app-scroll min-h-[240px] max-h-[min(70vh,640px)] rounded-xl border bg-[hsl(240_12%_4%)] p-3 font-mono text-xs leading-relaxed">
         {logs.length === 0 ? (
           <p className="text-muted-foreground">
-            No output yet. Press Play to launch and the game log will stream here.
+            No output yet. Press Play to launch and the game log will stream
+            here.
           </p>
         ) : (
           logs.map((l, i) => (
             <div
               key={i}
-              className={cn("whitespace-pre-wrap break-all", l.isErr ? "text-red-400" : "text-zinc-300")}
+              className={cn(
+                "whitespace-pre-wrap break-all",
+                l.isErr ? "text-red-400" : "text-zinc-300",
+              )}
             >
               {l.line}
             </div>
@@ -2419,10 +2967,11 @@ function SettingsTab({ instance }: { instance: Instance }) {
 
   const [name, setName] = useState(instance.name);
   const [group, setGroup] = useState(instance.group ?? "");
+  const [tags, setTags] = useState((instance.tags ?? []).join(", "));
   const [accent, setAccent] = useState(instance.accent ?? "");
   // Modpack art (an image icon) is left untouched; emoji / Auto stay editable.
   const hasImageIcon = isImageIcon(instance.icon);
-  const [icon, setIcon] = useState(hasImageIcon ? "" : instance.icon ?? "");
+  const [icon, setIcon] = useState(hasImageIcon ? "" : (instance.icon ?? ""));
   const [memory, setMemory] = useState(instance.memoryMb ?? 0);
   const [javaPath, setJavaPath] = useState(instance.javaPath ?? "");
   const [jvmArgs, setJvmArgs] = useState(instance.jvmArgs ?? "");
@@ -2435,11 +2984,18 @@ function SettingsTab({ instance }: { instance: Instance }) {
   const [exportingPack, setExportingPack] = useState(false);
   const [usage, setUsage] = useState<DiskUsage | null>(null);
   const [tuneOpen, setTuneOpen] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
   const [startupStats, setStartupStats] = useState<StartupStats | null>(null);
 
   useEffect(() => {
-    api.instanceDiskUsage(instance.id).then(setUsage).catch(() => {});
-    api.startupStats(instance.id).then(setStartupStats).catch(() => {});
+    api
+      .instanceDiskUsage(instance.id)
+      .then(setUsage)
+      .catch(() => {});
+    api
+      .startupStats(instance.id)
+      .then(setStartupStats)
+      .catch(() => {});
   }, [instance.id]);
 
   const exportPack = async () => {
@@ -2458,6 +3014,14 @@ function SettingsTab({ instance }: { instance: Instance }) {
         ...instance,
         name: name.trim() || instance.name,
         group: group.trim() || null,
+        tags: [
+          ...new Set(
+            tags
+              .split(",")
+              .map((tag) => tag.trim())
+              .filter(Boolean),
+          ),
+        ],
         accent: accent || null,
         icon: hasImageIcon ? instance.icon : icon || null,
         memoryMb: memory > 0 ? memory : null,
@@ -2480,11 +3044,24 @@ function SettingsTab({ instance }: { instance: Instance }) {
       <Field label="Name">
         <Input value={name} onChange={(e) => setName(e.target.value)} />
       </Field>
-      <Field label="Group" hint="Optional. Instances with the same group are shown together.">
+      <Field
+        label="Group"
+        hint="Optional. Instances with the same group are shown together."
+      >
         <Input
           value={group}
           onChange={(e) => setGroup(e.target.value)}
           placeholder="e.g. Modded, Vanilla, Servers…"
+        />
+      </Field>
+      <Field
+        label="Tags"
+        hint="Comma-separated labels are searchable in the library and command palette."
+      >
+        <Input
+          value={tags}
+          onChange={(e) => setTags(e.target.value)}
+          placeholder="performance, friends, creative"
         />
       </Field>
       {!hasImageIcon && (
@@ -2496,19 +3073,36 @@ function SettingsTab({ instance }: { instance: Instance }) {
               title="Auto — use the loader logo"
               className={cn(
                 "flex h-9 w-9 items-center justify-center rounded-lg transition",
-                icon === "" ? "bg-accent/20 ring-2 ring-accent" : "bg-muted/60 hover:bg-muted",
+                icon === ""
+                  ? "bg-accent/20 ring-2 ring-accent"
+                  : "bg-muted/60 hover:bg-muted",
               )}
             >
               <LoaderLogo loader={instance.loader} className="h-6 w-6" />
             </button>
-            {["🟩", "🔥", "⚙️", "🧪", "🏰", "🌲", "💎", "🚀", "🐉", "⛏️", "🧱", "✨"].map((e) => (
+            {[
+              "🟩",
+              "🔥",
+              "⚙️",
+              "🧪",
+              "🏰",
+              "🌲",
+              "💎",
+              "🚀",
+              "🐉",
+              "⛏️",
+              "🧱",
+              "✨",
+            ].map((e) => (
               <button
                 key={e}
                 type="button"
                 onClick={() => setIcon(e)}
                 className={cn(
                   "flex h-9 w-9 items-center justify-center rounded-lg text-lg transition",
-                  icon === e ? "bg-accent/20 ring-2 ring-accent" : "bg-muted/60 hover:bg-muted",
+                  icon === e
+                    ? "bg-accent/20 ring-2 ring-accent"
+                    : "bg-muted/60 hover:bg-muted",
                 )}
               >
                 {e}
@@ -2517,14 +3111,19 @@ function SettingsTab({ instance }: { instance: Instance }) {
           </div>
         </Field>
       )}
-      <Field label="Card colour" hint="Tint this instance's card. Auto follows the mod loader.">
+      <Field
+        label="Card colour"
+        hint="Tint this instance's card. Auto follows the mod loader."
+      >
         <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
             onClick={() => setAccent("")}
             className={cn(
               "h-7 rounded-md border px-2 text-xs transition",
-              accent === "" ? "border-accent text-foreground" : "border-border text-muted-foreground",
+              accent === ""
+                ? "border-accent text-foreground"
+                : "border-border text-muted-foreground",
             )}
           >
             Auto
@@ -2556,7 +3155,10 @@ function SettingsTab({ instance }: { instance: Instance }) {
           step={512}
         />
       </Field>
-      <Field label="Java path override" hint="Leave empty to auto-detect / use the global setting.">
+      <Field
+        label="Java path override"
+        hint="Leave empty to auto-detect / use the global setting."
+      >
         <Input
           value={javaPath}
           onChange={(e) => setJavaPath(e.target.value)}
@@ -2576,7 +3178,9 @@ function SettingsTab({ instance }: { instance: Instance }) {
             )}
           >
             <Sparkles className="h-3 w-3" />
-            {jvmArgs.trim() === AIKAR_FLAGS ? "Aikar's flags applied" : "Use Aikar's flags"}
+            {jvmArgs.trim() === AIKAR_FLAGS
+              ? "Aikar's flags applied"
+              : "Use Aikar's flags"}
           </button>
           <button
             type="button"
@@ -2617,7 +3221,10 @@ function SettingsTab({ instance }: { instance: Instance }) {
         }}
       />
 
-      <Field label="Game window size" hint="Leave 0 to use Minecraft's default / last size.">
+      <Field
+        label="Game window size"
+        hint="Leave 0 to use Minecraft's default / last size."
+      >
         <div className="flex items-center gap-2">
           <Input
             type="number"
@@ -2639,7 +3246,10 @@ function SettingsTab({ instance }: { instance: Instance }) {
         </div>
       </Field>
 
-      <Field label="Environment variables" hint="One KEY=VALUE per line, set on the game process.">
+      <Field
+        label="Environment variables"
+        hint="One KEY=VALUE per line, set on the game process."
+      >
         <textarea
           value={envVars}
           onChange={(e) => setEnvVars(e.target.value)}
@@ -2649,7 +3259,10 @@ function SettingsTab({ instance }: { instance: Instance }) {
         />
       </Field>
 
-      <Field label="Pre-launch command" hint="Runs before the game starts (blocking).">
+      <Field
+        label="Pre-launch command"
+        hint="Runs before the game starts (blocking)."
+      >
         <Input
           value={preLaunch}
           onChange={(e) => setPreLaunch(e.target.value)}
@@ -2677,7 +3290,9 @@ function SettingsTab({ instance }: { instance: Instance }) {
         <div className="rounded-xl border bg-card/40 p-4">
           <div className="mb-2 flex items-center justify-between">
             <h3 className="text-sm font-semibold">Disk usage</h3>
-            <span className="text-sm text-muted-foreground">{formatBytes(usage.total)}</span>
+            <span className="text-sm text-muted-foreground">
+              {formatBytes(usage.total)}
+            </span>
           </div>
           <div className="flex h-2.5 w-full overflow-hidden rounded-full bg-muted">
             {(
@@ -2721,10 +3336,18 @@ function SettingsTab({ instance }: { instance: Instance }) {
       <div className="rounded-xl border bg-card/40 p-4">
         <h3 className="text-sm font-semibold">Share</h3>
         <p className="mt-1 text-sm text-muted-foreground">
-          Export this instance as a Modrinth modpack (.mrpack) others can install.
-          Modrinth content becomes download links; CurseForge/local files, configs,
-          and folder-based packs are bundled in.
+          Export this instance as a Modrinth modpack (.mrpack) others can
+          install. Modrinth content becomes download links; CurseForge/local
+          files, configs, and folder-based packs are bundled in.
         </p>
+        <Button
+          variant="secondary"
+          className="mt-3 mr-2"
+          onClick={() => setShareOpen(true)}
+        >
+          <Copy className="h-4 w-4" />
+          Preview & copy share code
+        </Button>
         <Button
           variant="secondary"
           className="mt-3"
@@ -2734,6 +3357,11 @@ function SettingsTab({ instance }: { instance: Instance }) {
           <Upload className="h-4 w-4" /> Export as .mrpack
         </Button>
       </div>
+      <SharePreviewModal
+        open={shareOpen}
+        onClose={() => setShareOpen(false)}
+        instance={instance}
+      />
 
       <div className="mt-8 rounded-xl border border-destructive/30 bg-destructive/5 p-4">
         <h3 className="text-sm font-semibold text-destructive">Danger zone</h3>
@@ -2748,7 +3376,8 @@ function SettingsTab({ instance }: { instance: Instance }) {
               toast("error", "Stop the instance before deleting it.");
               return;
             }
-            if (confirm(`Delete “${instance.name}”? This cannot be undone.`)) remove(instance.id);
+            if (confirm(`Delete “${instance.name}”? This cannot be undone.`))
+              remove(instance.id);
           }}
         >
           <Trash2 className="h-4 w-4" /> Delete instance

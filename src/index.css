@@ -47,6 +47,25 @@
   --warning: 38 92% 55%;
 }
 
+.high-contrast {
+  --border: 240 8% 35%;
+  --muted-foreground: 240 8% 78%;
+}
+
+.reduce-transparency .glass,
+.reduce-transparency [class*="backdrop-blur"] {
+  backdrop-filter: none !important;
+}
+
+.compact {
+  --radius: 10px;
+}
+
+.compact .app-gutter {
+  padding-left: 1rem;
+  padding-right: 1rem;
+}
+
 * {
   border-color: hsl(var(--border));
 }
@@ -64,7 +83,13 @@ body {
   margin: 0;
   background-color: hsl(var(--background));
   color: hsl(var(--foreground));
-  font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-family:
+    Inter,
+    system-ui,
+    -apple-system,
+    "Segoe UI",
+    Roboto,
+    sans-serif;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
   overflow: hidden;
@@ -74,9 +99,21 @@ body {
 #root {
   /* Layered accent glow for depth — corners plus a faint top sheen. */
   background:
-    radial-gradient(1200px 760px at 100% -12%, hsl(var(--accent) / 0.13), transparent 60%),
-    radial-gradient(960px 640px at -12% 112%, hsl(var(--accent) / 0.09), transparent 55%),
-    radial-gradient(1500px 440px at 50% -22%, hsl(var(--foreground) / 0.04), transparent 70%);
+    radial-gradient(
+      1200px 760px at 100% -12%,
+      hsl(var(--accent) / 0.13),
+      transparent 60%
+    ),
+    radial-gradient(
+      960px 640px at -12% 112%,
+      hsl(var(--accent) / 0.09),
+      transparent 55%
+    ),
+    radial-gradient(
+      1500px 440px at 50% -22%,
+      hsl(var(--foreground) / 0.04),
+      transparent 70%
+    );
 }
 
 /* ------------------------------------------------------------------ */
@@ -151,4 +188,15 @@ body {
 /* Native-feeling focus removal for mouse users (keyboard keeps ring). */
 :focus:not(:focus-visible) {
   outline: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

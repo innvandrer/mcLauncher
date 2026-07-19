@@ -5,7 +5,13 @@ import { cn } from "@/lib/utils";
  * Recognisable, offline SVG marks for each mod loader. Drawn on a transparent
  * background so the surrounding themed gradient shows through the padding.
  */
-export function LoaderLogo({ loader, className }: { loader: Loader; className?: string }) {
+export function LoaderLogo({
+  loader,
+  className,
+}: {
+  loader: Loader;
+  className?: string;
+}) {
   switch (loader) {
     case "fabric":
       return (
@@ -58,9 +64,26 @@ export function LoaderLogo({ loader, className }: { loader: Loader; className?: 
         <svg viewBox="0 0 32 32" className={className} aria-hidden>
           {/* Grass block */}
           <rect x="7" y="7" width="18" height="18" rx="2.5" fill="#7c5435" />
-          <path d="M7 9.5A2.5 2.5 0 0 1 9.5 7h13A2.5 2.5 0 0 1 25 9.5V14H7z" fill="#6bbb3b" />
-          <rect x="11" y="17" width="2.5" height="2.5" rx="0.5" fill="#5b3d22" />
-          <rect x="17.5" y="20" width="2.5" height="2.5" rx="0.5" fill="#5b3d22" />
+          <path
+            d="M7 9.5A2.5 2.5 0 0 1 9.5 7h13A2.5 2.5 0 0 1 25 9.5V14H7z"
+            fill="#6bbb3b"
+          />
+          <rect
+            x="11"
+            y="17"
+            width="2.5"
+            height="2.5"
+            rx="0.5"
+            fill="#5b3d22"
+          />
+          <rect
+            x="17.5"
+            y="20"
+            width="2.5"
+            height="2.5"
+            rx="0.5"
+            fill="#5b3d22"
+          />
           <rect x="19.5" y="16" width="2" height="2" rx="0.5" fill="#5b3d22" />
         </svg>
       );

@@ -1,5 +1,6 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { Minus, Square, X } from "lucide-react";
+import { ActivityCenter } from "@/components/ActivityCenter";
 
 const appWindow = getCurrentWindow();
 
@@ -22,16 +23,23 @@ export function TitleBar() {
     >
       <div data-tauri-drag-region className="flex items-center gap-2">
         <EzmapaLogo className="h-5 w-5" />
-        <span data-tauri-drag-region className="text-sm font-semibold tracking-tight">
+        <span
+          data-tauri-drag-region
+          className="text-sm font-semibold tracking-tight"
+        >
           EZMapa
         </span>
       </div>
 
       <div className="flex items-center">
+        <ActivityCenter />
         <WinButton onClick={() => appWindow.minimize()} aria-label="Minimize">
           <Minus className="h-4 w-4" />
         </WinButton>
-        <WinButton onClick={() => appWindow.toggleMaximize()} aria-label="Maximize">
+        <WinButton
+          onClick={() => appWindow.toggleMaximize()}
+          aria-label="Maximize"
+        >
           <Square className="h-3 w-3" />
         </WinButton>
         <WinButton onClick={() => appWindow.close()} aria-label="Close" danger>
@@ -58,7 +66,9 @@ function WinButton({
       onClick={onClick}
       {...rest}
       className={`flex h-10 w-12 items-center justify-center text-muted-foreground transition-colors ${
-        danger ? "hover:bg-destructive hover:text-white" : "hover:bg-muted hover:text-foreground"
+        danger
+          ? "hover:bg-destructive hover:text-white"
+          : "hover:bg-muted hover:text-foreground"
       }`}
     >
       {children}

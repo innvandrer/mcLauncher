@@ -1,5 +1,13 @@
 import { useEffect, useState } from "react";
-import { Upload, Link, RefreshCw, Save, Trash2, Plus, Search } from "lucide-react";
+import {
+  Upload,
+  Link,
+  RefreshCw,
+  Save,
+  Trash2,
+  Plus,
+  Search,
+} from "lucide-react";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { Button, Field, Input, Modal } from "./ui";
 import { api, errMessage } from "@/lib/api";
@@ -36,7 +44,10 @@ interface Props {
 export function SkinModal({ open, onClose, accountId }: Props) {
   const toast = useStore((s) => s.toast);
 
-  const [currentSkin, setCurrentSkin] = useState<{ url: string; variant: string } | null>(null);
+  const [currentSkin, setCurrentSkin] = useState<{
+    url: string;
+    variant: string;
+  } | null>(null);
   const [loading, setLoading] = useState(false);
   const [tab, setTab] = useState<"url" | "file" | "player">("url");
   const [url, setUrl] = useState("");
@@ -64,7 +75,10 @@ export function SkinModal({ open, onClose, accountId }: Props) {
       })
       .catch(() => {}) // silently ignore (offline account etc.)
       .finally(() => setLoading(false));
-    api.listSavedSkins().then(setWardrobe).catch(() => {});
+    api
+      .listSavedSkins()
+      .then(setWardrobe)
+      .catch(() => {});
   }, [open]);
 
   const saveCurrent = async () => {
@@ -113,7 +127,11 @@ export function SkinModal({ open, onClose, accountId }: Props) {
     const name = window.prompt("Name this skin", fallback);
     if (name == null) return;
     try {
-      const list = await api.saveSkinFile(name.trim() || fallback, selected, variant);
+      const list = await api.saveSkinFile(
+        name.trim() || fallback,
+        selected,
+        variant,
+      );
       setWardrobe(list);
       toast("success", "Added to wardrobe");
     } catch (e) {
@@ -156,7 +174,11 @@ export function SkinModal({ open, onClose, accountId }: Props) {
   const savePlayerSkin = async () => {
     if (!playerSkin) return;
     try {
-      const list = await api.saveSkin(playerSkin.username, playerSkin.url, playerSkin.variant);
+      const list = await api.saveSkin(
+        playerSkin.username,
+        playerSkin.url,
+        playerSkin.variant,
+      );
       setWardrobe(list);
       toast("success", "Saved to wardrobe");
     } catch (e) {
@@ -168,13 +190,22 @@ export function SkinModal({ open, onClose, accountId }: Props) {
     setSaving(true);
     try {
       if (tab === "url") {
-        if (!url.trim()) { toast("error", "Enter a skin URL"); return; }
+        if (!url.trim()) {
+          toast("error", "Enter a skin URL");
+          return;
+        }
         await api.setSkinUrl(url.trim(), variant);
       } else if (tab === "file") {
-        if (!filePath) { toast("error", "Choose a PNG file"); return; }
+        if (!filePath) {
+          toast("error", "Choose a PNG file");
+          return;
+        }
         await api.setSkinFile(filePath, variant);
       } else {
-        if (!playerSkin) { toast("error", "Find a player first"); return; }
+        if (!playerSkin) {
+          toast("error", "Find a player first");
+          return;
+        }
         await api.setSkinUrl(playerSkin.url, playerSkin.variant);
       }
       toast("success", "Skin updated!");
@@ -228,8 +259,8 @@ export function SkinModal({ open, onClose, accountId }: Props) {
               {loading
                 ? "Loading…"
                 : currentSkin
-                ? `Variant: ${currentSkin.variant}`
-                : "Could not load skin"}
+                  ? `Variant: ${currentSkin.variant}`
+                  : "Could not load skin"}
             </p>
             {currentSkin && (
               <div className="mt-1 flex items-center gap-3">
@@ -267,8 +298,8 @@ export function SkinModal({ open, onClose, accountId }: Props) {
           </div>
           {wardrobe.length === 0 ? (
             <p className="rounded-lg border border-dashed p-3 text-xs text-muted-foreground">
-              No saved skins yet. Add a PNG from your computer, or save your current skin — then
-              switch with one click, no URL needed.
+              No saved skins yet. Add a PNG from your computer, or save your
+              current skin — then switch with one click, no URL needed.
             </p>
           ) : (
             <div className="flex flex-wrap gap-2">
@@ -280,7 +311,9 @@ export function SkinModal({ open, onClose, accountId }: Props) {
                     title={`Apply “${s.name}” (${s.variant})`}
                     className="block rounded-md ring-offset-2 ring-offset-background transition hover:ring-2 hover:ring-accent disabled:opacity-50 btn-focus"
                   >
-                    <SkinFace url={s.kind === "file" ? s.image ?? "" : s.url} />
+                    <SkinFace
+                      url={s.kind === "file" ? (s.image ?? "") : s.url}
+                    />
                   </button>
                   <button
                     onClick={() => removeSaved(s.id)}
@@ -362,7 +395,11 @@ export function SkinModal({ open, onClose, accountId }: Props) {
                   onKeyDown={(e) => e.key === "Enter" && findPlayer()}
                   placeholder="e.g. Notch   or   namemc.com/profile/…"
                 />
-                <Button variant="secondary" onClick={findPlayer} loading={findingPlayer}>
+                <Button
+                  variant="secondary"
+                  onClick={findPlayer}
+                  loading={findingPlayer}
+                >
                   <Search className="h-4 w-4" /> Find
                 </Button>
               </div>
@@ -375,8 +412,12 @@ export function SkinModal({ open, onClose, accountId }: Props) {
                   className="h-20 [image-rendering:pixelated]"
                 />
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium">{playerSkin.username}</p>
-                  <p className="text-xs text-muted-foreground">Model: {playerSkin.variant}</p>
+                  <p className="truncate text-sm font-medium">
+                    {playerSkin.username}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Model: {playerSkin.variant}
+                  </p>
                   <button
                     onClick={savePlayerSkin}
                     className="mt-1.5 inline-flex items-center gap-1 text-xs text-accent transition hover:brightness-110 btn-focus"
@@ -400,7 +441,10 @@ export function SkinModal({ open, onClose, accountId }: Props) {
         )}
 
         {tab === "file" && (
-          <Field label="Skin file" hint="Select a 64×64 PNG from your computer.">
+          <Field
+            label="Skin file"
+            hint="Select a 64×64 PNG from your computer."
+          >
             <div className="flex gap-2">
               <Input
                 value={filePath}

@@ -1070,7 +1070,7 @@ dependencies = [
 
 [[package]]
 name = "ezmapa-launcher"
-version = "0.3.1"
+version = "0.3.5"
 dependencies = [
  "chrono",
  "dirs 5.0.1",

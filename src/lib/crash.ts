@@ -83,8 +83,9 @@ export function analyzeCrash(logs: LogLine[]): CrashFinding | null {
 
   // Require some signal that a crash actually happened to avoid false positives
   // on healthy logs that merely mention "OpenGL" etc.
-  const looksLikeCrash =
-    /Exception|Error|crash|fatal|failed|OutOfMemory/i.test(text);
+  const looksLikeCrash = /Exception|Error|crash|fatal|failed|OutOfMemory/i.test(
+    text,
+  );
   if (!looksLikeCrash) return null;
 
   for (const rule of RULES) {

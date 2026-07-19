@@ -50,6 +50,8 @@ pub struct Instance {
     #[serde(default)]
     pub favorite: bool,
     #[serde(default)]
+    pub archived: bool,
+    #[serde(default)]
     pub created: i64,
     #[serde(default)]
     pub last_played: Option<i64>,
@@ -83,6 +85,12 @@ pub struct Instance {
     /// instance (e.g. "Performance", "Building", "Vanilla-ish").
     #[serde(default)]
     pub loadouts: Vec<Loadout>,
+    /// Free-form labels used by the instance library and command palette.
+    #[serde(default)]
+    pub tags: Vec<String>,
+    /// Complete launch presets combining a loadout, JVM settings and destination.
+    #[serde(default)]
+    pub launch_profiles: Vec<LaunchProfile>,
     /// Number of .jar files in the mods/ folder. Computed at list time, never read from disk.
     #[serde(default, skip_deserializing)]
     pub mod_count: u32,
@@ -98,6 +106,22 @@ pub struct Loadout {
     pub name: String,
     #[serde(default)]
     pub disabled: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LaunchProfile {
+    pub name: String,
+    #[serde(default)]
+    pub loadout: Option<String>,
+    #[serde(default)]
+    pub memory_mb: Option<u32>,
+    #[serde(default)]
+    pub jvm_args: Option<String>,
+    #[serde(default)]
+    pub quick_world: Option<String>,
+    #[serde(default)]
+    pub quick_server: Option<String>,
 }
 
 /// Where a modpack instance came from, so we can check for newer versions.
@@ -127,6 +151,16 @@ pub struct Settings {
     pub theme: String,
     #[serde(default = "default_accent")]
     pub accent: String,
+    #[serde(default = "default_language")]
+    pub language: String,
+    #[serde(default = "default_density")]
+    pub density: String,
+    #[serde(default)]
+    pub sidebar_collapsed: bool,
+    #[serde(default)]
+    pub reduce_transparency: bool,
+    #[serde(default)]
+    pub high_contrast: bool,
     #[serde(default = "default_concurrency")]
     pub max_concurrent_downloads: usize,
     #[serde(default)]
@@ -149,6 +183,11 @@ impl Default for Settings {
             jvm_args: default_jvm_args(),
             theme: default_theme(),
             accent: default_accent(),
+            language: default_language(),
+            density: default_density(),
+            sidebar_collapsed: false,
+            reduce_transparency: false,
+            high_contrast: false,
             max_concurrent_downloads: default_concurrency(),
             close_on_launch: false,
             auto_update_content: false,
@@ -168,6 +207,12 @@ fn default_theme() -> String {
 }
 fn default_accent() -> String {
     "violet".to_string()
+}
+fn default_language() -> String {
+    "en".to_string()
+}
+fn default_density() -> String {
+    "comfortable".to_string()
 }
 fn default_concurrency() -> usize {
     8

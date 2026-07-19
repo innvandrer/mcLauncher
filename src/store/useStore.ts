@@ -3,7 +3,8 @@ import { check, type Update } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { api, errMessage, events } from "@/lib/api";
 import { applyTheme, isImageIcon } from "@/lib/utils";
-import { plural, t } from "@/lib/strings";
+import { plural, setLocale, t } from "@/lib/strings";
+import { recordActivity } from "@/lib/activity";
 import type {
   AuthPrompt,
   Instance,
@@ -102,6 +103,9 @@ let listenersBound = false;
 // The Update handle from the updater plugin isn't serialisable for the UI, so we
 // keep it module-side and expose only display fields ({version, notes}) in state.
 let pendingUpdate: Update | null = null;
+// Settings update the UI immediately, while disk writes stay ordered. Rapid
+// slider changes can no longer finish out of order and restore stale values.
+let settingsSaveTail: Promise<void> = Promise.resolve();
 // Game logs stream in line-by-line and can be very chatty; buffer them and flush
 // on a short timer so the store updates a handful of times per second instead of
 // once per line (which previously cloned the whole log map on every line).
@@ -139,7 +143,8 @@ export const useStore = create<State>((set, get) => ({
       delete packReports[instanceId];
       return {
         packReports,
-        activePackReportId: s.activePackReportId === instanceId ? null : s.activePackReportId,
+        activePackReportId:
+          s.activePackReportId === instanceId ? null : s.activePackReportId,
       };
     }),
 
@@ -154,7 +159,8 @@ export const useStore = create<State>((set, get) => ({
         api.listInstances(),
         api.runningInstances(),
       ]);
-      applyTheme(settings.theme, settings.accent);
+      applyTheme(settings.theme, settings.accent, settings);
+      setLocale(settings.language);
       set({
         settings,
         accounts,
@@ -203,7 +209,8 @@ export const useStore = create<State>((set, get) => ({
         }));
         // Cancelled installs surface their own info toast + card removal; don't
         // double up with a scary error toast.
-        if (p.error && !/cancel/i.test(p.error)) get().toast("error", `${p.label}: ${p.error}`);
+        if (p.error && !/cancel/i.test(p.error))
+          get().toast("error", `${p.label}: ${p.error}`);
         if (p.done) {
           // A finished modpack install turns its "installing" card into a real
           // one — pull the fully populated instance (mod count, etc.).
@@ -246,7 +253,11 @@ export const useStore = create<State>((set, get) => ({
             "info",
             t("install.viaModrinthToast", {
               n: report.resolvedViaModrinth,
-              files: plural(report.resolvedViaModrinth, "blocked.file", "blocked.files"),
+              files: plural(
+                report.resolvedViaModrinth,
+                "blocked.file",
+                "blocked.files",
+              ),
             }),
           );
         }
@@ -254,7 +265,8 @@ export const useStore = create<State>((set, get) => ({
       events.onInstanceRemoved((id) => {
         set((s) => ({
           instances: s.instances.filter((i) => i.id !== id),
-          selectedInstanceId: s.selectedInstanceId === id ? null : s.selectedInstanceId,
+          selectedInstanceId:
+            s.selectedInstanceId === id ? null : s.selectedInstanceId,
         }));
       });
       events.onLog((line) => {
@@ -269,7 +281,8 @@ export const useStore = create<State>((set, get) => ({
             const logs = { ...s.logs };
             for (const id in batch) {
               const merged = [...(logs[id] ?? []), ...batch[id]];
-              if (merged.length > LOG_CAP) merged.splice(0, merged.length - LOG_CAP);
+              if (merged.length > LOG_CAP)
+                merged.splice(0, merged.length - LOG_CAP);
               logs[id] = merged;
             }
             return { logs };
@@ -325,7 +338,10 @@ export const useStore = create<State>((set, get) => ({
 
       if (pendingUpdate && !offline) {
         set({
-          update: { version: pendingUpdate.version, notes: pendingUpdate.body ?? "" },
+          update: {
+            version: pendingUpdate.version,
+            notes: pendingUpdate.body ?? "",
+          },
           updating: false,
         });
         return;
@@ -345,7 +361,8 @@ export const useStore = create<State>((set, get) => ({
     } catch (e) {
       const msg = errMessage(e);
       const hint =
-        msg.toLowerCase().includes("minisign") || msg.toLowerCase().includes("signature")
+        msg.toLowerCase().includes("minisign") ||
+        msg.toLowerCase().includes("signature")
           ? " Auto-update is temporarily unavailable — download the latest installer from GitHub Releases instead."
           : "";
       get().toast("error", msg + hint);
@@ -394,11 +411,19 @@ export const useStore = create<State>((set, get) => ({
   },
 
   importInstanceFromPath: async (path) => {
-    // Instance backups come in as .zip; Modrinth modpacks as .mrpack.
+    // Full backups, Modrinth packs, and tiny EZMapa share manifests.
     const isPack = path.toLowerCase().endsWith(".mrpack");
+    const isShare = path.toLowerCase().endsWith(".ezmapa");
     try {
-      get().toast("info", isPack ? "Importing modpack…" : "Importing instance…");
-      const inst = isPack ? await api.importMrpack(path) : await api.importInstance(path);
+      get().toast(
+        "info",
+        isPack ? "Importing modpack…" : "Importing instance…",
+      );
+      const inst = isShare
+        ? await api.importShareManifest(path)
+        : isPack
+          ? await api.importMrpack(path)
+          : await api.importInstance(path);
       await get().refreshInstances();
       get().toast("success", `Imported “${inst.name}”`);
       set({ view: "instances", selectedInstanceId: inst.id });
@@ -493,18 +518,38 @@ export const useStore = create<State>((set, get) => ({
   dismissAuthPrompt: () => set({ authPrompt: null }),
 
   saveSettings: async (settings) => {
-    await api.saveSettings(settings);
-    applyTheme(settings.theme, settings.accent);
+    applyTheme(settings.theme, settings.accent, settings);
+    setLocale(settings.language);
     set({ settings });
+    settingsSaveTail = settingsSaveTail
+      .catch(() => {
+        // Keep later writes flowing even when an earlier persistence failed.
+      })
+      .then(() => api.saveSettings(settings));
+    await settingsSaveTail;
   },
 
   clearLogs: (id) => set((s) => ({ logs: { ...s.logs, [id]: [] } })),
 
   toast: (type, message) => {
     const id = toastSeq++;
+    recordActivity({
+      kind:
+        type === "error"
+          ? "crash"
+          : message.toLowerCase().includes("backup")
+            ? "backup"
+            : message.toLowerCase().includes("mod") ||
+                message.toLowerCase().includes("pack") ||
+                message.toLowerCase().includes("update")
+              ? "content"
+              : "system",
+      message,
+    });
     set((s) => ({ toasts: [...s.toasts, { id, type, message }] }));
     setTimeout(() => get().dismissToast(id), type === "error" ? 6000 : 3500);
   },
 
-  dismissToast: (id) => set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })),
+  dismissToast: (id) =>
+    set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })),
 }));

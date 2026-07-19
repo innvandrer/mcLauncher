@@ -23,6 +23,7 @@ import type {
   TurboResult,
   PublicAccount,
   ResourcePackEntry,
+  RemovalImpact,
   SavedServer,
   SavedSkin,
   ScreenshotEntry,
@@ -38,6 +39,7 @@ import type {
   TaskProgress,
   VersionList,
   WorldEntry,
+  OfflineReadiness,
 } from "./types";
 
 export const api = {
@@ -61,15 +63,18 @@ export const api = {
 
   // Settings
   getSettings: () => invoke<Settings>("get_settings"),
-  saveSettings: (settings: Settings) => invoke<void>("save_settings", { settings }),
+  saveSettings: (settings: Settings) =>
+    invoke<void>("save_settings", { settings }),
 
   // Accounts
   listAccounts: () => invoke<PublicAccount[]>("list_accounts"),
   loginMicrosoft: () => invoke<PublicAccount[]>("login_microsoft"),
   addOfflineAccount: (username: string) =>
     invoke<PublicAccount[]>("add_offline_account", { username }),
-  setActiveAccount: (id: string) => invoke<PublicAccount[]>("set_active_account", { id }),
-  removeAccount: (id: string) => invoke<PublicAccount[]>("remove_account", { id }),
+  setActiveAccount: (id: string) =>
+    invoke<PublicAccount[]>("set_active_account", { id }),
+  removeAccount: (id: string) =>
+    invoke<PublicAccount[]>("remove_account", { id }),
 
   // Instances
   listInstances: () => invoke<Instance[]>("list_instances"),
@@ -81,10 +86,13 @@ export const api = {
     loaderVersion?: string | null;
     icon?: string | null;
   }) => invoke<Instance>("create_instance", args),
-  updateInstance: (instance: Instance) => invoke<Instance>("update_instance", { instance }),
+  updateInstance: (instance: Instance) =>
+    invoke<Instance>("update_instance", { instance }),
   deleteInstance: (id: string) => invoke<void>("delete_instance", { id }),
-  duplicateInstance: (id: string) => invoke<Instance>("duplicate_instance", { id }),
-  openInstanceFolder: (id: string) => invoke<void>("open_instance_folder", { id }),
+  duplicateInstance: (id: string) =>
+    invoke<Instance>("duplicate_instance", { id }),
+  openInstanceFolder: (id: string) =>
+    invoke<void>("open_instance_folder", { id }),
 
   // Launch
   launchInstance: (id: string, quick?: { world?: string; server?: string }) =>
@@ -95,7 +103,12 @@ export const api = {
     }),
   stopInstance: (id: string) => invoke<void>("stop_instance", { id }),
   runningInstances: () => invoke<string[]>("running_instances"),
-  createShortcut: (instanceId: string, instanceName: string, world?: string | null, server?: string | null) =>
+  createShortcut: (
+    instanceId: string,
+    instanceName: string,
+    world?: string | null,
+    server?: string | null,
+  ) =>
     invoke<string>("create_shortcut", {
       instanceId,
       instanceName,
@@ -118,11 +131,14 @@ export const api = {
     loader?: string | null;
     gameVersion?: string | null;
   }) => invoke<InstallOutcome>("install_mod", args),
-  listMods: (instanceId: string) => invoke<ModEntry[]>("list_mods", { instanceId }),
+  listMods: (instanceId: string) =>
+    invoke<ModEntry[]>("list_mods", { instanceId }),
   setModEnabled: (instanceId: string, fileName: string, enabled: boolean) =>
     invoke<void>("set_mod_enabled", { instanceId, fileName, enabled }),
   deleteMod: (instanceId: string, fileName: string) =>
     invoke<void>("delete_mod", { instanceId, fileName }),
+  modRemovalImpact: (instanceId: string, fileName: string) =>
+    invoke<RemovalImpact>("mod_removal_impact", { instanceId, fileName }),
 
   // Loadouts (named enable/disable mod sets)
   saveLoadout: (instanceId: string, name: string) =>
@@ -193,9 +209,16 @@ export const api = {
   }) => invoke<ModUpdate[]>("check_mod_updates", args),
   applyModUpdate: (instanceId: string, update: ModUpdate) =>
     invoke<void>("apply_mod_update", { instanceId, update }),
+  applyModUpdates: (instanceId: string, updates: ModUpdate[]) =>
+    invoke<number>("apply_mod_updates", { instanceId, updates }),
+  rollbackLastContentUpdate: (instanceId: string) =>
+    invoke<number>("rollback_last_content_update", { instanceId }),
   /** Re-pin a mod's source of truth to the other platform; returns the new project id. */
-  setModSource: (instanceId: string, fileName: string, provider: "modrinth" | "curseforge") =>
-    invoke<string>("set_mod_source", { instanceId, fileName, provider }),
+  setModSource: (
+    instanceId: string,
+    fileName: string,
+    provider: "modrinth" | "curseforge",
+  ) => invoke<string>("set_mod_source", { instanceId, fileName, provider }),
   autoUpdateInstanceContent: (args: {
     instanceId: string;
     loader?: string | null;
@@ -214,6 +237,13 @@ export const api = {
     invoke<PackExportPreview>("prepare_pack_export", { id }),
   importInstance: (src: string) => invoke<Instance>("import_instance", { src }),
   importMrpack: (src: string) => invoke<Instance>("import_mrpack", { src }),
+  exportShareManifest: (id: string, dest: string) =>
+    invoke<void>("export_share_manifest", { id, dest }),
+  importShareManifest: (src: string) =>
+    invoke<Instance>("import_share_manifest", { src }),
+  getShareCode: (id: string) => invoke<string>("get_share_code", { id }),
+  importShareCode: (code: string) =>
+    invoke<Instance>("import_share_code", { code }),
 
   // Resource packs
   listResourcePacks: (instanceId: string) =>
@@ -231,7 +261,7 @@ export const api = {
   listWorlds: (instanceId: string) =>
     invoke<WorldEntry[]>("list_worlds", { instanceId }),
   deleteWorld: (instanceId: string, name: string) =>
-    invoke<void>("delete_world", { instanceId, name }),
+    invoke<Snapshot>("delete_world", { instanceId, name }),
   openWorldFolder: (instanceId: string, name: string) =>
     invoke<void>("open_world_folder", { instanceId, name }),
 
@@ -240,6 +270,10 @@ export const api = {
     invoke<ScreenshotEntry[]>("list_screenshots", { instanceId }),
   openScreenshot: (instanceId: string, fileName: string) =>
     invoke<void>("open_screenshot", { instanceId, fileName }),
+  readScreenshot: (instanceId: string, fileName: string) =>
+    invoke<number[]>("read_screenshot", { instanceId, fileName }),
+  offlineReadiness: (instanceId: string) =>
+    invoke<OfflineReadiness>("offline_readiness", { instanceId }),
 
   // Disk usage
   instanceDiskUsage: (instanceId: string) =>
@@ -262,7 +296,8 @@ export const api = {
     invoke<string[]>("resolve_mod_conflicts", { instanceId }),
   preflightCheck: (instanceId: string) =>
     invoke<PreflightWarning[]>("preflight_check", { instanceId }),
-  applyTurbo: (instanceId: string) => invoke<TurboResult>("apply_turbo", { instanceId }),
+  applyTurbo: (instanceId: string) =>
+    invoke<TurboResult>("apply_turbo", { instanceId }),
 
   // Java
   detectJava: () => invoke<JavaInstall[]>("detect_java"),
@@ -318,17 +353,22 @@ export const api = {
   // Servers — saved multiplayer list + live ping
   listServers: (instanceId: string) =>
     invoke<SavedServer[]>("list_servers", { instanceId }),
-  pingServer: (address: string) => invoke<ServerStatus>("ping_server", { address }),
+  pingServer: (address: string) =>
+    invoke<ServerStatus>("ping_server", { address }),
   /** Decode a modded server's mod list and match every mod to a download. */
   analyzeServerMods: (address: string) =>
     invoke<ServerModPlan>("analyze_server_mods", { address }),
   /** Build an instance matching a modded server (best effort). */
   createInstanceFromServer: (name: string, address: string) =>
-    invoke<ServerInstanceOutcome>("create_instance_from_server", { name, address }),
+    invoke<ServerInstanceOutcome>("create_instance_from_server", {
+      name,
+      address,
+    }),
 
   // Play sessions (activity stats)
   listSessions: () => invoke<Session[]>("list_sessions"),
-  savePng: (dest: string, data: number[]) => invoke<void>("save_png", { dest, data }),
+  savePng: (dest: string, data: number[]) =>
+    invoke<void>("save_png", { dest, data }),
 
   // Skin wardrobe
   listSavedSkins: () => invoke<SavedSkin[]>("list_saved_skins"),
@@ -336,7 +376,8 @@ export const api = {
     invoke<SavedSkin[]>("save_skin", { name, url, variant }),
   saveSkinFile: (name: string, filePath: string, variant: string) =>
     invoke<SavedSkin[]>("save_skin_file", { name, filePath, variant }),
-  deleteSavedSkin: (id: string) => invoke<SavedSkin[]>("delete_saved_skin", { id }),
+  deleteSavedSkin: (id: string) =>
+    invoke<SavedSkin[]>("delete_saved_skin", { id }),
   fetchPlayerSkin: (query: string) =>
     invoke<PlayerSkin>("fetch_player_skin", { query }),
 };
@@ -352,7 +393,9 @@ export const events = {
     listen<Instance>("instance://created", (e) => cb(e.payload)),
   onInstanceRemoved: (cb: (id: string) => void): Promise<UnlistenFn> =>
     listen<string>("instance://removed", (e) => cb(e.payload)),
-  onModpackReport: (cb: (r: ModpackInstallReport) => void): Promise<UnlistenFn> =>
+  onModpackReport: (
+    cb: (r: ModpackInstallReport) => void,
+  ): Promise<UnlistenFn> =>
     listen<ModpackInstallReport>("modpack://report", (e) => cb(e.payload)),
   onAuthPrompt: (cb: (p: AuthPrompt) => void): Promise<UnlistenFn> =>
     listen<AuthPrompt>("auth://prompt", (e) => cb(e.payload)),
@@ -367,6 +410,7 @@ export const events = {
 
 export function errMessage(e: unknown): string {
   if (typeof e === "string") return e;
-  if (e && typeof e === "object" && "message" in e) return String((e as any).message);
+  if (e && typeof e === "object" && "message" in e)
+    return String((e as any).message);
   return String(e);
 }

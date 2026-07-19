@@ -1,15 +1,24 @@
-import { Boxes, Home, LayoutGrid, Settings as SettingsIcon, Users } from "lucide-react";
+import {
+  Boxes,
+  Home,
+  LayoutGrid,
+  Settings as SettingsIcon,
+  Users,
+  PanelLeftClose,
+  PanelLeftOpen,
+} from "lucide-react";
 import { motion } from "framer-motion";
 import { useStore, type View } from "@/store/useStore";
 import { cn } from "@/lib/utils";
 import { PlayerAvatar } from "@/components/PlayerAvatar";
+import { t, type StringKey } from "@/lib/strings";
 
-const items: { id: View; label: string; icon: typeof LayoutGrid }[] = [
-  { id: "home", label: "Home", icon: Home },
-  { id: "instances", label: "Instances", icon: LayoutGrid },
-  { id: "modpacks", label: "Modpacks", icon: Boxes },
-  { id: "accounts", label: "Accounts", icon: Users },
-  { id: "settings", label: "Settings", icon: SettingsIcon },
+const items: { id: View; label: StringKey; icon: typeof LayoutGrid }[] = [
+  { id: "home", label: "nav.home", icon: Home },
+  { id: "instances", label: "nav.instances", icon: LayoutGrid },
+  { id: "modpacks", label: "nav.modpacks", icon: Boxes },
+  { id: "accounts", label: "nav.accounts", icon: Users },
+  { id: "settings", label: "nav.settings", icon: SettingsIcon },
 ];
 
 export function Sidebar() {
@@ -18,9 +27,31 @@ export function Sidebar() {
   const accounts = useStore((s) => s.accounts);
   const active = accounts.find((a) => a.active);
   const anyRunning = useStore((s) => s.running.size > 0);
+  const settings = useStore((s) => s.settings);
+  const saveSettings = useStore((s) => s.saveSettings);
+  const collapsed = settings?.sidebarCollapsed ?? false;
 
   return (
-    <aside className="flex w-56 shrink-0 flex-col border-r border-border/60 bg-surface/30 p-3">
+    <aside
+      className={cn(
+        "flex shrink-0 flex-col border-r border-border/60 bg-surface/30 p-3 transition-[width]",
+        collapsed ? "w-[68px]" : "w-56",
+      )}
+    >
+      <button
+        onClick={() =>
+          settings &&
+          saveSettings({ ...settings, sidebarCollapsed: !collapsed })
+        }
+        className="mb-2 flex items-center justify-center rounded-lg p-2 text-muted-foreground hover:bg-muted hover:text-foreground"
+        title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+      >
+        {collapsed ? (
+          <PanelLeftOpen className="h-4 w-4" />
+        ) : (
+          <PanelLeftClose className="h-4 w-4" />
+        )}
+      </button>
       <nav className="flex flex-col gap-1">
         {items.map((item) => {
           const Icon = item.icon;
@@ -31,7 +62,9 @@ export function Sidebar() {
               onClick={() => setView(item.id)}
               className={cn(
                 "relative flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors btn-focus",
-                isActive ? "text-foreground" : "text-muted-foreground hover:text-foreground hover:bg-muted/50",
+                isActive
+                  ? "text-foreground"
+                  : "text-muted-foreground hover:text-foreground hover:bg-muted/50",
               )}
             >
               {isActive && (
@@ -42,7 +75,9 @@ export function Sidebar() {
                 />
               )}
               <Icon className="relative z-10 h-[18px] w-[18px]" />
-              <span className="relative z-10">{item.label}</span>
+              {!collapsed && (
+                <span className="relative z-10">{t(item.label)}</span>
+              )}
             </button>
           );
         })}
@@ -66,20 +101,22 @@ export function Sidebar() {
               </span>
             )}
           </div>
-          <div className="min-w-0 flex-1">
-            <div className="truncate text-sm font-medium">
-              {active ? active.username : "No account"}
+          {!collapsed && (
+            <div className="min-w-0 flex-1">
+              <div className="truncate text-sm font-medium">
+                {active ? active.username : t("account.none")}
+              </div>
+              <div className="truncate text-xs text-muted-foreground">
+                {active
+                  ? anyRunning
+                    ? t("account.playing")
+                    : active.kind === "offline"
+                      ? t("account.offline")
+                      : t("account.microsoft")
+                  : t("account.add")}
+              </div>
             </div>
-            <div className="truncate text-xs text-muted-foreground">
-              {active
-                ? anyRunning
-                  ? "Playing now"
-                  : active.kind === "offline"
-                    ? "Offline account"
-                    : "Microsoft account"
-                : "Click to add"}
-            </div>
-          </div>
+          )}
         </button>
       </div>
     </aside>

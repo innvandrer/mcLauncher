@@ -21,11 +21,17 @@ export function AuthPromptModal() {
   };
 
   return (
-    <Modal open={!!prompt} onClose={dismiss} title="Sign in with Microsoft" size="sm">
+    <Modal
+      open={!!prompt}
+      onClose={dismiss}
+      title="Sign in with Microsoft"
+      size="sm"
+    >
       {prompt && (
         <div className="space-y-4 text-center">
           <p className="text-sm text-muted-foreground">
-            Open the page below and enter this code to sign in to your Microsoft account.
+            Open the page below and enter this code to sign in to your Microsoft
+            account.
           </p>
 
           <button
@@ -37,7 +43,9 @@ export function AuthPromptModal() {
             </span>
             <Copy className="h-4 w-4 text-muted-foreground group-hover:text-foreground" />
           </button>
-          {copied && <p className="text-xs text-success">Copied to clipboard</p>}
+          {copied && (
+            <p className="text-xs text-success">Copied to clipboard</p>
+          )}
 
           <Button
             variant="primary"

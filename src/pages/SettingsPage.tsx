@@ -1,10 +1,19 @@
 import { useEffect, useState } from "react";
 import { getVersion } from "@tauri-apps/api/app";
-import { Cpu, MonitorCog, Package, Palette, Search, Sparkles, Wand2 } from "lucide-react";
+import {
+  Cpu,
+  MonitorCog,
+  Package,
+  Palette,
+  Search,
+  Sparkles,
+  Wand2,
+} from "lucide-react";
 import { Button, Field, Input } from "@/components/ui";
 import { useStore } from "@/store/useStore";
 import { api } from "@/lib/api";
 import { ACCENTS, AIKAR_FLAGS, cn } from "@/lib/utils";
+import { t } from "@/lib/strings";
 import type { JavaInstall, Settings } from "@/lib/types";
 
 /** Suggest a heap size: ~half of system RAM, clamped to a sane Minecraft range
@@ -24,8 +33,13 @@ export function SettingsPage() {
   const [version, setVersion] = useState("");
 
   useEffect(() => {
-    api.systemMemoryMb().then(setTotalRamMb).catch(() => setTotalRamMb(0));
-    getVersion().then(setVersion).catch(() => setVersion(""));
+    api
+      .systemMemoryMb()
+      .then(setTotalRamMb)
+      .catch(() => setTotalRamMb(0));
+    getVersion()
+      .then(setVersion)
+      .catch(() => setVersion(""));
   }, []);
 
   if (!settings) return null;
@@ -46,183 +60,290 @@ export function SettingsPage() {
   return (
     <div className="app-scroll h-full min-h-0">
       <div className="mx-auto max-w-2xl app-gutter py-6 pb-12">
-        <h1 className="text-2xl font-bold tracking-tight">Settings</h1>
+        <h1 className="text-2xl font-bold tracking-tight">
+          {t("settings.title")}
+        </h1>
 
-      {/* Appearance */}
-      <Section icon={<Palette className="h-4 w-4" />} title="Appearance">
-        <Field label="Theme">
-          <div className="flex gap-2">
-            {["dark", "light"].map((t) => (
-              <button
-                key={t}
-                onClick={() => patch({ theme: t })}
-                className={cn(
-                  "flex-1 rounded-lg border px-4 py-2 text-sm font-medium capitalize transition btn-focus",
-                  settings.theme === t
-                    ? "border-accent bg-accent/15"
-                    : "border-border bg-muted/40 hover:bg-muted",
-                )}
-              >
-                {t}
-              </button>
-            ))}
-          </div>
-        </Field>
-        <Field label="Accent color">
-          <div className="flex flex-wrap gap-2">
-            {Object.entries(ACCENTS).map(([name, hsl]) => (
-              <button
-                key={name}
-                onClick={() => patch({ accent: name })}
-                style={{ backgroundColor: `hsl(${hsl})` }}
-                className={cn(
-                  "h-8 w-8 rounded-full transition btn-focus",
-                  settings.accent === name
-                    ? "ring-2 ring-offset-2 ring-offset-background"
-                    : "opacity-80 hover:opacity-100",
-                )}
-                title={name}
-              />
-            ))}
-          </div>
-        </Field>
-      </Section>
-
-      {/* Game / Java */}
-      <Section icon={<Cpu className="h-4 w-4" />} title="Java & performance">
-        <Field label={`Memory: ${(settings.memoryMb / 1024).toFixed(1)} GB`}>
-          <input
-            type="range"
-            min={1024}
-            max={16384}
-            step={512}
-            value={settings.memoryMb}
-            onChange={(e) => patch({ memoryMb: Number(e.target.value) })}
-            className="w-full accent-[hsl(var(--accent))]"
-          />
-          {recommended > 0 && (
-            <div className="mt-2 flex items-center justify-between text-xs text-muted-foreground">
-              <span>
-                You have {(totalRamMb / 1024).toFixed(1)} GB RAM · recommended{" "}
-                <span className="font-medium text-foreground">
-                  {(recommended / 1024).toFixed(1)} GB
-                </span>
-              </span>
-              {settings.memoryMb !== recommended && (
+        {/* Appearance */}
+        <Section
+          icon={<Palette className="h-4 w-4" />}
+          title={t("settings.appearance")}
+        >
+          <Field label={t("settings.theme")}>
+            <div className="flex gap-2">
+              {["system", "dark", "light"].map((theme) => (
                 <button
-                  onClick={() => patch({ memoryMb: recommended })}
-                  className="inline-flex items-center gap-1 rounded-md bg-accent/15 px-2 py-1 font-medium text-accent transition hover:bg-accent/25 btn-focus"
+                  key={theme}
+                  onClick={() => patch({ theme })}
+                  className={cn(
+                    "flex-1 rounded-lg border px-4 py-2 text-sm font-medium capitalize transition btn-focus",
+                    settings.theme === theme
+                      ? "border-accent bg-accent/15"
+                      : "border-border bg-muted/40 hover:bg-muted",
+                  )}
                 >
-                  <Wand2 className="h-3 w-3" /> Use recommended
+                  {theme === "system"
+                    ? "System"
+                    : theme === "dark"
+                      ? t("settings.dark")
+                      : t("settings.light")}
                 </button>
+              ))}
+            </div>
+          </Field>
+          <Field
+            label="Interface density"
+            hint="Compact mode fits more content on screen."
+          >
+            <div className="flex gap-2">
+              {(["comfortable", "compact"] as const).map((density) => (
+                <button
+                  key={density}
+                  onClick={() => patch({ density })}
+                  className={cn(
+                    "flex-1 rounded-lg border px-4 py-2 text-sm font-medium capitalize transition",
+                    settings.density === density
+                      ? "border-accent bg-accent/15"
+                      : "bg-muted/40 hover:bg-muted",
+                  )}
+                >
+                  {density}
+                </button>
+              ))}
+            </div>
+          </Field>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <AppearanceToggle
+              label="Reduce transparency"
+              checked={settings.reduceTransparency}
+              onChange={(reduceTransparency) => patch({ reduceTransparency })}
+            />
+            <AppearanceToggle
+              label="High contrast"
+              checked={settings.highContrast}
+              onChange={(highContrast) => patch({ highContrast })}
+            />
+          </div>
+          <Field label={t("settings.accent")}>
+            <div className="flex flex-wrap gap-2">
+              {Object.entries(ACCENTS).map(([name, hsl]) => (
+                <button
+                  key={name}
+                  onClick={() => patch({ accent: name })}
+                  style={{ backgroundColor: `hsl(${hsl})` }}
+                  className={cn(
+                    "h-8 w-8 rounded-full transition btn-focus",
+                    settings.accent === name
+                      ? "ring-2 ring-offset-2 ring-offset-background"
+                      : "opacity-80 hover:opacity-100",
+                  )}
+                  title={name}
+                />
+              ))}
+            </div>
+          </Field>
+          <Field
+            label={t("settings.language")}
+            hint={t("settings.languageHint")}
+          >
+            <div className="flex gap-2">
+              {(["en", "no"] as const).map((language) => (
+                <button
+                  key={language}
+                  onClick={() => patch({ language })}
+                  className={cn(
+                    "flex-1 rounded-lg border px-4 py-2 text-sm font-medium transition btn-focus",
+                    settings.language === language
+                      ? "border-accent bg-accent/15"
+                      : "border-border bg-muted/40 hover:bg-muted",
+                  )}
+                >
+                  {language === "en"
+                    ? t("settings.english")
+                    : t("settings.norwegian")}
+                </button>
+              ))}
+            </div>
+          </Field>
+        </Section>
+
+        {/* Game / Java */}
+        <Section icon={<Cpu className="h-4 w-4" />} title="Java & performance">
+          <Field label={`Memory: ${(settings.memoryMb / 1024).toFixed(1)} GB`}>
+            <input
+              type="range"
+              min={1024}
+              max={16384}
+              step={512}
+              value={settings.memoryMb}
+              onChange={(e) => patch({ memoryMb: Number(e.target.value) })}
+              className="w-full accent-[hsl(var(--accent))]"
+            />
+            {recommended > 0 && (
+              <div className="mt-2 flex items-center justify-between text-xs text-muted-foreground">
+                <span>
+                  You have {(totalRamMb / 1024).toFixed(1)} GB RAM · recommended{" "}
+                  <span className="font-medium text-foreground">
+                    {(recommended / 1024).toFixed(1)} GB
+                  </span>
+                </span>
+                {settings.memoryMb !== recommended && (
+                  <button
+                    onClick={() => patch({ memoryMb: recommended })}
+                    className="inline-flex items-center gap-1 rounded-md bg-accent/15 px-2 py-1 font-medium text-accent transition hover:bg-accent/25 btn-focus"
+                  >
+                    <Wand2 className="h-3 w-3" /> Use recommended
+                  </button>
+                )}
+              </div>
+            )}
+          </Field>
+
+          <Field
+            label="Java executable"
+            hint="Leave empty to auto-detect or download the right version per instance."
+          >
+            <div className="flex gap-2">
+              <Input
+                defaultValue={settings.javaPath ?? ""}
+                onBlur={(e) =>
+                  patch({ javaPath: e.target.value.trim() || null })
+                }
+                placeholder="Auto"
+                className="font-mono text-xs"
+              />
+              <Button variant="secondary" onClick={detect} loading={detecting}>
+                <Search className="h-4 w-4" /> Detect
+              </Button>
+            </div>
+          </Field>
+          {javaList && (
+            <div className="space-y-1.5">
+              {javaList.length === 0 && (
+                <p className="text-sm text-muted-foreground">
+                  No Java found. One will be downloaded automatically when you
+                  launch.
+                </p>
               )}
+              {javaList.map((j) => (
+                <button
+                  key={j.path}
+                  onClick={() => patch({ javaPath: j.path })}
+                  className="flex w-full items-center justify-between rounded-lg border bg-card/60 px-3 py-2 text-left text-sm transition hover:bg-muted"
+                >
+                  <span className="truncate font-mono text-xs">{j.path}</span>
+                  <span className="ml-2 shrink-0 rounded-full bg-muted px-2 py-0.5 text-xs">
+                    Java {j.major}
+                  </span>
+                </button>
+              ))}
             </div>
           )}
-        </Field>
 
-        <Field label="Java executable" hint="Leave empty to auto-detect or download the right version per instance.">
-          <div className="flex gap-2">
+          <JvmArgsField
+            value={settings.jvmArgs}
+            onCommit={(v) => patch({ jvmArgs: v })}
+          />
+        </Section>
+
+        {/* Behavior */}
+        <Section icon={<MonitorCog className="h-4 w-4" />} title="Behavior">
+          <Field
+            label={`Concurrent downloads: ${settings.maxConcurrentDownloads}`}
+          >
+            <input
+              type="range"
+              min={1}
+              max={32}
+              step={1}
+              value={settings.maxConcurrentDownloads}
+              onChange={(e) =>
+                patch({ maxConcurrentDownloads: Number(e.target.value) })
+              }
+              className="w-full accent-[hsl(var(--accent))]"
+            />
+          </Field>
+          <label className="flex cursor-pointer items-center justify-between rounded-lg border bg-card/60 px-4 py-3">
+            <div>
+              <div className="text-sm font-medium">
+                Hide launcher while playing
+              </div>
+              <div className="text-xs text-muted-foreground">
+                Minimizes EZMapa when the game starts, restores it on exit.
+              </div>
+            </div>
+            <input
+              type="checkbox"
+              checked={settings.closeOnLaunch}
+              onChange={(e) => patch({ closeOnLaunch: e.target.checked })}
+              className="h-5 w-5 accent-[hsl(var(--accent))]"
+            />
+          </label>
+          <label className="flex cursor-pointer items-center justify-between rounded-lg border bg-card/60 px-4 py-3">
+            <div>
+              <div className="text-sm font-medium">Auto-update content</div>
+              <div className="text-xs text-muted-foreground">
+                Updates Modrinth mods, resource packs, and shaders to the latest
+                version before launch (skipped for modpack instances — use the
+                pack update banner instead).
+              </div>
+            </div>
+            <input
+              type="checkbox"
+              checked={settings.autoUpdateContent ?? false}
+              onChange={(e) => patch({ autoUpdateContent: e.target.checked })}
+              className="h-5 w-5 accent-[hsl(var(--accent))]"
+            />
+          </label>
+        </Section>
+        <Section
+          icon={<Package className="h-4 w-4" />}
+          title="Content providers"
+        >
+          <Field
+            label="CurseForge API key"
+            hint="Required to browse/install from CurseForge. Get a free key at console.curseforge.com → API Keys. Can also be set via the EZMAPA_CF_API_KEY env var."
+          >
             <Input
-              defaultValue={settings.javaPath ?? ""}
-              onBlur={(e) => patch({ javaPath: e.target.value.trim() || null })}
-              placeholder="Auto"
+              type="password"
+              defaultValue={settings.curseforgeApiKey ?? ""}
+              onBlur={(e) =>
+                patch({ curseforgeApiKey: e.target.value.trim() || null })
+              }
+              placeholder="$2a$10$…"
               className="font-mono text-xs"
             />
-            <Button variant="secondary" onClick={detect} loading={detecting}>
-              <Search className="h-4 w-4" /> Detect
-            </Button>
-          </div>
-        </Field>
-        {javaList && (
-          <div className="space-y-1.5">
-            {javaList.length === 0 && (
-              <p className="text-sm text-muted-foreground">
-                No Java found. One will be downloaded automatically when you launch.
-              </p>
-            )}
-            {javaList.map((j) => (
-              <button
-                key={j.path}
-                onClick={() => patch({ javaPath: j.path })}
-                className="flex w-full items-center justify-between rounded-lg border bg-card/60 px-3 py-2 text-left text-sm transition hover:bg-muted"
-              >
-                <span className="truncate font-mono text-xs">{j.path}</span>
-                <span className="ml-2 shrink-0 rounded-full bg-muted px-2 py-0.5 text-xs">
-                  Java {j.major}
-                </span>
-              </button>
-            ))}
-          </div>
-        )}
+          </Field>
+        </Section>
 
-        <JvmArgsField value={settings.jvmArgs} onCommit={(v) => patch({ jvmArgs: v })} />
-      </Section>
-
-      {/* Behavior */}
-      <Section icon={<MonitorCog className="h-4 w-4" />} title="Behavior">
-        <Field label={`Concurrent downloads: ${settings.maxConcurrentDownloads}`}>
-          <input
-            type="range"
-            min={1}
-            max={32}
-            step={1}
-            value={settings.maxConcurrentDownloads}
-            onChange={(e) => patch({ maxConcurrentDownloads: Number(e.target.value) })}
-            className="w-full accent-[hsl(var(--accent))]"
-          />
-        </Field>
-        <label className="flex cursor-pointer items-center justify-between rounded-lg border bg-card/60 px-4 py-3">
-          <div>
-            <div className="text-sm font-medium">Hide launcher while playing</div>
-            <div className="text-xs text-muted-foreground">
-              Minimizes EZMapa when the game starts, restores it on exit.
-            </div>
-          </div>
-          <input
-            type="checkbox"
-            checked={settings.closeOnLaunch}
-            onChange={(e) => patch({ closeOnLaunch: e.target.checked })}
-            className="h-5 w-5 accent-[hsl(var(--accent))]"
-          />
-        </label>
-        <label className="flex cursor-pointer items-center justify-between rounded-lg border bg-card/60 px-4 py-3">
-          <div>
-            <div className="text-sm font-medium">Auto-update content</div>
-            <div className="text-xs text-muted-foreground">
-              Updates Modrinth mods, resource packs, and shaders to the latest version
-              before launch (skipped for modpack instances — use the pack update banner
-              instead).
-            </div>
-          </div>
-          <input
-            type="checkbox"
-            checked={settings.autoUpdateContent ?? false}
-            onChange={(e) => patch({ autoUpdateContent: e.target.checked })}
-            className="h-5 w-5 accent-[hsl(var(--accent))]"
-          />
-        </label>
-      </Section>
-      <Section icon={<Package className="h-4 w-4" />} title="Content providers">
-        <Field
-          label="CurseForge API key"
-          hint="Required to browse/install from CurseForge. Get a free key at console.curseforge.com → API Keys. Can also be set via the EZMAPA_CF_API_KEY env var."
-        >
-          <Input
-            type="password"
-            defaultValue={settings.curseforgeApiKey ?? ""}
-            onBlur={(e) => patch({ curseforgeApiKey: e.target.value.trim() || null })}
-            placeholder="$2a$10$…"
-            className="font-mono text-xs"
-          />
-        </Field>
-      </Section>
-
-      <div className="mt-8 flex items-center gap-2 text-xs text-muted-foreground">
-        <Sparkles className="h-3.5 w-3.5" />
-        EZMapa{version ? ` v${version}` : ""} — a modern Minecraft launcher.
-      </div>
+        <div className="mt-8 flex items-center gap-2 text-xs text-muted-foreground">
+          <Sparkles className="h-3.5 w-3.5" />
+          EZMapa{version ? ` v${version}` : ""} — a modern Minecraft launcher.
+        </div>
       </div>
     </div>
+  );
+}
+
+function AppearanceToggle({
+  label,
+  checked,
+  onChange,
+}: {
+  label: string;
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+}) {
+  return (
+    <label className="flex cursor-pointer items-center justify-between rounded-lg border bg-card/60 px-3 py-2.5">
+      <span className="text-sm font-medium">{label}</span>
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(e) => onChange(e.target.checked)}
+        className="h-4 w-4 accent-[hsl(var(--accent))]"
+      />
+    </label>
   );
 }
 
@@ -300,7 +421,9 @@ function Section({
         {icon}
         {title}
       </h2>
-      <div className="space-y-4 rounded-xl border bg-card/40 p-5">{children}</div>
+      <div className="space-y-4 rounded-xl border bg-card/40 p-5">
+        {children}
+      </div>
     </section>
   );
 }

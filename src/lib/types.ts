@@ -12,6 +12,7 @@ export interface Instance {
   group?: string | null;
   accent?: string | null;
   favorite?: boolean;
+  archived?: boolean;
   created: number;
   lastPlayed?: number | null;
   totalPlaySeconds: number;
@@ -24,8 +25,15 @@ export interface Instance {
   preLaunch?: string | null;
   postExit?: string | null;
   modCount?: number;
-  packSource?: { provider: string; projectId: string; versionId?: string | null; versionName?: string | null } | null;
+  packSource?: {
+    provider: string;
+    projectId: string;
+    versionId?: string | null;
+    versionName?: string | null;
+  } | null;
   loadouts?: Loadout[];
+  tags?: string[];
+  launchProfiles?: LaunchProfile[];
 }
 
 /** A named enable/disable mod set within an instance. */
@@ -34,12 +42,26 @@ export interface Loadout {
   disabled: string[];
 }
 
+export interface LaunchProfile {
+  name: string;
+  loadout?: string | null;
+  memoryMb?: number | null;
+  jvmArgs?: string | null;
+  quickWorld?: string | null;
+  quickServer?: string | null;
+}
+
 export interface Settings {
   memoryMb: number;
   javaPath?: string | null;
   jvmArgs: string;
   theme: string;
   accent: string;
+  language: "en" | "no";
+  density: "comfortable" | "compact";
+  sidebarCollapsed: boolean;
+  reduceTransparency: boolean;
+  highContrast: boolean;
   maxConcurrentDownloads: number;
   closeOnLaunch: boolean;
   autoUpdateContent: boolean;
@@ -111,6 +133,13 @@ export interface ModEntry {
   projectId?: string | null;
 }
 
+export interface RemovalImpact {
+  fileName: string;
+  projectId?: string | null;
+  requiredBy: string[];
+  safe: boolean;
+}
+
 export interface JavaInstall {
   path: string;
   version: string;
@@ -152,12 +181,18 @@ export interface ShaderEntry {
 export interface WorldEntry {
   name: string;
   modified?: number | null;
+  size: number;
 }
 
 export interface ScreenshotEntry {
   fileName: string;
   size: number;
   takenAt: number;
+}
+
+export interface OfflineReadiness {
+  ready: boolean;
+  missing: string[];
 }
 
 export interface ContentVersion {
@@ -210,7 +245,8 @@ export interface ModConflict {
   files: string[];
 }
 
-export type PreflightAction = "increase-ram" | "lower-ram" | "open-settings" | "clean-duplicates";
+export type PreflightAction =
+  "increase-ram" | "lower-ram" | "open-settings" | "clean-duplicates";
 
 export interface PreflightWarning {
   title: string;

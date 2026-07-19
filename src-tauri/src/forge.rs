@@ -5,9 +5,9 @@
 //! libraries into our managed directories.
 
 use crate::error::{Error, Result};
+use crate::java;
 use crate::models::TaskProgress;
 use crate::state::AppState;
-use crate::java;
 use serde::Deserialize;
 use std::path::Path;
 use tauri::{AppHandle, Emitter};
@@ -57,17 +57,30 @@ pub async fn list_forge(state: &AppState, mc_version: &str) -> Result<Vec<ForgeV
         .filter(|v| v.starts_with(&prefix))
         .map(|v| {
             let forge_ver = v[prefix.len()..].to_string();
-            let is_stable = recommended.as_deref() == Some(forge_ver.as_str());
-            ForgeVersion { version: forge_ver, stable: is_stable }
+            // Forge's official channel model is "recommended" versus
+            // everything newer. If a Minecraft version has no recommended
+            // build yet, keep "latest" available as the safe default.
+            let stable = recommended.as_deref() == Some(forge_ver.as_str())
+                || (recommended.is_none() && latest.as_deref() == Some(forge_ver.as_str()));
+            ForgeVersion {
+                stable,
+                version: forge_ver,
+            }
         })
         .collect();
 
-    // Recommended first, then latest, then rest (newest first via reverse).
+    // Maven metadata is oldest-first. Reverse it, then use a stable sort so
+    // recommended and latest lead while every other channel stays newest-first.
+    versions.reverse();
     versions.sort_by(|a, b| {
         let rank = |v: &ForgeVersion| {
-            if recommended.as_deref() == Some(v.version.as_str()) { 0 }
-            else if latest.as_deref() == Some(v.version.as_str()) { 1 }
-            else { 2 }
+            if recommended.as_deref() == Some(v.version.as_str()) {
+                0
+            } else if latest.as_deref() == Some(v.version.as_str()) {
+                1
+            } else {
+                2
+            }
         };
         rank(a).cmp(&rank(b))
     });
@@ -93,16 +106,24 @@ pub async fn list_neoforge(state: &AppState, mc_version: &str) -> Result<Vec<For
     let mut versions: Vec<ForgeVersion> = parse_xml_versions(&xml)
         .into_iter()
         .filter(|v| v.starts_with(&nf_prefix))
-        .filter(|v| !v.contains("beta") && !v.contains("rc") && !v.contains("-pre"))
-        .map(|v| ForgeVersion { version: v, stable: false })
+        .map(|v| ForgeVersion {
+            stable: !is_prerelease(&v),
+            version: v,
+        })
         .collect();
 
     versions.reverse(); // newest first
-    if let Some(first) = versions.first_mut() {
-        first.stable = true; // mark latest as "recommended"
-    }
 
     Ok(versions)
+}
+
+/// Maven metadata contains release and preview builds together. Keep them all
+/// so the UI can offer previews explicitly, while still defaulting to releases.
+fn is_prerelease(version: &str) -> bool {
+    let version = version.to_ascii_lowercase();
+    ["beta", "alpha", "snapshot", "-pre", "-rc"]
+        .iter()
+        .any(|marker| version.contains(marker))
 }
 
 /// Map a Minecraft version to the NeoForge version prefix.
@@ -153,13 +174,20 @@ pub async fn install_forge(
 ) -> Result<String> {
     let version_str = format!("{mc_version}-{forge_version}");
     let task_id = format!("forge-{version_str}");
-    let installer_url = format!(
-        "{FORGE_MAVEN}/{version_str}/forge-{version_str}-installer.jar"
-    );
+    let installer_url = format!("{FORGE_MAVEN}/{version_str}/forge-{version_str}-installer.jar");
     // The installer names the version `{mc}-forge-{forge}`, e.g. `1.20.1-forge-47.4.0`.
     let expected_id = format!("{mc_version}-forge-{forge_version}");
 
-    run_installer(app, state, &task_id, "Forge", &installer_url, &expected_id, "forge").await
+    run_installer(
+        app,
+        state,
+        &task_id,
+        "Forge",
+        &installer_url,
+        &expected_id,
+        "forge",
+    )
+    .await
 }
 
 /// Install NeoForge and return the version ID to use for launching.
@@ -170,12 +198,20 @@ pub async fn install_neoforge(
     neo_version: &str,
 ) -> Result<String> {
     let task_id = format!("neoforge-{neo_version}");
-    let installer_url = format!(
-        "{NEOFORGE_MAVEN}/{neo_version}/neoforge-{neo_version}-installer.jar"
-    );
+    let installer_url =
+        format!("{NEOFORGE_MAVEN}/{neo_version}/neoforge-{neo_version}-installer.jar");
     let expected_id = format!("neoforge-{neo_version}");
 
-    run_installer(app, state, &task_id, "NeoForge", &installer_url, &expected_id, "forge").await
+    run_installer(
+        app,
+        state,
+        &task_id,
+        "NeoForge",
+        &installer_url,
+        &expected_id,
+        "forge",
+    )
+    .await
 }
 
 /// Fetch the maven `.sha1` sidecar for an artifact URL. Returns `None` when
@@ -212,7 +248,14 @@ async fn run_installer(
         return Ok(expected_id.to_string());
     }
 
-    emit_progress(app, task_id, &format!("Installing {label}"), "Downloading installer", 0, 4);
+    emit_progress(
+        app,
+        task_id,
+        &format!("Installing {label}"),
+        "Downloading installer",
+        0,
+        4,
+    );
 
     let installer_bytes = state
         .http
@@ -249,7 +292,14 @@ async fn run_installer(
     let installer_path = temp_base.join("installer.jar");
     std::fs::write(&installer_path, &installer_bytes)?;
 
-    emit_progress(app, task_id, &format!("Installing {label}"), "Resolving Java", 1, 4);
+    emit_progress(
+        app,
+        task_id,
+        &format!("Installing {label}"),
+        "Resolving Java",
+        1,
+        4,
+    );
 
     let java_path = java::ensure(state, 17).await?;
 
@@ -290,7 +340,14 @@ async fn run_installer(
         return Err(Error::Other(format!("{label} installer failed: {stderr}")));
     }
 
-    emit_progress(app, task_id, &format!("Installing {label}"), "Copying artifacts", 3, 4);
+    emit_progress(
+        app,
+        task_id,
+        &format!("Installing {label}"),
+        "Copying artifacts",
+        3,
+        4,
+    );
 
     // The staged libraries can run to hundreds of megabytes — copy them off
     // the async runtime.
@@ -396,5 +453,14 @@ mod tests {
 </metadata>"#;
         let v = parse_xml_versions(xml);
         assert_eq!(v, vec!["20.2.59-beta", "21.1.169"]);
+    }
+
+    #[test]
+    fn classifies_preview_versions() {
+        assert!(is_prerelease("20.2.59-beta"));
+        assert!(is_prerelease("21.0.0-RC1"));
+        assert!(is_prerelease("47.0.0-pre"));
+        assert!(!is_prerelease("21.1.169"));
+        assert!(!is_prerelease("47.4.0"));
     }
 }
