@@ -4,6 +4,7 @@ mod auth;
 mod commands;
 mod crosssource;
 mod discord;
+mod developer;
 mod curseforge;
 mod export;
 mod forge;
@@ -203,6 +204,11 @@ pub fn run() {
             commands::install_curseforge_file,
             commands::open_url,
             commands::upload_log,
+            commands::developer_hub_enabled,
+            commands::discover_developer_projects,
+            commands::inspect_developer_project,
+            commands::run_developer_task,
+            commands::install_developer_artifact,
         ])
         .run(tauri::generate_context!())
         .expect("error while running EZMapa");

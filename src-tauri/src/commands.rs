@@ -5,12 +5,52 @@ use crate::instances::{ResourcePackEntry, ScreenshotEntry, ShaderEntry, WorldEnt
 use crate::models::*;
 use crate::state::AppState;
 use crate::{
-    auth, curseforge, forge, instances, java, launch, modloader, modrinth, mojang, preflight,
-    servers, sharing, skin, tools, turbo,
+    auth, curseforge, developer, forge, instances, java, launch, modloader, modrinth, mojang,
+    preflight, servers, sharing, skin, tools, turbo,
 };
 use serde::Serialize;
 use std::path::Path;
 use tauri::{AppHandle, State};
+
+// ---------------------------------------------------------------------------
+// Developer Hub
+// ---------------------------------------------------------------------------
+
+#[tauri::command]
+pub fn developer_hub_enabled() -> bool {
+    developer::is_enabled()
+}
+
+#[tauri::command]
+pub async fn discover_developer_projects() -> Result<Vec<developer::DeveloperProject>> {
+    developer::require_enabled()?;
+    Ok(tokio::task::spawn_blocking(developer::discover_projects).await?)
+}
+
+#[tauri::command]
+pub async fn inspect_developer_project(path: String) -> Result<developer::DeveloperProject> {
+    developer::require_enabled()?;
+    tokio::task::spawn_blocking(move || developer::inspect_project(Path::new(&path))).await?
+}
+
+#[tauri::command]
+pub async fn run_developer_task(
+    path: String,
+    task: String,
+) -> Result<developer::DeveloperTaskResult> {
+    developer::require_enabled()?;
+    developer::run_task(Path::new(&path), &task).await
+}
+
+#[tauri::command]
+pub async fn install_developer_artifact(
+    state: State<'_, AppState>,
+    path: String,
+    instance_id: String,
+) -> Result<developer::DeveloperInstallResult> {
+    developer::require_enabled()?;
+    developer::install_artifact(state.inner(), Path::new(&path), &instance_id)
+}
 
 // ---------------------------------------------------------------------------
 // Versions / loaders

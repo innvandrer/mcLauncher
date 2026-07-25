@@ -19,6 +19,7 @@ import { InstanceDetailPage } from "./pages/InstanceDetailPage";
 import { ModpacksPage } from "./pages/ModpacksPage";
 import { AccountsPage } from "./pages/AccountsPage";
 import { SettingsPage } from "./pages/SettingsPage";
+import { DeveloperHubPage } from "./pages/DeveloperHubPage";
 import { useStore } from "./store/useStore";
 import { t } from "./lib/strings";
 
@@ -27,6 +28,7 @@ export default function App() {
   const init = useStore((s) => s.init);
   const view = useStore((s) => s.view);
   const selectedInstanceId = useStore((s) => s.selectedInstanceId);
+  const developerHubEnabled = useStore((s) => s.developerHubEnabled);
 
   useEffect(() => {
     init();
@@ -65,6 +67,8 @@ export default function App() {
                   <ModpacksPage />
                 ) : view === "accounts" ? (
                   <AccountsPage />
+                ) : view === "developer" && developerHubEnabled ? (
+                  <DeveloperHubPage />
                 ) : (
                   <SettingsPage />
                 )}
