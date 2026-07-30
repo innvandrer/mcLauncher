@@ -36,6 +36,36 @@ export interface Instance {
   launchProfiles?: LaunchProfile[];
 }
 
+export type DeveloperProjectKind = "gradle" | "tauri" | "node";
+
+export interface DeveloperProject {
+  path: string;
+  name: string;
+  version?: string | null;
+  kind: DeveloperProjectKind;
+  gitState: "clean" | "modified" | "uncommitted" | "notRepository";
+  modified: boolean;
+  artifactPath?: string | null;
+  artifactName?: string | null;
+  artifactModifiedAt?: number | null;
+}
+
+export interface DeveloperTaskResult {
+  success: boolean;
+  task: "build" | "test";
+  command: string;
+  durationMs: number;
+  output: string;
+  artifactPath?: string | null;
+  artifactName?: string | null;
+}
+
+export interface DeveloperInstallResult {
+  fileName: string;
+  destination: string;
+  backup?: string | null;
+}
+
 /** A named enable/disable mod set within an instance. */
 export interface Loadout {
   name: string;

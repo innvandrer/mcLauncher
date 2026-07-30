@@ -6,6 +6,7 @@ import {
   Users,
   PanelLeftClose,
   PanelLeftOpen,
+  Code2,
 } from "lucide-react";
 import { motion } from "framer-motion";
 import { useStore, type View } from "@/store/useStore";
@@ -17,6 +18,7 @@ const items: { id: View; label: StringKey; icon: typeof LayoutGrid }[] = [
   { id: "home", label: "nav.home", icon: Home },
   { id: "instances", label: "nav.instances", icon: LayoutGrid },
   { id: "modpacks", label: "nav.modpacks", icon: Boxes },
+  { id: "developer", label: "nav.developer", icon: Code2 },
   { id: "accounts", label: "nav.accounts", icon: Users },
   { id: "settings", label: "nav.settings", icon: SettingsIcon },
 ];
@@ -28,6 +30,7 @@ export function Sidebar() {
   const active = accounts.find((a) => a.active);
   const anyRunning = useStore((s) => s.running.size > 0);
   const settings = useStore((s) => s.settings);
+  const developerHubEnabled = useStore((s) => s.developerHubEnabled);
   const saveSettings = useStore((s) => s.saveSettings);
   const collapsed = settings?.sidebarCollapsed ?? false;
 
@@ -53,34 +56,36 @@ export function Sidebar() {
         )}
       </button>
       <nav className="flex flex-col gap-1">
-        {items.map((item) => {
-          const Icon = item.icon;
-          const isActive = view === item.id;
-          return (
-            <button
-              key={item.id}
-              onClick={() => setView(item.id)}
-              className={cn(
-                "relative flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors btn-focus",
-                isActive
-                  ? "text-foreground"
-                  : "text-muted-foreground hover:text-foreground hover:bg-muted/50",
-              )}
-            >
-              {isActive && (
-                <motion.div
-                  layoutId="nav-active"
-                  className="absolute inset-0 rounded-lg bg-muted"
-                  transition={{ type: "spring", stiffness: 380, damping: 32 }}
-                />
-              )}
-              <Icon className="relative z-10 h-[18px] w-[18px]" />
-              {!collapsed && (
-                <span className="relative z-10">{t(item.label)}</span>
-              )}
-            </button>
-          );
-        })}
+        {items
+          .filter((item) => item.id !== "developer" || developerHubEnabled)
+          .map((item) => {
+            const Icon = item.icon;
+            const isActive = view === item.id;
+            return (
+              <button
+                key={item.id}
+                onClick={() => setView(item.id)}
+                className={cn(
+                  "relative flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors btn-focus",
+                  isActive
+                    ? "text-foreground"
+                    : "text-muted-foreground hover:text-foreground hover:bg-muted/50",
+                )}
+              >
+                {isActive && (
+                  <motion.div
+                    layoutId="nav-active"
+                    className="absolute inset-0 rounded-lg bg-muted"
+                    transition={{ type: "spring", stiffness: 380, damping: 32 }}
+                  />
+                )}
+                <Icon className="relative z-10 h-[18px] w-[18px]" />
+                {!collapsed && (
+                  <span className="relative z-10">{t(item.label)}</span>
+                )}
+              </button>
+            );
+          })}
       </nav>
 
       <div className="mt-auto">

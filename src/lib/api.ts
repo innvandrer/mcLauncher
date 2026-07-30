@@ -40,6 +40,9 @@ import type {
   VersionList,
   WorldEntry,
   OfflineReadiness,
+  DeveloperProject,
+  DeveloperTaskResult,
+  DeveloperInstallResult,
 } from "./types";
 
 export const api = {
@@ -114,6 +117,20 @@ export const api = {
       instanceName,
       world: world ?? null,
       server: server ?? null,
+    }),
+
+  // Developer Hub
+  developerHubEnabled: () => invoke<boolean>("developer_hub_enabled"),
+  discoverDeveloperProjects: () =>
+    invoke<DeveloperProject[]>("discover_developer_projects"),
+  inspectDeveloperProject: (path: string) =>
+    invoke<DeveloperProject>("inspect_developer_project", { path }),
+  runDeveloperTask: (path: string, task: "build" | "test") =>
+    invoke<DeveloperTaskResult>("run_developer_task", { path, task }),
+  installDeveloperArtifact: (path: string, instanceId: string) =>
+    invoke<DeveloperInstallResult>("install_developer_artifact", {
+      path,
+      instanceId,
     }),
 
   // Mods

@@ -265,15 +265,6 @@ pub(crate) fn percent_encode(s: &str) -> String {
     out
 }
 
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn percent_encoding() {
-        assert_eq!(super::percent_encode("simple-id_1.2~x"), "simple-id_1.2~x");
-        assert_eq!(super::percent_encode("a b/c"), "a%20b%2Fc");
-    }
-}
-
 /// Fetch and deserialize JSON from a URL.
 pub async fn get_json<T: serde::de::DeserializeOwned>(
     http: &reqwest::Client,
@@ -287,4 +278,13 @@ pub async fn get_json<T: serde::de::DeserializeOwned>(
         .json::<T>()
         .await?;
     Ok(v)
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn percent_encoding() {
+        assert_eq!(super::percent_encode("simple-id_1.2~x"), "simple-id_1.2~x");
+        assert_eq!(super::percent_encode("a b/c"), "a%20b%2Fc");
+    }
 }

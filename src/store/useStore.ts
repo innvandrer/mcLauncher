@@ -17,7 +17,8 @@ import type {
   VersionList,
 } from "@/lib/types";
 
-export type View = "home" | "instances" | "modpacks" | "accounts" | "settings";
+export type View =
+  "home" | "instances" | "modpacks" | "developer" | "accounts" | "settings";
 
 export interface Toast {
   id: number;
@@ -31,6 +32,7 @@ interface State {
   ready: boolean;
   view: View;
   selectedInstanceId: string | null;
+  developerHubEnabled: boolean;
 
   instances: Instance[];
   accounts: PublicAccount[];
@@ -116,6 +118,7 @@ export const useStore = create<State>((set, get) => ({
   ready: false,
   view: "home",
   selectedInstanceId: null,
+  developerHubEnabled: false,
 
   instances: [],
   accounts: [],
@@ -153,12 +156,14 @@ export const useStore = create<State>((set, get) => ({
 
   init: async () => {
     try {
-      const [settings, accounts, instances, running] = await Promise.all([
-        api.getSettings(),
-        api.listAccounts(),
-        api.listInstances(),
-        api.runningInstances(),
-      ]);
+      const [settings, accounts, instances, running, developerHubEnabled] =
+        await Promise.all([
+          api.getSettings(),
+          api.listAccounts(),
+          api.listInstances(),
+          api.runningInstances(),
+          api.developerHubEnabled().catch(() => false),
+        ]);
       applyTheme(settings.theme, settings.accent, settings);
       setLocale(settings.language);
       set({
@@ -166,6 +171,7 @@ export const useStore = create<State>((set, get) => ({
         accounts,
         instances,
         running: new Set(running),
+        developerHubEnabled,
         ready: true,
       });
 
