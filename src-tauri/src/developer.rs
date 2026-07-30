@@ -88,7 +88,7 @@ pub fn discover_projects() -> Vec<DeveloperProject> {
             }
         }
     }
-    projects.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    projects.sort_by_key(|project| project.name.to_lowercase());
     projects
 }
 
